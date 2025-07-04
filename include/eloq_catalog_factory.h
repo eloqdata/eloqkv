@@ -21,6 +21,8 @@
  */
 #pragma once
 
+#include <cstdint>
+
 #include "catalog_factory.h"
 #include "local_cc_shards.h"
 #include "redis_command.h"
@@ -29,13 +31,10 @@
 #include "store_handler/kv_store.h"
 #include "tx_command.h"
 #include "tx_key.h"
-
-#if KV_DATA_STORE_TYPE == KV_DATA_STORE_TYPE_CASSANDRA
-#include "store_handler/cass_handler.h"
-#elif KV_DATA_STORE_TYPE == KV_DATA_STORE_TYPE_DYNAMODB
-#include "store_handler/dynamo_handler.h"
-#elif KV_DATA_STORE_TYPE == KV_DATA_STORE_TYPE_ROCKSDB
-#include "store_handler/rocksdb_handler.h"
+#include "tx_record.h"
+#include "type.h"
+#if defined(DATA_STORE_TYPE_CASSANDRA)
+#include "cass/include/cassandra.h"
 #endif
 
 namespace EloqKV
@@ -73,12 +72,53 @@ public:
     uint64_t schema_ts_{1};
 };
 
+struct RedisRecordSchema : public txservice::RecordSchema
+{
+public:
+    RedisRecordSchema() = default;
+
+private:
+#if defined(DATA_STORE_TYPE_CASSANDRA)
+    void EncodeToSerializeFormat(txservice::TableType table_type,
+                                 const void *row,
+                                 std::string &buf) const override
+    {
+        buf.clear();
+        const CassRow *cass_row = reinterpret_cast<const CassRow *>(row);
+        assert(table_type == txservice::TableType::Primary);
+        const cass_byte_t *encoded_blob = NULL;
+        size_t encoded_blob_len = 0;
+        cass_value_get_bytes(
+            cass_row_get_column(cass_row, 0), &encoded_blob, &encoded_blob_len);
+        buf.append(reinterpret_cast<const char *>(encoded_blob),
+                   encoded_blob_len);
+    }
+
+    void EncodeToTxRecord(const txservice::TableName &table_name,
+                          const void *row,
+                          txservice::TxRecord &tx_record) const override
+    {
+        assert(table_name.Type() == txservice::TableType::Primary);
+        const CassRow *cass_row = reinterpret_cast<const CassRow *>(row);
+        const cass_byte_t *encoded_blob = NULL;
+        size_t encoded_blob_len = 0;
+        cass_value_get_bytes(
+            cass_row_get_column(cass_row, 0), &encoded_blob, &encoded_blob_len);
+        size_t offset = 0;
+        tx_record.Deserialize(reinterpret_cast<const char *>(encoded_blob),
+                              offset);
+    }
+#endif
+};
+
 struct RedisTableSchema : public txservice::TableSchema
 {
 public:
     RedisTableSchema(const txservice::TableName &redis_table_name,
                      const std::string &catalog_image,
                      uint64_t version);
+
+    txservice::TableSchema::uptr Clone() const override;
 
     const txservice::TableName &GetBaseTableName() const override
     {
@@ -92,16 +132,16 @@ public:
 
     const txservice::RecordSchema *RecordSchema() const override
     {
-        return nullptr;
+        return record_schema_.get();
     }
 
     const std::string &SchemaImage() const override
     {
-        return kv_info_->kv_table_name_;
+        return schema_image_;
     }
 
     const std::unordered_map<
-        uint,
+        uint16_t,
         std::pair<txservice::TableName, txservice::SecondaryKeySchema>>
         *GetIndexes() const override
     {
@@ -113,6 +153,12 @@ public:
     {
         return kv_info_.get();
         // return nullptr;
+    }
+
+    uint16_t IndexOffset(const txservice::TableName &index_name) const override
+    {
+        assert(false);
+        return UINT16_MAX;
     }
 
     void BindStatistics(
@@ -184,6 +230,8 @@ private:
     txservice::TableName redis_table_name_;
     txservice::KVCatalogInfo::uptr kv_info_{nullptr};
     RedisKeySchema::Uptr key_schema_{nullptr};
+    RedisRecordSchema::Uptr record_schema_{nullptr};
+    std::string schema_image_;
     uint64_t version_{1};
 };
 

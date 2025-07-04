@@ -29,23 +29,50 @@
 #include "cc/range_cc_map.h"
 #include "cc/template_cc_map.h"
 #include "eloq_key.h"
+#include "kv_store.h"
 #include "redis_object.h"
+#include "schema.h"
+#include "sharder.h"
 #include "tx_key.h"
+#include "tx_service/include/sequences/sequences.h"
+#include "type.h"
+#ifdef DATA_STORE_TYPE_CASSANDRA
+#include "cass/include/cassandra.h"
+#include "store_handler/cass_handler.h"
+#elif defined(DATA_STORE_TYPE_DYNAMODB)
+#include "store_handler/dynamo_handler.h"
+#elif defined(DATA_STORE_TYPE_ROCKSDB)
+#include "store_handler/rocksdb_handler.h"
+#elif ELOQDS()
+#include "data_store_service_client.h"
+#endif
 
 namespace EloqKV
 {
 RedisTableSchema::RedisTableSchema(const txservice::TableName &redis_table_name,
                                    const std::string &catalog_image,
                                    uint64_t version)
-    : redis_table_name_(redis_table_name), version_(version)
+    : redis_table_name_(redis_table_name),
+      schema_image_(catalog_image),
+      version_(version)
 {
-#if KV_DATA_STORE_TYPE == KV_DATA_STORE_TYPE_CASSANDRA
+#ifdef DATA_STORE_TYPE_CASSANDRA
     kv_info_ = std::make_unique<EloqDS::CassCatalogInfo>();
-#elif KV_DATA_STORE_TYPE == KV_DATA_STORE_TYPE_DYNAMODB
+    // Deserialize catalog_image into frm_str and kv_info_str
+    std::string frm, kv_info, schemas_ts_str;
+    EloqDS::DeserializeSchemaImage(catalog_image, frm, kv_info, schemas_ts_str);
+
+    // Deserialize kv info
+    size_t offset = 0;
+    kv_info_->Deserialize(kv_info.data(), offset);
+    // Use table version as key schema version.
+    uint64_t key_schema_ts = version;
+    key_schema_ = std::make_unique<RedisKeySchema>(key_schema_ts);
+    record_schema_ = std::make_unique<RedisRecordSchema>();
+
+#elif defined(DATA_STORE_TYPE_DYNAMODB)
+    // TODO(lokax): catalog image format
     kv_info_ = std::make_unique<EloqDS::DynamoCatalogInfo>();
-#elif KV_DATA_STORE_TYPE == KV_DATA_STORE_TYPE_ROCKSDB
-    kv_info_ = std::make_unique<RocksDBCatalogInfo>();
-#endif
     // Catalog image only stores kv_table_name for now.
     const std::string &kv_table_name = catalog_image;
     // Use table version as key schema version.
@@ -53,6 +80,37 @@ RedisTableSchema::RedisTableSchema(const txservice::TableName &redis_table_name,
 
     kv_info_->kv_table_name_ = kv_table_name;
     key_schema_ = std::make_unique<RedisKeySchema>(key_schema_ts);
+    record_schema_ = std::make_unique<RedisRecordSchema>();
+
+#elif defined(DATA_STORE_TYPE_ROCKSDB)
+    // TODO(lokax): catalog image format
+    kv_info_ = std::make_unique<RocksDBCatalogInfo>();
+    // Catalog image only stores kv_table_name for now.
+    const std::string &kv_table_name = catalog_image;
+    // Use table version as key schema version.
+    uint64_t key_schema_ts = version;
+
+    kv_info_->kv_table_name_ = kv_table_name;
+    key_schema_ = std::make_unique<RedisKeySchema>(key_schema_ts);
+    record_schema_ = std::make_unique<RedisRecordSchema>();
+#elif ELOQDS()
+    // TODO(lokax): catalog image format
+    kv_info_ = std::make_unique<txservice::KVCatalogInfo>();
+    // Catalog image only stores kv_table_name for now.
+    const std::string &kv_table_name = catalog_image;
+    // Use table version as key schema version.
+    uint64_t key_schema_ts = version;
+
+    kv_info_->kv_table_name_ = kv_table_name;
+    key_schema_ = std::make_unique<RedisKeySchema>(key_schema_ts);
+    record_schema_ = std::make_unique<RedisRecordSchema>();
+#endif
+}
+
+txservice::TableSchema::uptr RedisTableSchema::Clone() const
+{
+    return std::make_unique<RedisTableSchema>(
+        redis_table_name_, schema_image_, version_);
 }
 
 std::unique_ptr<txservice::TxCommand> RedisTableSchema::CreateTxCommand(
@@ -468,7 +526,7 @@ std::unique_ptr<txservice::TxCommand> RedisTableSchema::CreateTxCommand(
         cmd = std::make_unique<TypeCommand>();
         break;
     case RedisCommandType::MEMORY_USAGE:
-        cmd = std::make_unique<BlockDiscardCommand>();
+        cmd = std::make_unique<RedisMemoryUsageCommand>();
         cmd->Deserialize({cmd_image.data() + sizeof(cmd_type),
                           cmd_image.size() - sizeof(cmd_type)});
         break;

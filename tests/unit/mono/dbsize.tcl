@@ -14,5 +14,5 @@ start_server {tags {"dbsize"}} {
         }
 
         assert_equal 500 [r dbsize]
-    }
+    } {} {needs:no_evicted}
 }

@@ -10,6 +10,6 @@
 [submodule "crcspeed"]
 	path = crcspeed
 	url = https://github.com/mattsta/crcspeed
-[submodule "log_service"]
-	path = log_service
-	url = git@github.com:eloqdata/log_service.git
+[submodule "store_handler"]
+	path = store_handler
+	url = git@github.com:eloqdata/store_handler.git

@@ -25,7 +25,6 @@
 
 #include "eloq_string.h"
 #include "redis_string_match.h"
-#include "schema.h"
 #include "tx_key.h"
 
 namespace EloqKV
@@ -58,6 +57,11 @@ public:
     static txservice::TxKey Create(const char *data, size_t size)
     {
         return txservice::TxKey(std::make_unique<EloqKey>(data, size));
+    }
+
+    static txservice::TxKey CreateDefault()
+    {
+        return txservice::TxKey(std::make_unique<EloqKey>());
     }
 
     EloqKey &operator=(EloqKey &&rhs) noexcept
@@ -267,7 +271,7 @@ public:
 
     void SetPackedKey(const char *data, size_t len)
     {
-        assert(false);
+        key_ = EloqString(data, len);
     }
 
     void Copy(const EloqKey &rhs)

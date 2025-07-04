@@ -39,5 +39,7 @@ inline const Name NAME_REDIS_COMMAND_AGGREGATED_TOTAL{
 inline const Name NAME_REDIS_COMMAND_AGGREGATED_DURATION{
     "redis_command_aggregated_duration"};
 
+inline const Name NAME_REDIS_SLOW_LOG_LEN{"redis_slow_log_len"};
+
 inline size_t collect_redis_command_duration_round{0};
 }  // namespace metrics

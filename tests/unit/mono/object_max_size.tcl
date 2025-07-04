@@ -7,14 +7,14 @@ start_server {tags {"string"}} {
         set key [string repeat "a" [expr {32 * 1024 * 1024}]]
         assert_equal "OK" [r set $key $val]
         assert_equal $val [r get $key]
-    }
+    } {} {needs:no_evicted}
 
     test {Very big payload in GET/SET} {
         r del "big_key"
         set buf [string repeat "a" 300000000]
         assert_error "*max object size limit of 256 MB exceeded*" {r set "big_key" $buf}
         assert_equal "" [r get "big_key"]
-    }
+    } {} {needs:no_evicted}
 
     test {Very big payload in APPEND} {
         r del "big_key"
@@ -32,7 +32,7 @@ start_server {tags {"string"}} {
         assert_equal [expr {256 * 1024 * 1024 - 5}] [r append "big_key" "a"]
 
         assert_error "*max object size limit of 256 MB exceeded*" {r append "big_key" "a"}
-    }
+    } {} {needs:no_evicted}
 
     test {SETRANGE with huge offset} {
         set offset [expr {256 * 1024 * 1024}]
@@ -46,14 +46,14 @@ start_server {tags {"string"}} {
 
         set offset [expr {256 * 1024 * 1024 - 5}]
         assert_error "*max object size limit of 256 MB exceeded*" {r setrange K $offset A}
-    }
+    } {} {needs:no_evicted}
 
     test {Very big object for RPUSH} {
         r del "l"
         set buf [string repeat "a" 300000000]
         assert_error "*max object size limit of 256 MB exceeded*" {r rpush "l" $buf}
         assert_equal "" [r lrange "l" 0 -1]
-    }
+    } {} {needs:no_evicted}
 
     test {Very big object for ZADD} {
         set key "zset_key"
@@ -70,7 +70,7 @@ start_server {tags {"string"}} {
 
         set buf2 [string repeat "a" [expr {256 * 1024 * 1024 - 5 - 8 - 4 - 100000000 - 8 - 4 + 1}]]
         assert_error "*max object size limit of 256 MB exceeded*" {r zadd $key 10 $buf2}
-    }
+    } {} {needs:no_evicted}
 
     test "SADD, SREM, SPOP serialized length" {
         r del myset
@@ -85,7 +85,7 @@ start_server {tags {"string"}} {
         
         set len [expr 59 - [string length [r spop myset]]]
         assert_equal $len [r memory usage myset]
-    }
+    } {} {needs:no_evicted}
 
     test "SET OBJECT exceed serialized length" {
         set big_key [string repeat "a" 300000000]
@@ -94,7 +94,7 @@ start_server {tags {"string"}} {
         assert_equal 22 [r memory usage myset]
         assert_error {ERR max object size limit*} {r sadd myset $big_key}
         assert_equal "a1234567" [r smembers myset]
-    }
+    } {} {needs:no_evicted}
 
      test "HASH OBJECT SET DEL HINCRBY HSETNX HINCRBYFLOAT serialized length" {
         r del myhash
@@ -133,7 +133,7 @@ start_server {tags {"string"}} {
         
         r hincrbyfloat myhash dd1 -0.09001
         assert_equal 101 [r memory usage myhash]
-    }
+    } {} {needs:no_evicted}
 
     test "HASH OBJECT exceed serialized length" {
         set big_val [string repeat "a" 268435432]
@@ -146,7 +146,7 @@ start_server {tags {"string"}} {
         assert_error {ERR max object size limit*} {r hincrbyfloat myhash f2 0.001}
         assert_equal 268435453 [r memory usage myhash]
         assert_equal 268435435 [string length [r hgetall myhash]]
-    }
+    } {} {needs:no_evicted}
 
     r flushdb
 }

@@ -153,6 +153,11 @@ public:
         log_agent_.RefreshLeader(log_group_id);
     }
 
+    void RequestRefreshLeader(uint32_t log_group_id) override
+    {
+        log_agent_.RequestRefreshLeader(log_group_id);
+    }
+
     /**
      * @brief Initializae the log agent by setup the log request stub using
      * ip_list and port_list.
@@ -168,13 +173,6 @@ public:
     void UpdateLeaderCache(uint32_t lg_id, uint32_t node_id) override
     {
         log_agent_.UpdateLeaderCache(lg_id, node_id);
-    }
-
-    bool UpdateLogGroupConfig(std::vector<std::string> &ips,
-                              std::vector<uint16_t> &ports,
-                              uint32_t log_group_id) override
-    {
-        return log_agent_.UpdateLogGroupConfig(ips, ports, log_group_id);
     }
 
 private:

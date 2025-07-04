@@ -119,7 +119,7 @@ void RedisReplier::OnFormatError(const char *fmt, ...)
         }
     }
 
-    OnString(std::string_view(buf, bufstrlen));
+    OnError(std::string_view(buf, bufstrlen));
 
     if (buf != static_buf)
     {

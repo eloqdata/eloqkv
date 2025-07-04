@@ -168,6 +168,11 @@ public:
         return list_object_.empty();
     }
 
+    size_t Size() const
+    {
+        return list_object_.size();
+    }
+
     txservice::TxRecord::Uptr AddTTL(uint64_t ttl) override;
 
     bool Execute(RPushCommand &cmd) const;

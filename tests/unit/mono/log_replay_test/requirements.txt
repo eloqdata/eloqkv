@@ -1,4 +1,3 @@
 async-timeout==4.0.3
-pkg_resources==0.0.0
 psutil==5.9.5
 redis==5.0.3

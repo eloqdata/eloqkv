@@ -24,6 +24,7 @@
 #include <brpc/acceptor.h>
 #include <butil/endpoint.h>
 #include <butil/logging.h>
+#include <strings.h>
 #include <sys/times.h>
 #include <unistd.h>
 
@@ -67,6 +68,7 @@
 #include "redis_zset_object.h"
 #include "remote/remote_type.h"
 #include "sharder.h"
+#include "tx_command.h"
 #include "tx_request.h"
 #include "tx_service.h"
 #include "type.h"
@@ -89,162 +91,168 @@ extern brpc::Acceptor *server_acceptor;
 
 thread_local CcRequestPool<DbSizeCc> dbsize_pool_;
 
-const std::vector<std::pair<const char *, RedisCommandType>> command_types{
-    {{"echo", RedisCommandType::ECHO},
-     {"info", RedisCommandType::INFO},
-     {"cluster", RedisCommandType::CLUSTER},
-     {"dbsize", RedisCommandType::DBSIZE},
-     {"time", RedisCommandType::TIME},
-     {"slowlog", RedisCommandType::SLOWLOG},
-     {"select", RedisCommandType::SELECT},
-     {"config", RedisCommandType::CONFIG},
-     {"ping", RedisCommandType::PING},
-     {"eval", RedisCommandType::EVAL},
-     {"dump", RedisCommandType::DUMP},
-     {"restore", RedisCommandType::RESTORE},
-     {"get", RedisCommandType::GET},
-     {"set", RedisCommandType::SET},
-     {"getset", RedisCommandType::GETSET},
-     {"strlen", RedisCommandType::STRLEN},
-     {"setnx", RedisCommandType::SETNX},
-     {"psetex", RedisCommandType::PSETEX},
-     {"getrange", RedisCommandType::GETRANGE},
-     {"substr", RedisCommandType::SUBSTR},
-     {"incrbyfloat", RedisCommandType::INCRBYFLOAT},
-     {"setrange", RedisCommandType::SETRANGE},
-     {"append", RedisCommandType::APPEND},
-     {"setex", RedisCommandType::SETEX},
-     {"getbit", RedisCommandType::GETBIT},
-     {"setbit", RedisCommandType::SETBIT},
-     {"bitcount", RedisCommandType::BITCOUNT},
-     {"bitfield", RedisCommandType::BITFIELD},
-     {"bitfield_ro", RedisCommandType::BITFIELD_RO},
-     {"bitpos", RedisCommandType::BITPOS},
-     {"bitop", RedisCommandType::BITOP},
-     {"rpush", RedisCommandType::RPUSH},
-     {"lrange", RedisCommandType::LRANGE},
-     {"lpush", RedisCommandType::LPUSH},
-     {"lpop", RedisCommandType::LPOP},
-     {"rpop", RedisCommandType::RPOP},
-     {"lmpop", RedisCommandType::LMPOP},
-     {"lmpop", RedisCommandType::LMPOP},
-     {"blmove", RedisCommandType::BLMOVE},
-     {"blmpop", RedisCommandType::BLMPOP},
-     {"blpop", RedisCommandType::BLPOP},
-     {"brpop", RedisCommandType::BRPOP},
-     {"brpoplpush", RedisCommandType::BRPOPLPUSH},
-     {"hset", RedisCommandType::HSET},
-     {"hget", RedisCommandType::HGET},
-     {"incr", RedisCommandType::INCR},
-     {"decr", RedisCommandType::DECR},
-     {"incrby", RedisCommandType::INCRBY},
-     {"decrby", RedisCommandType::DECRBY},
-     {"type", RedisCommandType::TYPE},
-     {"del", RedisCommandType::DEL},
-     {"exists", RedisCommandType::EXISTS},
-     {"zadd", RedisCommandType::ZADD},
-     {"zcount", RedisCommandType::ZCOUNT},
-     {"zcard", RedisCommandType::ZCARD},
-     {"zrange", RedisCommandType::ZRANGE},
-     {"zrem", RedisCommandType::ZREM},
-     {"zrangebyscore", RedisCommandType::ZRANGEBYSCORE},
-     {"zrangebyrank", RedisCommandType::ZRANGEBYRANK},
-     {"zrangebylex", RedisCommandType::ZRANGEBYLEX},
-     {"zremrangebyscore", RedisCommandType::ZREMRANGE},
-     {"zremrangebylex", RedisCommandType::ZREMRANGE},
-     {"zremrangebyrank", RedisCommandType::ZREMRANGE},
-     {"zlexcount", RedisCommandType::ZLEXCOUNT},
-     {"zpopmin", RedisCommandType::ZPOPMIN},
-     {"zpopmax", RedisCommandType::ZPOPMAX},
-     {"zrandmember", RedisCommandType::ZRANDMEMBER},
-     {"zrank", RedisCommandType::ZRANK},
-     {"zscore", RedisCommandType::ZSCORE},
-     {"zrevrange", RedisCommandType::ZREVRANGE},
-     {"zrevrangebylex", RedisCommandType::ZREVRANGEBYLEX},
-     {"zrevrangebyscore", RedisCommandType::ZREVRANGEBYSCORE},
-     {"zrevrange", RedisCommandType::ZREVRANGE},
-     {"zrevrank", RedisCommandType::ZREVRANK},
-     {"zmscore", RedisCommandType::ZMSCORE},
-     {"zmpop", RedisCommandType::ZMPOP},
-     {"zunion", RedisCommandType::ZUNION},
-     {"zunionstore", RedisCommandType::ZUNIONSTORE},
-     {"zinter", RedisCommandType::ZINTER},
-     {"zinterstore", RedisCommandType::ZINTERSTORE},
-     {"zintercard", RedisCommandType::ZINTERCARD},
-     {"zdiff", RedisCommandType::ZDIFF},
-     {"zdiffstore", RedisCommandType::ZDIFFSTORE},
-     {"zrangestore", RedisCommandType::ZRANGESTORE},
-     {"zincrby", RedisCommandType::ZINCRBY},
-     {"zscan", RedisCommandType::ZSCAN},
-     {"mget", RedisCommandType::MGET},
-     {"mset", RedisCommandType::MSET},
-     {"msetnx", RedisCommandType::MSETNX},
-     {"hdel", RedisCommandType::HDEL},
-     {"hlen", RedisCommandType::HLEN},
-     {"hstrlen", RedisCommandType::HSTRLEN},
-     {"hexists", RedisCommandType::HEXISTS},
-     {"hgetall", RedisCommandType::HGETALL},
-     {"hincrby", RedisCommandType::HINCRBY},
-     {"hincrbyfloat", RedisCommandType::HINCRBYFLOAT},
-     {"hmset", RedisCommandType::HSET},
-     {"hmget", RedisCommandType::HMGET},
-     {"hkeys", RedisCommandType::HKEYS},
-     {"hvals", RedisCommandType::HVALS},
-     {"hsetnx", RedisCommandType::HSETNX},
-     {"hrandfield", RedisCommandType::HRANDFIELD},
-     {"hscan", RedisCommandType::HSCAN},
-     {"llen", RedisCommandType::LLEN},
-     {"ltrim", RedisCommandType::LTRIM},
-     {"lindex", RedisCommandType::LINDEX},
-     {"linsert", RedisCommandType::LINSERT},
-     {"lpos", RedisCommandType::LPOS},
-     {"lset", RedisCommandType::LSET},
-     {"lmove", RedisCommandType::LMOVE},
-     {"rpoplpush", RedisCommandType::RPOPLPUSH},
-     {"lrem", RedisCommandType::LREM},
-     {"lpushx", RedisCommandType::LPUSHX},
-     {"rpushx", RedisCommandType::RPUSHX},
-     {"sadd", RedisCommandType::SADD},
-     {"smembers", RedisCommandType::SMEMBERS},
-     {"srem", RedisCommandType::SREM},
-     {"flushdb", RedisCommandType::FLUSHDB},
-     {"flushall", RedisCommandType::FLUSHALL},
-     {"scard", RedisCommandType::SCARD},
-     {"sdiff", RedisCommandType::SDIFF},
-     {"sdiffstore", RedisCommandType::SDIFFSTORE},
-     {"sinter", RedisCommandType::SINTER},
-     {"sintercard", RedisCommandType::SINTERCARD},
-     {"sinterstore", RedisCommandType::SINTERSTORE},
-     {"sismember", RedisCommandType::SISMEMBER},
-     {"smismember", RedisCommandType::SMISMEMBER},
-     {"smove", RedisCommandType::SMOVE},
-     {"spop", RedisCommandType::SPOP},
-     {"srandmember", RedisCommandType::SRANDMEMBER},
-     {"sscan", RedisCommandType::SSCAN},
-     {"sunion", RedisCommandType::SUNION},
-     {"sunionstore", RedisCommandType::SUNIONSTORE},
-     {"sort", RedisCommandType::SORT},
-     {"sort_ro", RedisCommandType::SORT},
-     {"scan", RedisCommandType::SCAN},
-     {"keys", RedisCommandType::KEYS},
+const std::vector<std::pair<const char *, RedisCommandType>> command_types{{
+    {"echo", RedisCommandType::ECHO},
+    {"info", RedisCommandType::INFO},
+    {"cluster", RedisCommandType::CLUSTER},
+    {"dbsize", RedisCommandType::DBSIZE},
+    {"time", RedisCommandType::TIME},
+    {"slowlog", RedisCommandType::SLOWLOG},
+    {"select", RedisCommandType::SELECT},
+    {"config", RedisCommandType::CONFIG},
+    {"ping", RedisCommandType::PING},
+    {"eval", RedisCommandType::EVAL},
+    {"dump", RedisCommandType::DUMP},
+    {"restore", RedisCommandType::RESTORE},
+    {"get", RedisCommandType::GET},
+    {"set", RedisCommandType::SET},
+    {"getset", RedisCommandType::GETSET},
+    {"strlen", RedisCommandType::STRLEN},
+    {"setnx", RedisCommandType::SETNX},
+    {"psetex", RedisCommandType::PSETEX},
+    {"getrange", RedisCommandType::GETRANGE},
+    {"substr", RedisCommandType::SUBSTR},
+    {"incrbyfloat", RedisCommandType::INCRBYFLOAT},
+    {"setrange", RedisCommandType::SETRANGE},
+    {"append", RedisCommandType::APPEND},
+    {"setex", RedisCommandType::SETEX},
+    {"getbit", RedisCommandType::GETBIT},
+    {"setbit", RedisCommandType::SETBIT},
+    {"bitcount", RedisCommandType::BITCOUNT},
+    {"bitfield", RedisCommandType::BITFIELD},
+    {"bitfield_ro", RedisCommandType::BITFIELD_RO},
+    {"bitpos", RedisCommandType::BITPOS},
+    {"bitop", RedisCommandType::BITOP},
+    {"rpush", RedisCommandType::RPUSH},
+    {"lrange", RedisCommandType::LRANGE},
+    {"lpush", RedisCommandType::LPUSH},
+    {"lpop", RedisCommandType::LPOP},
+    {"rpop", RedisCommandType::RPOP},
+    {"lmpop", RedisCommandType::LMPOP},
+    {"lmpop", RedisCommandType::LMPOP},
+    {"blmove", RedisCommandType::BLMOVE},
+    {"blmpop", RedisCommandType::BLMPOP},
+    {"blpop", RedisCommandType::BLPOP},
+    {"brpop", RedisCommandType::BRPOP},
+    {"brpoplpush", RedisCommandType::BRPOPLPUSH},
+    {"hset", RedisCommandType::HSET},
+    {"hget", RedisCommandType::HGET},
+    {"incr", RedisCommandType::INCR},
+    {"decr", RedisCommandType::DECR},
+    {"incrby", RedisCommandType::INCRBY},
+    {"decrby", RedisCommandType::DECRBY},
+    {"type", RedisCommandType::TYPE},
+    {"del", RedisCommandType::DEL},
+    {"exists", RedisCommandType::EXISTS},
+    {"zadd", RedisCommandType::ZADD},
+    {"zcount", RedisCommandType::ZCOUNT},
+    {"zcard", RedisCommandType::ZCARD},
+    {"zrange", RedisCommandType::ZRANGE},
+    {"zrem", RedisCommandType::ZREM},
+    {"zrangebyscore", RedisCommandType::ZRANGEBYSCORE},
+    {"zrangebyrank", RedisCommandType::ZRANGEBYRANK},
+    {"zrangebylex", RedisCommandType::ZRANGEBYLEX},
+    {"zremrangebyscore", RedisCommandType::ZREMRANGE},
+    {"zremrangebylex", RedisCommandType::ZREMRANGE},
+    {"zremrangebyrank", RedisCommandType::ZREMRANGE},
+    {"zlexcount", RedisCommandType::ZLEXCOUNT},
+    {"zpopmin", RedisCommandType::ZPOPMIN},
+    {"zpopmax", RedisCommandType::ZPOPMAX},
+    {"zrandmember", RedisCommandType::ZRANDMEMBER},
+    {"zrank", RedisCommandType::ZRANK},
+    {"zscore", RedisCommandType::ZSCORE},
+    {"zrevrange", RedisCommandType::ZREVRANGE},
+    {"zrevrangebylex", RedisCommandType::ZREVRANGEBYLEX},
+    {"zrevrangebyscore", RedisCommandType::ZREVRANGEBYSCORE},
+    {"zrevrange", RedisCommandType::ZREVRANGE},
+    {"zrevrank", RedisCommandType::ZREVRANK},
+    {"zmscore", RedisCommandType::ZMSCORE},
+    {"zmpop", RedisCommandType::ZMPOP},
+    {"zunion", RedisCommandType::ZUNION},
+    {"zunionstore", RedisCommandType::ZUNIONSTORE},
+    {"zinter", RedisCommandType::ZINTER},
+    {"zinterstore", RedisCommandType::ZINTERSTORE},
+    {"zintercard", RedisCommandType::ZINTERCARD},
+    {"zdiff", RedisCommandType::ZDIFF},
+    {"zdiffstore", RedisCommandType::ZDIFFSTORE},
+    {"zrangestore", RedisCommandType::ZRANGESTORE},
+    {"zincrby", RedisCommandType::ZINCRBY},
+    {"zscan", RedisCommandType::ZSCAN},
+    {"mget", RedisCommandType::MGET},
+    {"mset", RedisCommandType::MSET},
+    {"msetnx", RedisCommandType::MSETNX},
+    {"hdel", RedisCommandType::HDEL},
+    {"hlen", RedisCommandType::HLEN},
+    {"hstrlen", RedisCommandType::HSTRLEN},
+    {"hexists", RedisCommandType::HEXISTS},
+    {"hgetall", RedisCommandType::HGETALL},
+    {"hincrby", RedisCommandType::HINCRBY},
+    {"hincrbyfloat", RedisCommandType::HINCRBYFLOAT},
+    {"hmset", RedisCommandType::HSET},
+    {"hmget", RedisCommandType::HMGET},
+    {"hkeys", RedisCommandType::HKEYS},
+    {"hvals", RedisCommandType::HVALS},
+    {"hsetnx", RedisCommandType::HSETNX},
+    {"hrandfield", RedisCommandType::HRANDFIELD},
+    {"hscan", RedisCommandType::HSCAN},
+    {"llen", RedisCommandType::LLEN},
+    {"ltrim", RedisCommandType::LTRIM},
+    {"lindex", RedisCommandType::LINDEX},
+    {"linsert", RedisCommandType::LINSERT},
+    {"lpos", RedisCommandType::LPOS},
+    {"lset", RedisCommandType::LSET},
+    {"lmove", RedisCommandType::LMOVE},
+    {"rpoplpush", RedisCommandType::RPOPLPUSH},
+    {"lrem", RedisCommandType::LREM},
+    {"lpushx", RedisCommandType::LPUSHX},
+    {"rpushx", RedisCommandType::RPUSHX},
+    {"sadd", RedisCommandType::SADD},
+    {"smembers", RedisCommandType::SMEMBERS},
+    {"srem", RedisCommandType::SREM},
+    {"flushdb", RedisCommandType::FLUSHDB},
+    {"flushall", RedisCommandType::FLUSHALL},
+    {"scard", RedisCommandType::SCARD},
+    {"sdiff", RedisCommandType::SDIFF},
+    {"sdiffstore", RedisCommandType::SDIFFSTORE},
+    {"sinter", RedisCommandType::SINTER},
+    {"sintercard", RedisCommandType::SINTERCARD},
+    {"sinterstore", RedisCommandType::SINTERSTORE},
+    {"sismember", RedisCommandType::SISMEMBER},
+    {"smismember", RedisCommandType::SMISMEMBER},
+    {"smove", RedisCommandType::SMOVE},
+    {"spop", RedisCommandType::SPOP},
+    {"srandmember", RedisCommandType::SRANDMEMBER},
+    {"sscan", RedisCommandType::SSCAN},
+    {"sunion", RedisCommandType::SUNION},
+    {"sunionstore", RedisCommandType::SUNIONSTORE},
+    {"sort", RedisCommandType::SORT},
+    {"sort_ro", RedisCommandType::SORT},
+    {"scan", RedisCommandType::SCAN},
+    {"keys", RedisCommandType::KEYS},
 #ifdef WITH_FAULT_INJECT
-     {"fault_inject", RedisCommandType::FAULT_INJECT},
+    {"fault_inject", RedisCommandType::FAULT_INJECT},
 #endif
-     {"expire", RedisCommandType::EXPIRE},
-     {"ttl", RedisCommandType::TTL},
-     {"persist", RedisCommandType::PERSIST},
-     {"pexpire", RedisCommandType::PEXPIRE},
-     {"pttl", RedisCommandType::PTTL},
-     {"expiretime", RedisCommandType::EXPIRETIME},
-     {"pexpiretime", RedisCommandType::PEXPIRETIME},
-     {"setex", RedisCommandType::SETEX},
-     {"psetex", RedisCommandType::PSETEX},
-     {"expireat", RedisCommandType::EXPIREAT},
-     {"pexpireat", RedisCommandType::PEXPIREAT},
-     {"getex", RedisCommandType::GETEX},
-     {"begin", RedisCommandType::BEGIN},
-     {"rollback", RedisCommandType::ROLLBACK},
-     {"commit", RedisCommandType::COMMIT}}};
+    {"expire", RedisCommandType::EXPIRE},
+    {"ttl", RedisCommandType::TTL},
+    {"persist", RedisCommandType::PERSIST},
+    {"pexpire", RedisCommandType::PEXPIRE},
+    {"pttl", RedisCommandType::PTTL},
+    {"expiretime", RedisCommandType::EXPIRETIME},
+    {"pexpiretime", RedisCommandType::PEXPIRETIME},
+    {"setex", RedisCommandType::SETEX},
+    {"psetex", RedisCommandType::PSETEX},
+    {"expireat", RedisCommandType::EXPIREAT},
+    {"pexpireat", RedisCommandType::PEXPIREAT},
+    {"getex", RedisCommandType::GETEX},
+    {"begin", RedisCommandType::BEGIN},
+    {"rollback", RedisCommandType::ROLLBACK},
+    {"commit", RedisCommandType::COMMIT},
+    {"publish", RedisCommandType::PUBLISH},
+    {"subscribe", RedisCommandType::SUBSCRIBE},
+    {"unsubscribe", RedisCommandType::UNSUBSCRIBE},
+    {"psubscribe", RedisCommandType::PSUBSCRIBE},
+    {"punsubscribe", RedisCommandType::PUNSUBSCRIBE},
+}};
 
 /*
  * Copyright (c) 2009-2016, Salvatore Sanfilippo <antirez at gmail dot com>
@@ -1548,6 +1556,7 @@ void InfoCommand::Execute(RedisServiceImpl *redis_impl,
 
     event_dispatcher_num_ = redis_impl->GetEventDispatcherNum();
     version_ = redis_impl->GetVersion();
+    max_connection_count_ = redis_impl->MaxConnectionCount();
 
     if (redis_impl->IsEnableRedisStats())
     {
@@ -1570,7 +1579,8 @@ void InfoCommand::Execute(RedisServiceImpl *redis_impl,
         for (size_t db_id = 0; db_id < total_redis_table_cnt; ++db_id)
         {
             const TableName *tbn = redis_impl->RedisTableName(db_id);
-            table_names.emplace_back(tbn->StringView(), tbn->Type());
+            table_names.emplace_back(
+                tbn->StringView(), tbn->Type(), TableEngine::EloqKv);
         }
 
         dbsizes_ = DBSizeCommand::FetchDBSize(std::move(table_names));
@@ -1658,6 +1668,13 @@ void ClusterKeySlotCommand::Execute(RedisServiceImpl *redis_impl,
     result_ = slot_id % total_range_buckets;
 }
 
+void FailoverCommand::Execute(RedisServiceImpl *redis_impl,
+                              RedisConnectionContext *ctx)
+{
+    failover_succeed_ = txservice::Sharder::Instance().Failover(
+        target_host_, target_port_, error_message_);
+}
+
 void ClientCommand::Execute(RedisServiceImpl *redis_impl,
                             RedisConnectionContext *ctx)
 {
@@ -1668,7 +1685,13 @@ ClientCommand::ClientInfo::ClientInfo(const brpc::Socket *socket,
     : id_(static_cast<int64_t>(socket->id())),
       addr_(socket->remote_side()),
       laddr_(socket->local_side()),
-      fd_(socket->fd())
+      fd_(socket->fd()),
+      name_(ctx->connection_name),
+      db_(ctx->db_id),
+      sub_(ctx->SubscriptionsCount()),
+      psub_(ctx->subscribed_patterns.size()),
+      lib_name_(ctx->lib_name),
+      lib_ver_(ctx->lib_ver)
 {
     int64_t now = std::chrono::duration_cast<std::chrono::microseconds>(
                       std::chrono::system_clock::now().time_since_epoch())
@@ -1683,6 +1706,22 @@ ClientCommand::ClientInfo::ClientInfo(const brpc::Socket *socket,
                                           ? now - socket->last_active_time_us()
                                           : 0))
             .count();
+
+    if (ctx->in_multi_transaction)
+    {
+        multi_ = ctx->multi_transaction_handler->PendingRequestNum();
+    }
+
+    // The following are dummy fields and users should not rely on those.
+    // redis-py needs to access some of the missing fields when parsing the
+    // client info result.
+    qbuf_ = 0;
+    qbuf_free_ = 0;
+    obl_ = 0;
+    argv_mem_ = 0;
+    oll_ = 0;
+    omem_ = 0;
+    tot_mem_ = 0;
 }
 
 std::string ClientCommand::ClientInfo::ToString() const
@@ -1703,7 +1742,19 @@ std::ostream &operator<<(std::ostream &out,
     out << " age=" << client.age_;
     out << " idle=" << client.idle_;
     out << " db=" << client.db_;
+    out << " sub=" << client.sub_;
+    out << " psub=" << client.psub_;
+    out << " multi=" << client.multi_;
+    out << " qbuf=" << client.qbuf_;
+    out << " qbuf-free=" << client.qbuf_free_;
+    out << " argv-mem=" << client.argv_mem_;
+    out << " obl=" << client.obl_;
+    out << " oll=" << client.oll_;
+    out << " omem=" << client.omem_;
+    out << " tot-mem=" << client.tot_mem_;
     out << " user=" << client.user_;
+    out << " lib-name=" << client.lib_name_;
+    out << " lib-ver=" << client.lib_ver_;
     return out;
 }
 
@@ -1880,7 +1931,14 @@ void ClientKillCommand::OutputResult(OutputHandler *reply) const
 {
     if (old_style_syntax_)
     {
-        reply->OnStatus(redis_get_error_messages(RD_OK));
+        if (killed_ >= 1)
+        {
+            reply->OnStatus(redis_get_error_messages(RD_OK));
+        }
+        else
+        {
+            reply->OnError("ERR No such client");
+        }
     }
     else
     {
@@ -1893,7 +1951,8 @@ void DBSizeCommand::Execute(RedisServiceImpl *redis_impl,
 {
     std::vector<TableName> table_names;
     const TableName *tbn = redis_impl->RedisTableName(ctx->db_id);
-    table_names.emplace_back(tbn->StringView(), tbn->Type());
+    table_names.emplace_back(
+        tbn->StringView(), tbn->Type(), TableEngine::EloqKv);
     auto result = FetchDBSize(std::move(table_names));
     total_db_size_ = result[0];
 }
@@ -1961,6 +2020,9 @@ std::vector<int64_t> DBSizeCommand::FetchDBSize(
                 req->add_table_type(
                     txservice::remote::ToRemoteType::ConvertTableType(
                         tbn.Type()));
+                req->add_table_engine(
+                    txservice::remote::ToRemoteType::ConvertTableEngine(
+                        TableEngine::EloqKv));
             }
 
             req->set_node_group_id(ng_id);
@@ -2062,25 +2124,25 @@ void InfoCommand::OutputResult(OutputHandler *reply) const
         set_section_.find("server") != set_section_.end())
     {
         result += "# Server";
-        result += "\r\neloqkv_version: ";
+        result += "\r\neloqkv_version:";
         result += version_;
-        result += "\r\neloqkv_mode: ";
+        result += "\r\neloqkv_mode:";
         result += (node_count_ == 1 ? "standalone" : "cluster");
-        result += "\r\nmultiplexing_api: epoll";
-        result += "\r\nos: " + ExecCommand("uname -srm");
-        result += "\r\nprocess_id: " + pid;
-        result += "\r\ntcp_port: " + std::to_string(tcp_port_);
-        result += "\r\nuptime_in_seconds: " + std::to_string(uptime_in_secs_);
-        result += "\r\nuptime_in_days: " +
+        result += "\r\nmultiplexing_api:epoll";
+        result += "\r\nos:" + ExecCommand("uname -srm");
+        result += "\r\nprocess_id:" + pid;
+        result += "\r\ntcp_port:" + std::to_string(tcp_port_);
+        result += "\r\nuptime_in_seconds:" + std::to_string(uptime_in_secs_);
+        result += "\r\nuptime_in_days:" +
                   std::to_string(uptime_in_secs_ / (3600 * 24));
-        result += "\r\nexecutable: " + ExecCommand("ls -l /proc/" + pid +
-                                                   "/exe | awk '{print $11}'");
-        result += "\r\nconfig_file: " + config_file_;
-        result += "\r\nbrpc_io_threads_active: " +
+        result += "\r\nexecutable:" + ExecCommand("ls -l /proc/" + pid +
+                                                  "/exe | awk '{print $11}'");
+        result += "\r\nconfig_file:" + config_file_;
+        result += "\r\nbrpc_io_threads_active:" +
                   std::to_string(event_dispatcher_num_);
-        result += "\r\nworker_thread_num: " + std::to_string(core_num_);
-        result += "\r\nnode_id: " + std::to_string(node_id_);
-        result += "\r\nnode_count: " + std::to_string(node_count_);
+        result += "\r\nworker_thread_num:" + std::to_string(core_num_);
+        result += "\r\nnode_id:" + std::to_string(node_id_);
+        result += "\r\nnode_count:" + std::to_string(node_count_);
     }
 
     if (set_section_.size() == 0 ||
@@ -2092,10 +2154,10 @@ void InfoCommand::OutputResult(OutputHandler *reply) const
         }
 
         result += "# Clients";
-        result += "\r\nmaxclients: 10000";
-        result += "\r\nconnected_clients: " + std::to_string(connecting_count_);
+        result += "\r\nmaxclients:" + std::to_string(max_connection_count_);
+        result += "\r\nconnected_clients:" + std::to_string(connecting_count_);
         result +=
-            "\r\nblocked_clients: " + std::to_string(blocked_clients_count_);
+            "\r\nblocked_clients:" + std::to_string(blocked_clients_count_);
     }
 
     if (set_section_.size() == 0 ||
@@ -2107,22 +2169,22 @@ void InfoCommand::OutputResult(OutputHandler *reply) const
         }
 
         result += "# Memory";
-        result += "\r\nused_memory_rss: " +
+        result += "\r\nused_memory_rss:" +
                   ExecCommand("cat /proc/" + pid +
                               "/status | grep VmRSS | awk '{print $2}'") +
                   " kb";
-        result += "\r\ntotal_system_memory: " +
+        result += "\r\ntotal_system_memory:" +
                   ExecCommand("free  | grep Mem | awk '{print $2}'") + " kb";
-        result += "\r\ndata_memory_allocated: " +
+        result += "\r\ndata_memory_allocated:" +
                   std::to_string(data_memory_allocated_) + " kb";
-        result += "\r\ndata_memory_committed: " +
+        result += "\r\ndata_memory_committed:" +
                   std::to_string(data_memory_committed_) + " kb";
         // result += "data_memory_frag_ratio: " + ;  // TODO
         result +=
-            "\r\nnode_memory_limit: " + std::to_string(node_memory_limit_mb_) +
+            "\r\nnode_memory_limit:" + std::to_string(node_memory_limit_mb_) +
             " mb";
-        result += "\r\nnode_log_limit: " + std::to_string(node_log_limit_mb_) +
-                  " mb ";
+        result +=
+            "\r\nnode_log_limit:" + std::to_string(node_log_limit_mb_) + " mb ";
     }
 
     if (set_section_.size() == 0 ||
@@ -2135,9 +2197,9 @@ void InfoCommand::OutputResult(OutputHandler *reply) const
 
         result += "# Persistence";
 
-        result += "\r\nlast_success_ckpt_ts: " + std::to_string(last_ckpt_ts_);
-        result += "\r\nenable_data_store: " + enable_data_store_;
-        result += "\r\nenable_wal: " + enable_wal_;
+        result += "\r\nlast_success_ckpt_ts:" + std::to_string(last_ckpt_ts_);
+        result += "\r\nenable_data_store:" + enable_data_store_;
+        result += "\r\nenable_wal:" + enable_wal_;
     }
 
     if (set_section_.size() == 0 ||
@@ -2148,21 +2210,21 @@ void InfoCommand::OutputResult(OutputHandler *reply) const
             result += "\r\n";
         }
         result += "# Stats";
-        result += "\r\ntotal_connections_received: " +
+        result += "\r\ntotal_connections_received:" +
                   std::to_string(conn_received_count_);
-        result += "\r\ntotal_rejected_connections: " +
+        result += "\r\ntotal_rejected_connections:" +
                   std::to_string(conn_rejected_count_);
 
-        result += "\r\ntotal_commands_processed: " +
+        result += "\r\ntotal_commands_processed:" +
                   std::to_string(cmd_read_count_ + cmd_write_count_ +
                                  multi_cmd_count_);
         // result +=
-        //     "\r\nread_commands_processed: " +
+        //     "\r\nread_commands_processed:" +
         //     std::to_string(cmd_read_count_);
         // result +=
-        //     "\r\nwrite_commands_processed: " +
+        //     "\r\nwrite_commands_processed:" +
         //     std::to_string(cmd_write_count_);
-        // result += "\r\nmulti_object_commands_processed: " +
+        // result += "\r\nmulti_object_commands_processed:" +
         //           std::to_string(multi_cmd_count_);
         // result +=
         //    "\r\ninstantaneous_ops_per_sec:" + std::to_string(cmds_per_sec_);
@@ -2182,14 +2244,14 @@ void InfoCommand::OutputResult(OutputHandler *reply) const
             auto clocks_per_sec = sysconf(_SC_CLK_TCK);
             double ts =
                 static_cast<double>(st_tms.tms_stime) / (clocks_per_sec);
-            result += "\r\nused_cpu_sys: " + std::to_string(ts);
+            result += "\r\nused_cpu_sys:" + std::to_string(ts);
             ts = static_cast<double>(st_tms.tms_utime) / (clocks_per_sec);
-            result += "\r\nused_cpu_user: " + std::to_string(ts);
+            result += "\r\nused_cpu_user:" + std::to_string(ts);
         }
         else
         {
-            result += "\r\nused_cpu_sys: -1";
-            result += "\r\nused_cpu_user: -1";
+            result += "\r\nused_cpu_sys:-1";
+            result += "\r\nused_cpu_user:-1";
         }
     }
 
@@ -2202,9 +2264,12 @@ void InfoCommand::OutputResult(OutputHandler *reply) const
         }
 
         result += "# Cluster";
-        result += "\r\ncluster_enabled: ";
+        result += "\r\ncluster_enabled:";
         result += (node_count_ > 1 ? "1" : "0");
-        result += "\r\ncluster_known_nodes: " + std::to_string(node_count_);
+        if (node_count_ > 1)
+        {
+            result += "\r\ncluster_known_nodes:" + std::to_string(node_count_);
+        }
     }
 
     if (set_section_.size() == 0 ||
@@ -2316,6 +2381,18 @@ void ClusterSlotsCommand::OutputResult(OutputHandler *reply) const
 void ClusterKeySlotCommand::OutputResult(OutputHandler *reply) const
 {
     reply->OnInt(result_);
+}
+
+void FailoverCommand::OutputResult(OutputHandler *reply) const
+{
+    if (failover_succeed_)
+    {
+        reply->OnStatus(redis_get_error_messages(RD_OK));
+    }
+    else
+    {
+        reply->OnError(error_message_);
+    }
 }
 
 void ClientCommand::OutputResult(OutputHandler *reply) const
@@ -3153,11 +3230,10 @@ void SlowLogCommand::OutputResult(OutputHandler *reply) const
         reply->OnArrayStart(results_.size());
         // Output format is [id, timestamp, execution_time, command,
         // client_addr, client_name]
-        uint32_t id = 0;
         for (const auto &entry : results_)
         {
             reply->OnArrayStart(6);
-            reply->OnInt(id++);
+            reply->OnInt(entry.id_);
             reply->OnInt(entry.timestamp_);
             reply->OnInt(entry.execution_time_);
             reply->OnArrayStart(entry.cmd_.size());
@@ -3182,6 +3258,17 @@ void SlowLogCommand::OutputResult(OutputHandler *reply) const
     {
         reply->OnInt(len_);
     }
+}
+
+void PublishCommand::Execute(RedisServiceImpl *redis_impl,
+                             RedisConnectionContext *ctx)
+{
+    received_ = redis_impl->Publish(chan_, message_);
+}
+
+void PublishCommand::OutputResult(OutputHandler *reply) const
+{
+    reply->OnInt(received_);
 }
 
 BitFieldCommand::BitFieldCommand(const EloqKV::BitFieldCommand &rhs)
@@ -4532,7 +4619,16 @@ txservice::ExecResult BlockLPopCommand::ExecuteOn(
     list_result.err_code_ = RD_OK;
     const RedisListObject &list_obj =
         static_cast<const RedisListObject &>(object);
-    bool b = list_obj.Execute(*this);
+    bool b = false;
+    if (op_type_ == txservice::BlockOperation::BlockLock)
+    {
+        list_result.ret_ = list_obj.Size();
+        b = list_result.ret_ > 0;
+    }
+    else
+    {
+        b = list_obj.Execute(*this);
+    }
 
     switch (op_type_)
     {
@@ -4639,17 +4735,36 @@ BLMoveCommand::BLMoveCommand(EloqKey &&skey,
       ts_expired_(ts_expired)
 {
     discard_cmd_ = std::make_unique<BlockDiscardCommand>();
-    vct_key_ptrs_.reserve(2);
-    vct_cmd_ptrs_.reserve(2);
+    vct_key_ptrs_.reserve(4);
+    vct_cmd_ptrs_.reserve(4);
 
     // The first step to pop an element
     std::vector<txservice::TxKey> vct_key;
+    std::vector<txservice::TxCommand *> vct_cmd;
     vct_key.emplace_back(txservice::TxKey(sour_key_.get()));
     vct_key_ptrs_.push_back(std::move(vct_key));
-    std::vector<txservice::TxCommand *> vct_cmd;
     vct_cmd.emplace_back(sour_cmd_.get());
     vct_cmd_ptrs_.push_back(std::move(vct_cmd));
 
+    // All commands will be blocked in related ccentry, until one of them insert
+    // elements or expired. If insert, add lock to the object and goto next
+    // step.
+    assert(vct_key.empty());
+    assert(vct_cmd.empty());
+    vct_key.emplace_back(txservice::TxKey(sour_key_.get()));
+    vct_key_ptrs_.push_back(std::move(vct_key));
+    vct_cmd.emplace_back(sour_cmd_.get());
+    vct_cmd_ptrs_.push_back(std::move(vct_cmd));
+
+    assert(vct_key.empty());
+    assert(vct_cmd.empty());
+    vct_key.emplace_back(txservice::TxKey(sour_key_.get()));
+    vct_key_ptrs_.push_back(std::move(vct_key));
+    vct_cmd.emplace_back(sour_cmd_.get());
+    vct_cmd_ptrs_.push_back(std::move(vct_cmd));
+
+    assert(vct_key.empty());
+    assert(vct_cmd.empty());
     // The second step to push the element
     vct_key.emplace_back(txservice::TxKey(dest_key_.get()));
     vct_key_ptrs_.push_back(std::move(vct_key));
@@ -4659,16 +4774,25 @@ BLMoveCommand::BLMoveCommand(EloqKey &&skey,
 
 void BLMoveCommand::OutputResult(OutputHandler *reply) const
 {
-    if (curr_step_ == 0 && sour_cmd_->result_.err_code_ != RD_OK &&
+    if (curr_step_ == 1 && is_forward_ &&
+        vct_cmd_ptrs_[curr_step_][0] == discard_cmd_.get())
+    {
+        // expired
+        reply->OnNil();
+        return;
+    }
+
+    if ((curr_step_ >= 0 && curr_step_ <= 2) &&
+        sour_cmd_->result_.err_code_ != RD_OK &&
         sour_cmd_->result_.err_code_ != RD_NIL)
     {
         reply->OnError(redis_get_error_messages(sour_cmd_->result_.err_code_));
     }
-    else if (curr_step_ == 1 && dest_cmd_->result_.err_code_ != RD_OK)
+    else if (curr_step_ == 3 && dest_cmd_->result_.err_code_ != RD_OK)
     {
         reply->OnError(redis_get_error_messages(dest_cmd_->result_.err_code_));
     }
-    else if (curr_step_ == 1 && dest_cmd_->result_.ret_ != 0)
+    else if (curr_step_ == 3 && dest_cmd_->result_.ret_ != 0)
     {
         std::vector<std::string> &elements =
             std::get<std::vector<std::string>>(sour_cmd_->result_.result_);
@@ -4683,11 +4807,17 @@ void BLMoveCommand::OutputResult(OutputHandler *reply) const
 
 bool BLMoveCommand::ForwardResult()
 {
-    assert(curr_step_ == 0);
+    assert(curr_step_ == 1);
     is_forward_ = true;
-    if (sour_cmd_->result_.ret_ == 0)
+
+    if (sour_cmd_->result_.err_code_ == RD_ERR_WRONG_TYPE)
     {
-        vct_cmd_ptrs_[0][0] = discard_cmd_.get();
+        return false;
+    }
+
+    if (sour_cmd_->result_.err_code_ == RD_NIL || sour_cmd_->result_.ret_ == 0)
+    {
+        vct_cmd_ptrs_[curr_step_][0] = discard_cmd_.get();
         return true;
     }
     else
@@ -4698,23 +4828,101 @@ bool BLMoveCommand::ForwardResult()
 
 bool BLMoveCommand::HandleMiddleResult()
 {
+    // Step 0: Get result from non-empty list. This step is non-blocking, return
+    // immediately if list object is empty. we should return the result if list
+    // object isn't empty even if the timeout is very short.
     if (curr_step_ == 0)
     {
-        if (sour_cmd_->result_.ret_ > 0)
+        if (sour_cmd_->result_.err_code_ == RD_OK)
         {
-            // The element has poped and goto next step to push it into
-            // destination object.
-            std::vector<std::string> &elements =
-                std::get<std::vector<std::string>>(sour_cmd_->result_.result_);
-            assert(elements.size() == 1);
-            dest_cmd_->element_ =
-                EloqString(elements[0].c_str(), elements[0].size());
-            return true;
+            if (sour_cmd_->result_.ret_ > 0)
+            {
+                // skip step 2 and 3. push element into dest object.
+                IncrSteps();
+                IncrSteps();
+                assert(curr_step_ == 2);
+
+                // The element has poped and goto next step to push it into
+                // destination object.
+                std::vector<std::string> &elements =
+                    std::get<std::vector<std::string>>(
+                        sour_cmd_->result_.result_);
+                assert(elements.size() == 1);
+                dest_cmd_->element_ =
+                    EloqString(elements[0].c_str(), elements[0].size());
+                // process next step
+                return true;
+            }
+            else
+            {
+                assert(sour_cmd_->result_.ret_ == 0);
+                // multi
+                if (ts_expired_ == 0)
+                {
+                    // expired.
+                    return false;
+                }
+
+                // empty list.
+                // we need to enter blocking phase(step 1).
+                sour_cmd_->result_.err_code_ = RD_NIL;
+                sour_cmd_->op_type_ = txservice::BlockOperation::BlockLock;
+                return true;
+            }
         }
         else
         {
+            // error.
             return false;
         }
+    }
+    else if (curr_step_ == 1)
+    {
+        // Step 1: This step is blocking operation. Block on the object until
+        // the object has at least one element and only return list object size.
+        // Commands executed in this step will not be written to the log.
+        if (is_forward_ && vct_cmd_ptrs_[curr_step_][0] == discard_cmd_.get())
+        {
+            // expired.
+            return false;
+        }
+
+        if (sour_cmd_->result_.err_code_ == RD_OK)
+        {
+            assert(sour_cmd_->result_.ret_ > 0);
+            if (sour_cmd_->result_.ret_ > 0)
+            {
+                sour_cmd_->result_.err_code_ = RD_NIL;
+                sour_cmd_->op_type_ = txservice::BlockOperation::PopElement;
+                return true;
+            }
+        }
+
+        return false;
+    }
+    else if (curr_step_ == 2)
+    {
+        // step 2: Get the result element from list object. Write log.
+        // This step should not be blocked, because we have made sure there is
+        // data in the list in the previous step
+        if (sour_cmd_->result_.err_code_ == RD_OK)
+        {
+            assert(sour_cmd_->result_.ret_ > 0);
+            if (sour_cmd_->result_.ret_ > 0)
+            {
+                // The element has poped and goto next step to push it into
+                // destination object.
+                std::vector<std::string> &elements =
+                    std::get<std::vector<std::string>>(
+                        sour_cmd_->result_.result_);
+                assert(elements.size() == 1);
+                dest_cmd_->element_ =
+                    EloqString(elements[0].c_str(), elements[0].size());
+                return true;
+            }
+        }
+
+        return false;
     }
     else
     {
@@ -4827,14 +5035,15 @@ bool BLMPopCommand::ForwardResult()
 
     for (size_t i = 0; i < vct_cmd_.size(); i++)
     {
-        if (vct_cmd_[i].result_.ret_ > 0)
+        if (vct_cmd_[i].result_.err_code_ == RD_ERR_WRONG_TYPE ||
+            (vct_cmd_[i].result_.err_code_ == RD_OK &&
+             vct_cmd_[i].result_.ret_ > 0))
         {
             if (pos_cmd_ < 0)
             {
                 pos_cmd_ = static_cast<int>(i);
+                continue;
             }
-
-            continue;
         }
 
         vct_cmd_ptrs_[idx][i] = discard_cmd_.get();
@@ -4864,6 +5073,7 @@ bool BLMPopCommand::HandleMiddleResult()
             }
             for (size_t i = 0; i < vct_cmd_.size(); i++)
             {
+                vct_cmd_[i].result_.err_code_ = RD_NIL;
                 vct_cmd_[i].op_type_ = txservice::BlockOperation::BlockLock;
             }
         }
@@ -7783,6 +7993,7 @@ ParseMultiCommand(RedisServiceImpl *redis_impl,
                                    std::make_unique<EloqKey>(std::move(key)),
                                    std::make_unique<GetCommand>(std::move(cmd)),
                                    false,
+                                   true,
                                    txm)};
     }
     case RedisCommandType::GETDEL:
@@ -7798,6 +8009,7 @@ ParseMultiCommand(RedisServiceImpl *redis_impl,
                     std::make_unique<EloqKey>(std::move(key)),
                     std::make_unique<GetDelCommand>(std::move(cmd)),
                     false,
+                    true,
                     txm)};
     }
     case RedisCommandType::STRLEN:
@@ -7813,6 +8025,7 @@ ParseMultiCommand(RedisServiceImpl *redis_impl,
                     std::make_unique<EloqKey>(std::move(key)),
                     std::make_unique<StrLenCommand>(std::move(cmd)),
                     false,
+                    true,
                     txm)};
     }
     case RedisCommandType::GETBIT:
@@ -7828,6 +8041,7 @@ ParseMultiCommand(RedisServiceImpl *redis_impl,
                     std::make_unique<EloqKey>(std::move(key)),
                     std::make_unique<GetBitCommand>(std::move(cmd)),
                     false,
+                    true,
                     txm)};
     }
     case RedisCommandType::BITCOUNT:
@@ -7843,6 +8057,7 @@ ParseMultiCommand(RedisServiceImpl *redis_impl,
                     std::make_unique<EloqKey>(std::move(key)),
                     std::make_unique<BitCountCommand>(std::move(cmd)),
                     false,
+                    true,
                     txm)};
     }
     case RedisCommandType::SET:
@@ -7862,6 +8077,7 @@ ParseMultiCommand(RedisServiceImpl *redis_impl,
                                    std::make_unique<EloqKey>(std::move(key)),
                                    std::make_unique<SetCommand>(std::move(cmd)),
                                    false,
+                                   true,
                                    txm)};
     }
     case RedisCommandType::SETBIT:
@@ -7877,6 +8093,7 @@ ParseMultiCommand(RedisServiceImpl *redis_impl,
                     std::make_unique<EloqKey>(std::move(key)),
                     std::make_unique<SetBitCommand>(std::move(cmd)),
                     false,
+                    true,
                     txm)};
     }
     case RedisCommandType::SETRANGE:
@@ -7892,6 +8109,7 @@ ParseMultiCommand(RedisServiceImpl *redis_impl,
                     std::make_unique<EloqKey>(std::move(key)),
                     std::make_unique<SetRangeCommand>(std::move(cmd)),
                     false,
+                    true,
                     txm)};
     }
     case RedisCommandType::APPEND:
@@ -7907,6 +8125,7 @@ ParseMultiCommand(RedisServiceImpl *redis_impl,
                     std::make_unique<EloqKey>(std::move(key)),
                     std::make_unique<AppendCommand>(std::move(cmd)),
                     false,
+                    true,
                     txm)};
     }
     case RedisCommandType::BITFIELD:
@@ -7922,6 +8141,7 @@ ParseMultiCommand(RedisServiceImpl *redis_impl,
                     std::make_unique<EloqKey>(std::move(key)),
                     std::make_unique<BitFieldCommand>(std::move(cmd)),
                     false,
+                    true,
                     txm)};
     }
     case RedisCommandType::BITFIELD_RO:
@@ -7937,6 +8157,7 @@ ParseMultiCommand(RedisServiceImpl *redis_impl,
                     std::make_unique<EloqKey>(std::move(key)),
                     std::make_unique<BitFieldCommand>(std::move(cmd)),
                     false,
+                    true,
                     txm)};
     }
     case RedisCommandType::BITPOS:
@@ -7952,6 +8173,7 @@ ParseMultiCommand(RedisServiceImpl *redis_impl,
                     std::make_unique<EloqKey>(std::move(key)),
                     std::make_unique<BitPosCommand>(std::move(cmd)),
                     false,
+                    true,
                     txm)};
     }
     case RedisCommandType::LRANGE:
@@ -7967,6 +8189,7 @@ ParseMultiCommand(RedisServiceImpl *redis_impl,
                     std::make_unique<EloqKey>(std::move(key)),
                     std::make_unique<LRangeCommand>(std::move(cmd)),
                     false,
+                    true,
                     txm)};
     }
     case RedisCommandType::RPUSH:
@@ -7982,6 +8205,7 @@ ParseMultiCommand(RedisServiceImpl *redis_impl,
                     std::make_unique<EloqKey>(std::move(key)),
                     std::make_unique<RPushCommand>(std::move(cmd)),
                     false,
+                    true,
                     txm)};
     }
     case RedisCommandType::LPOP:
@@ -7997,6 +8221,7 @@ ParseMultiCommand(RedisServiceImpl *redis_impl,
                     std::make_unique<EloqKey>(std::move(key)),
                     std::make_unique<LPopCommand>(std::move(cmd)),
                     false,
+                    true,
                     txm)};
     }
     case RedisCommandType::RPOP:
@@ -8012,6 +8237,7 @@ ParseMultiCommand(RedisServiceImpl *redis_impl,
                     std::make_unique<EloqKey>(std::move(key)),
                     std::make_unique<RPopCommand>(std::move(cmd)),
                     false,
+                    true,
                     txm)};
     }
     case RedisCommandType::LMPOP:
@@ -8026,6 +8252,7 @@ ParseMultiCommand(RedisServiceImpl *redis_impl,
                     redis_impl->RedisTableName(ctx->db_id),
                     std::make_unique<LMPopCommand>(std::move(cmd)),
                     false,
+                    true,
                     txm)};
         break;
     }
@@ -8041,6 +8268,7 @@ ParseMultiCommand(RedisServiceImpl *redis_impl,
                     redis_impl->RedisTableName(ctx->db_id),
                     std::make_unique<LMoveCommand>(std::move(cmd)),
                     false,
+                    true,
                     txm)};
         break;
     }
@@ -8056,6 +8284,7 @@ ParseMultiCommand(RedisServiceImpl *redis_impl,
                     redis_impl->RedisTableName(ctx->db_id),
                     std::make_unique<RPopLPushCommand>(std::move(cmd)),
                     false,
+                    true,
                     txm)};
         break;
     }
@@ -8072,6 +8301,7 @@ ParseMultiCommand(RedisServiceImpl *redis_impl,
                     std::make_unique<EloqKey>(std::move(key)),
                     std::make_unique<HSetCommand>(std::move(cmd)),
                     false,
+                    true,
                     txm)};
     }
     case RedisCommandType::HSETNX:
@@ -8087,6 +8317,7 @@ ParseMultiCommand(RedisServiceImpl *redis_impl,
                     std::make_unique<EloqKey>(std::move(key)),
                     std::make_unique<HSetNxCommand>(std::move(cmd)),
                     false,
+                    true,
                     txm)};
     }
     case RedisCommandType::HGET:
@@ -8102,6 +8333,7 @@ ParseMultiCommand(RedisServiceImpl *redis_impl,
                     std::make_unique<EloqKey>(std::move(key)),
                     std::make_unique<HGetCommand>(std::move(cmd)),
                     false,
+                    true,
                     txm)};
     }
     case RedisCommandType::HLEN:
@@ -8117,6 +8349,7 @@ ParseMultiCommand(RedisServiceImpl *redis_impl,
                     std::make_unique<EloqKey>(std::move(key)),
                     std::make_unique<HLenCommand>(std::move(cmd)),
                     false,
+                    true,
                     txm)};
     }
     case RedisCommandType::HSTRLEN:
@@ -8132,6 +8365,7 @@ ParseMultiCommand(RedisServiceImpl *redis_impl,
                     std::make_unique<EloqKey>(std::move(key)),
                     std::make_unique<HStrLenCommand>(std::move(cmd)),
                     false,
+                    true,
                     txm)};
     }
     case RedisCommandType::HDEL:
@@ -8147,6 +8381,7 @@ ParseMultiCommand(RedisServiceImpl *redis_impl,
                     std::make_unique<EloqKey>(std::move(key)),
                     std::make_unique<HDelCommand>(std::move(cmd)),
                     false,
+                    true,
                     txm)};
     }
     case RedisCommandType::HINCRBY:
@@ -8162,6 +8397,7 @@ ParseMultiCommand(RedisServiceImpl *redis_impl,
                     std::make_unique<EloqKey>(std::move(key)),
                     std::make_unique<HIncrByCommand>(std::move(cmd)),
                     false,
+                    true,
                     txm)};
     }
     case RedisCommandType::HINCRBYFLOAT:
@@ -8177,6 +8413,7 @@ ParseMultiCommand(RedisServiceImpl *redis_impl,
                     std::make_unique<EloqKey>(std::move(key)),
                     std::make_unique<HIncrByFloatCommand>(std::move(cmd)),
                     false,
+                    true,
                     txm)};
     }
     case RedisCommandType::HMGET:
@@ -8192,6 +8429,7 @@ ParseMultiCommand(RedisServiceImpl *redis_impl,
                     std::make_unique<EloqKey>(std::move(key)),
                     std::make_unique<HMGetCommand>(std::move(cmd)),
                     false,
+                    true,
                     txm)};
     }
     case RedisCommandType::HKEYS:
@@ -8207,6 +8445,7 @@ ParseMultiCommand(RedisServiceImpl *redis_impl,
                     std::make_unique<EloqKey>(std::move(key)),
                     std::make_unique<HKeysCommand>(std::move(cmd)),
                     false,
+                    true,
                     txm)};
     }
     case RedisCommandType::HVALS:
@@ -8222,6 +8461,7 @@ ParseMultiCommand(RedisServiceImpl *redis_impl,
                     std::make_unique<EloqKey>(std::move(key)),
                     std::make_unique<HValsCommand>(std::move(cmd)),
                     false,
+                    true,
                     txm)};
     }
     case RedisCommandType::HGETALL:
@@ -8237,6 +8477,7 @@ ParseMultiCommand(RedisServiceImpl *redis_impl,
                     std::make_unique<EloqKey>(std::move(key)),
                     std::make_unique<HGetAllCommand>(std::move(cmd)),
                     false,
+                    true,
                     txm)};
     }
     case RedisCommandType::HEXISTS:
@@ -8252,6 +8493,7 @@ ParseMultiCommand(RedisServiceImpl *redis_impl,
                     std::make_unique<EloqKey>(std::move(key)),
                     std::make_unique<HExistsCommand>(std::move(cmd)),
                     false,
+                    true,
                     txm)};
     }
     case RedisCommandType::HRANDFIELD:
@@ -8267,6 +8509,7 @@ ParseMultiCommand(RedisServiceImpl *redis_impl,
                     std::make_unique<EloqKey>(std::move(key)),
                     std::make_unique<HRandFieldCommand>(std::move(cmd)),
                     false,
+                    true,
                     txm)};
     }
     case RedisCommandType::HSCAN:
@@ -8282,6 +8525,7 @@ ParseMultiCommand(RedisServiceImpl *redis_impl,
                     std::make_unique<EloqKey>(std::move(key)),
                     std::make_unique<HScanCommand>(std::move(cmd)),
                     false,
+                    true,
                     txm)};
     }
     case RedisCommandType::INCR:
@@ -8297,6 +8541,7 @@ ParseMultiCommand(RedisServiceImpl *redis_impl,
                     std::make_unique<EloqKey>(std::move(key)),
                     std::make_unique<IntOpCommand>(std::move(cmd)),
                     false,
+                    true,
                     txm)};
     }
     case RedisCommandType::DECR:
@@ -8312,6 +8557,7 @@ ParseMultiCommand(RedisServiceImpl *redis_impl,
                     std::make_unique<EloqKey>(std::move(key)),
                     std::make_unique<IntOpCommand>(std::move(cmd)),
                     false,
+                    true,
                     txm)};
     }
     case RedisCommandType::INCRBY:
@@ -8327,6 +8573,7 @@ ParseMultiCommand(RedisServiceImpl *redis_impl,
                     std::make_unique<EloqKey>(std::move(key)),
                     std::make_unique<IntOpCommand>(std::move(cmd)),
                     false,
+                    true,
                     txm)};
     }
     case RedisCommandType::DECRBY:
@@ -8342,6 +8589,7 @@ ParseMultiCommand(RedisServiceImpl *redis_impl,
                     std::make_unique<EloqKey>(std::move(key)),
                     std::make_unique<IntOpCommand>(std::move(cmd)),
                     false,
+                    true,
                     txm)};
     }
     case RedisCommandType::TYPE:
@@ -8357,6 +8605,7 @@ ParseMultiCommand(RedisServiceImpl *redis_impl,
                     std::make_unique<EloqKey>(std::move(key)),
                     std::make_unique<TypeCommand>(std::move(cmd)),
                     false,
+                    true,
                     txm)};
     }
     case RedisCommandType::DEL:
@@ -8371,6 +8620,7 @@ ParseMultiCommand(RedisServiceImpl *redis_impl,
                     redis_impl->RedisTableName(ctx->db_id),
                     std::make_unique<MDelCommand>(std::move(cmd)),
                     false,
+                    true,
                     txm)};
     }
     case RedisCommandType::EXISTS:
@@ -8385,6 +8635,7 @@ ParseMultiCommand(RedisServiceImpl *redis_impl,
                     redis_impl->RedisTableName(ctx->db_id),
                     std::make_unique<MExistsCommand>(std::move(cmd)),
                     false,
+                    true,
                     txm)};
     }
     case RedisCommandType::MGET:
@@ -8399,6 +8650,7 @@ ParseMultiCommand(RedisServiceImpl *redis_impl,
                     redis_impl->RedisTableName(ctx->db_id),
                     std::make_unique<MGetCommand>(std::move(cmd)),
                     false,
+                    true,
                     txm)};
     }
     case RedisCommandType::MSET:
@@ -8413,6 +8665,7 @@ ParseMultiCommand(RedisServiceImpl *redis_impl,
                     redis_impl->RedisTableName(ctx->db_id),
                     std::make_unique<MSetCommand>(std::move(cmd)),
                     false,
+                    true,
                     txm)};
     }
     case RedisCommandType::MSETNX:
@@ -8428,6 +8681,7 @@ ParseMultiCommand(RedisServiceImpl *redis_impl,
                     redis_impl->RedisTableName(ctx->db_id),
                     std::make_unique<MSetNxCommand>(std::move(cmd)),
                     false,
+                    true,
                     txm)};
     }
     case RedisCommandType::ZADD:
@@ -8443,6 +8697,7 @@ ParseMultiCommand(RedisServiceImpl *redis_impl,
                     std::make_unique<EloqKey>(std::move(key)),
                     std::make_unique<ZAddCommand>(std::move(cmd)),
                     false,
+                    true,
                     txm)};
     }
     case RedisCommandType::ZREM:
@@ -8458,6 +8713,7 @@ ParseMultiCommand(RedisServiceImpl *redis_impl,
                     std::make_unique<EloqKey>(std::move(key)),
                     std::make_unique<ZRemCommand>(std::move(cmd)),
                     false,
+                    true,
                     txm)};
     }
     case RedisCommandType::ZCARD:
@@ -8473,6 +8729,7 @@ ParseMultiCommand(RedisServiceImpl *redis_impl,
                     std::make_unique<EloqKey>(std::move(key)),
                     std::make_unique<ZCardCommand>(std::move(cmd)),
                     false,
+                    true,
                     txm)};
     }
     case RedisCommandType::ZREVRANGE:
@@ -8488,6 +8745,7 @@ ParseMultiCommand(RedisServiceImpl *redis_impl,
                     std::make_unique<EloqKey>(std::move(key)),
                     std::make_unique<ZRangeCommand>(std::move(cmd)),
                     false,
+                    true,
                     txm)};
     }
     case RedisCommandType::ZREVRANGEBYSCORE:
@@ -8503,6 +8761,7 @@ ParseMultiCommand(RedisServiceImpl *redis_impl,
                     std::make_unique<EloqKey>(std::move(key)),
                     std::make_unique<ZRangeCommand>(std::move(cmd)),
                     false,
+                    true,
                     txm)};
     }
     case RedisCommandType::ZREVRANGEBYLEX:
@@ -8518,6 +8777,7 @@ ParseMultiCommand(RedisServiceImpl *redis_impl,
                     std::make_unique<EloqKey>(std::move(key)),
                     std::make_unique<ZRangeCommand>(std::move(cmd)),
                     false,
+                    true,
                     txm)};
     }
     case RedisCommandType::ZRANDMEMBER:
@@ -8533,6 +8793,7 @@ ParseMultiCommand(RedisServiceImpl *redis_impl,
                     std::make_unique<EloqKey>(std::move(key)),
                     std::make_unique<ZRandMemberCommand>(std::move(cmd)),
                     false,
+                    true,
                     txm)};
     }
     case RedisCommandType::ZSCORE:
@@ -8548,6 +8809,7 @@ ParseMultiCommand(RedisServiceImpl *redis_impl,
                     std::make_unique<EloqKey>(std::move(key)),
                     std::make_unique<ZScoreCommand>(std::move(cmd)),
                     false,
+                    true,
                     txm)};
     }
     case RedisCommandType::ZRANK:
@@ -8563,6 +8825,7 @@ ParseMultiCommand(RedisServiceImpl *redis_impl,
                     std::make_unique<EloqKey>(std::move(key)),
                     std::make_unique<ZRankCommand>(std::move(cmd)),
                     false,
+                    true,
                     txm)};
     }
     case RedisCommandType::ZREVRANK:
@@ -8578,6 +8841,7 @@ ParseMultiCommand(RedisServiceImpl *redis_impl,
                     std::make_unique<EloqKey>(std::move(key)),
                     std::make_unique<ZRankCommand>(std::move(cmd)),
                     false,
+                    true,
                     txm)};
     }
     case RedisCommandType::ZCOUNT:
@@ -8593,6 +8857,7 @@ ParseMultiCommand(RedisServiceImpl *redis_impl,
                     std::make_unique<EloqKey>(std::move(key)),
                     std::make_unique<ZCountCommand>(std::move(cmd)),
                     false,
+                    true,
                     txm)};
     }
     case RedisCommandType::ZRANGEBYSCORE:
@@ -8608,6 +8873,7 @@ ParseMultiCommand(RedisServiceImpl *redis_impl,
                     std::make_unique<EloqKey>(std::move(key)),
                     std::make_unique<ZRangeCommand>(std::move(cmd)),
                     false,
+                    true,
                     txm)};
     }
     case RedisCommandType::ZRANGEBYRANK:
@@ -8623,6 +8889,7 @@ ParseMultiCommand(RedisServiceImpl *redis_impl,
                     std::make_unique<EloqKey>(std::move(key)),
                     std::make_unique<ZRangeCommand>(std::move(cmd)),
                     false,
+                    true,
                     txm)};
     }
     case RedisCommandType::ZRANGEBYLEX:
@@ -8638,6 +8905,7 @@ ParseMultiCommand(RedisServiceImpl *redis_impl,
                     std::make_unique<EloqKey>(std::move(key)),
                     std::make_unique<ZRangeCommand>(std::move(cmd)),
                     false,
+                    true,
                     txm)};
     }
     case RedisCommandType::ZREMRANGE:
@@ -8653,6 +8921,7 @@ ParseMultiCommand(RedisServiceImpl *redis_impl,
                     std::make_unique<EloqKey>(std::move(key)),
                     std::make_unique<ZRemRangeCommand>(std::move(cmd)),
                     false,
+                    true,
                     txm)};
     }
     case RedisCommandType::ZSCAN:
@@ -8680,6 +8949,7 @@ ParseMultiCommand(RedisServiceImpl *redis_impl,
                     std::make_unique<EloqKey>(std::move(key)),
                     std::make_unique<ZPopCommand>(std::move(cmd)),
                     false,
+                    true,
                     txm)};
     }
     case RedisCommandType::ZPOPMAX:
@@ -8696,6 +8966,7 @@ ParseMultiCommand(RedisServiceImpl *redis_impl,
                     std::make_unique<EloqKey>(std::move(key)),
                     std::make_unique<ZPopCommand>(std::move(cmd)),
                     false,
+                    true,
                     txm)};
     }
     case RedisCommandType::ZLEXCOUNT:
@@ -8712,6 +8983,7 @@ ParseMultiCommand(RedisServiceImpl *redis_impl,
                     std::make_unique<EloqKey>(std::move(key)),
                     std::make_unique<ZLexCountCommand>(std::move(cmd)),
                     false,
+                    true,
                     txm)};
     }
     case RedisCommandType::ZUNION:
@@ -8727,6 +8999,7 @@ ParseMultiCommand(RedisServiceImpl *redis_impl,
                     redis_impl->RedisTableName(ctx->db_id),
                     std::make_unique<ZUnionCommand>(std::move(cmd)),
                     false,
+                    true,
                     txm)};
     }
     case RedisCommandType::ZUNIONSTORE:
@@ -8742,6 +9015,7 @@ ParseMultiCommand(RedisServiceImpl *redis_impl,
                     redis_impl->RedisTableName(ctx->db_id),
                     std::make_unique<ZUnionStoreCommand>(std::move(cmd)),
                     false,
+                    true,
                     txm)};
     }
     case RedisCommandType::ZINTER:
@@ -8799,6 +9073,7 @@ ParseMultiCommand(RedisServiceImpl *redis_impl,
                     std::make_unique<EloqKey>(std::move(key)),
                     std::make_unique<ZMScoreCommand>(std::move(cmd)),
                     false,
+                    true,
                     txm)};
         break;
     }
@@ -8815,6 +9090,7 @@ ParseMultiCommand(RedisServiceImpl *redis_impl,
                     redis_impl->RedisTableName(ctx->db_id),
                     std::make_unique<ZMPopCommand>(std::move(cmd)),
                     false,
+                    true,
                     txm)};
 
         break;
@@ -8832,6 +9108,7 @@ ParseMultiCommand(RedisServiceImpl *redis_impl,
                     redis_impl->RedisTableName(ctx->db_id),
                     std::make_unique<ZDiffCommand>(std::move(cmd)),
                     false,
+                    true,
                     txm)};
 
         break;
@@ -8849,6 +9126,7 @@ ParseMultiCommand(RedisServiceImpl *redis_impl,
                     redis_impl->RedisTableName(ctx->db_id),
                     std::make_unique<ZDiffStoreCommand>(std::move(cmd)),
                     false,
+                    true,
                     txm)};
 
         break;
@@ -8866,6 +9144,7 @@ ParseMultiCommand(RedisServiceImpl *redis_impl,
                     redis_impl->RedisTableName(ctx->db_id),
                     std::make_unique<ZRangeStoreCommand>(std::move(cmd)),
                     false,
+                    true,
                     txm)};
         break;
     }
@@ -8882,6 +9161,7 @@ ParseMultiCommand(RedisServiceImpl *redis_impl,
                     std::make_unique<EloqKey>(std::move(key)),
                     std::make_unique<ZAddCommand>(std::move(cmd)),
                     false,
+                    true,
                     txm)};
         break;
     }
@@ -8898,6 +9178,7 @@ ParseMultiCommand(RedisServiceImpl *redis_impl,
                     std::make_unique<EloqKey>(std::move(key)),
                     std::make_unique<ZRangeCommand>(std::move(cmd)),
                     false,
+                    true,
                     txm)};
         break;
     }
@@ -8914,6 +9195,7 @@ ParseMultiCommand(RedisServiceImpl *redis_impl,
                     std::make_unique<EloqKey>(std::move(key)),
                     std::make_unique<SAddCommand>(std::move(cmd)),
                     false,
+                    true,
                     txm)};
     }
     case RedisCommandType::SMEMBERS:
@@ -8929,6 +9211,7 @@ ParseMultiCommand(RedisServiceImpl *redis_impl,
                     std::make_unique<EloqKey>(std::move(key)),
                     std::make_unique<SMembersCommand>(std::move(cmd)),
                     false,
+                    true,
                     txm)};
     }
     case RedisCommandType::SREM:
@@ -8944,6 +9227,7 @@ ParseMultiCommand(RedisServiceImpl *redis_impl,
                     std::make_unique<EloqKey>(std::move(key)),
                     std::make_unique<SRemCommand>(std::move(cmd)),
                     false,
+                    true,
                     txm)};
     }
     case RedisCommandType::SPOP:
@@ -8959,6 +9243,7 @@ ParseMultiCommand(RedisServiceImpl *redis_impl,
                     std::make_unique<EloqKey>(std::move(key)),
                     std::make_unique<SPopCommand>(std::move(cmd)),
                     false,
+                    true,
                     txm)};
     }
     case RedisCommandType::SCARD:
@@ -8974,6 +9259,7 @@ ParseMultiCommand(RedisServiceImpl *redis_impl,
                     std::make_unique<EloqKey>(std::move(key)),
                     std::make_unique<SCardCommand>(std::move(cmd)),
                     false,
+                    true,
                     txm)};
     }
     case RedisCommandType::SINTER:
@@ -8988,6 +9274,7 @@ ParseMultiCommand(RedisServiceImpl *redis_impl,
                     redis_impl->RedisTableName(ctx->db_id),
                     std::make_unique<SInterCommand>(std::move(cmd)),
                     false,
+                    true,
                     txm)};
     }
     case RedisCommandType::SDIFF:
@@ -9002,6 +9289,7 @@ ParseMultiCommand(RedisServiceImpl *redis_impl,
                     redis_impl->RedisTableName(ctx->db_id),
                     std::make_unique<SDiffCommand>(std::move(cmd)),
                     false,
+                    true,
                     txm)};
     }
     case RedisCommandType::SDIFFSTORE:
@@ -9016,6 +9304,7 @@ ParseMultiCommand(RedisServiceImpl *redis_impl,
                     redis_impl->RedisTableName(ctx->db_id),
                     std::make_unique<SDiffStoreCommand>(std::move(cmd)),
                     false,
+                    true,
                     txm)};
     }
     case RedisCommandType::SMOVE:
@@ -9030,6 +9319,7 @@ ParseMultiCommand(RedisServiceImpl *redis_impl,
                     redis_impl->RedisTableName(ctx->db_id),
                     std::make_unique<SMoveCommand>(std::move(cmd)),
                     false,
+                    true,
                     txm)};
     }
     case RedisCommandType::RPUSHX:
@@ -9045,6 +9335,7 @@ ParseMultiCommand(RedisServiceImpl *redis_impl,
                     std::make_unique<EloqKey>(std::move(key)),
                     std::make_unique<RPushXCommand>(std::move(cmd)),
                     false,
+                    true,
                     txm)};
     }
     case RedisCommandType::LINDEX:
@@ -9060,6 +9351,7 @@ ParseMultiCommand(RedisServiceImpl *redis_impl,
                     std::make_unique<EloqKey>(std::move(key)),
                     std::make_unique<LIndexCommand>(std::move(cmd)),
                     false,
+                    true,
                     txm)};
     }
     case RedisCommandType::LINSERT:
@@ -9075,6 +9367,7 @@ ParseMultiCommand(RedisServiceImpl *redis_impl,
                     std::make_unique<EloqKey>(std::move(key)),
                     std::make_unique<LInsertCommand>(std::move(cmd)),
                     false,
+                    true,
                     txm)};
     }
     case RedisCommandType::LPUSH:
@@ -9090,6 +9383,7 @@ ParseMultiCommand(RedisServiceImpl *redis_impl,
                     std::make_unique<EloqKey>(std::move(key)),
                     std::make_unique<LPushCommand>(std::move(cmd)),
                     false,
+                    true,
                     txm)};
     }
     case RedisCommandType::LPUSHX:
@@ -9105,6 +9399,7 @@ ParseMultiCommand(RedisServiceImpl *redis_impl,
                     std::make_unique<EloqKey>(std::move(key)),
                     std::make_unique<LPushXCommand>(std::move(cmd)),
                     false,
+                    true,
                     txm)};
     }
     case RedisCommandType::LREM:
@@ -9120,6 +9415,7 @@ ParseMultiCommand(RedisServiceImpl *redis_impl,
                     std::make_unique<EloqKey>(std::move(key)),
                     std::make_unique<LRemCommand>(std::move(cmd)),
                     false,
+                    true,
                     txm)};
     }
     case RedisCommandType::LTRIM:
@@ -9135,6 +9431,7 @@ ParseMultiCommand(RedisServiceImpl *redis_impl,
                     std::make_unique<EloqKey>(std::move(key)),
                     std::make_unique<LTrimCommand>(std::move(cmd)),
                     false,
+                    true,
                     txm)};
     }
     case RedisCommandType::LLEN:
@@ -9150,6 +9447,7 @@ ParseMultiCommand(RedisServiceImpl *redis_impl,
                     std::make_unique<EloqKey>(std::move(key)),
                     std::make_unique<LLenCommand>(std::move(cmd)),
                     false,
+                    true,
                     txm)};
     }
     case RedisCommandType::LPOS:
@@ -9165,6 +9463,7 @@ ParseMultiCommand(RedisServiceImpl *redis_impl,
                     std::make_unique<EloqKey>(std::move(key)),
                     std::make_unique<LPosCommand>(std::move(cmd)),
                     false,
+                    true,
                     txm)};
     }
     case RedisCommandType::LSET:
@@ -9180,6 +9479,7 @@ ParseMultiCommand(RedisServiceImpl *redis_impl,
                     std::make_unique<EloqKey>(std::move(key)),
                     std::make_unique<LSetCommand>(std::move(cmd)),
                     false,
+                    true,
                     txm)};
     }
     case RedisCommandType::DUMP:
@@ -9249,6 +9549,7 @@ ParseMultiCommand(RedisServiceImpl *redis_impl,
                     redis_impl->RedisTableName(ctx->db_id),
                     std::make_unique<BLMoveCommand>(std::move(cmd)),
                     false,
+                    true,
                     txm)};
     }
     case RedisCommandType::BLMPOP:
@@ -9264,6 +9565,7 @@ ParseMultiCommand(RedisServiceImpl *redis_impl,
                     redis_impl->RedisTableName(ctx->db_id),
                     std::make_unique<BLMPopCommand>(std::move(cmd)),
                     false,
+                    true,
                     txm)};
     }
     case RedisCommandType::BLPOP:
@@ -9279,6 +9581,7 @@ ParseMultiCommand(RedisServiceImpl *redis_impl,
                     redis_impl->RedisTableName(ctx->db_id),
                     std::make_unique<BLMPopCommand>(std::move(cmd)),
                     false,
+                    true,
                     txm)};
         break;
     }
@@ -9295,6 +9598,7 @@ ParseMultiCommand(RedisServiceImpl *redis_impl,
                     redis_impl->RedisTableName(ctx->db_id),
                     std::make_unique<BLMPopCommand>(std::move(cmd)),
                     false,
+                    true,
                     txm)};
         break;
     }
@@ -9311,6 +9615,7 @@ ParseMultiCommand(RedisServiceImpl *redis_impl,
                     redis_impl->RedisTableName(ctx->db_id),
                     std::make_unique<BLMoveCommand>(std::move(cmd)),
                     false,
+                    true,
                     txm)};
     }
     case RedisCommandType::GETRANGE:
@@ -9327,6 +9632,7 @@ ParseMultiCommand(RedisServiceImpl *redis_impl,
                     std::make_unique<EloqKey>(std::move(key)),
                     std::make_unique<GetRangeCommand>(std::move(cmd)),
                     false,
+                    true,
                     txm)};
     }
     case RedisCommandType::INCRBYFLOAT:
@@ -9342,6 +9648,7 @@ ParseMultiCommand(RedisServiceImpl *redis_impl,
                     std::make_unique<EloqKey>(std::move(key)),
                     std::make_unique<FloatOpCommand>(std::move(cmd)),
                     false,
+                    true,
                     txm)};
     }
     case RedisCommandType::BITOP:
@@ -9356,6 +9663,7 @@ ParseMultiCommand(RedisServiceImpl *redis_impl,
                     redis_impl->RedisTableName(ctx->db_id),
                     std::make_unique<BitOpCommand>(std::move(cmd)),
                     false,
+                    true,
                     txm)};
     }
     case RedisCommandType::SINTERCARD:
@@ -9370,6 +9678,7 @@ ParseMultiCommand(RedisServiceImpl *redis_impl,
                     redis_impl->RedisTableName(ctx->db_id),
                     std::make_unique<SInterCardCommand>(std::move(cmd)),
                     false,
+                    true,
                     txm)};
     }
     case RedisCommandType::SINTERSTORE:
@@ -9384,6 +9693,7 @@ ParseMultiCommand(RedisServiceImpl *redis_impl,
                     redis_impl->RedisTableName(ctx->db_id),
                     std::make_unique<SInterStoreCommand>(std::move(cmd)),
                     false,
+                    true,
                     txm)};
     }
     case RedisCommandType::SISMEMBER:
@@ -9399,6 +9709,7 @@ ParseMultiCommand(RedisServiceImpl *redis_impl,
                     std::make_unique<EloqKey>(std::move(key)),
                     std::make_unique<SIsMemberCommand>(std::move(cmd)),
                     false,
+                    true,
                     txm)};
     }
     case RedisCommandType::SMISMEMBER:
@@ -9414,6 +9725,7 @@ ParseMultiCommand(RedisServiceImpl *redis_impl,
                     std::make_unique<EloqKey>(std::move(key)),
                     std::make_unique<SMIsMemberCommand>(std::move(cmd)),
                     false,
+                    true,
                     txm)};
     }
     case RedisCommandType::SRANDMEMBER:
@@ -9429,6 +9741,7 @@ ParseMultiCommand(RedisServiceImpl *redis_impl,
                     std::make_unique<EloqKey>(std::move(key)),
                     std::make_unique<SRandMemberCommand>(std::move(cmd)),
                     false,
+                    true,
                     txm)};
     }
     case RedisCommandType::SUNION:
@@ -9443,6 +9756,7 @@ ParseMultiCommand(RedisServiceImpl *redis_impl,
                     redis_impl->RedisTableName(ctx->db_id),
                     std::make_unique<SUnionCommand>(std::move(cmd)),
                     false,
+                    true,
                     txm)};
     }
     case RedisCommandType::SUNIONSTORE:
@@ -9457,6 +9771,7 @@ ParseMultiCommand(RedisServiceImpl *redis_impl,
                     redis_impl->RedisTableName(ctx->db_id),
                     std::make_unique<SUnionStoreCommand>(std::move(cmd)),
                     false,
+                    true,
                     txm)};
     }
 #ifdef WITH_FAULT_INJECT
@@ -9668,6 +9983,17 @@ ParseMultiCommand(RedisServiceImpl *redis_impl,
                 DirectRequest(
                     ctx, std::make_unique<SlowLogCommand>(std::move(cmd)))};
     }
+    case RedisCommandType::PUBLISH:
+    {
+        auto [success, cmd] = ParsePublishCommand(args, output);
+        if (!success)
+        {
+            return {false, ObjectCommandTxRequest()};
+        }
+        return {success,
+                DirectRequest(
+                    ctx, std::make_unique<PublishCommand>(std::move(cmd)))};
+    }
     default:
         LOG(WARNING) << "Unsupported command in MULTI " << args[0];
         output->OnError("Unsupported command in MULTI");
@@ -9834,9 +10160,21 @@ std::tuple<bool, SlowLogCommand> ParseSlowLogCommand(
     else
     {
         output->OnError("ERR unknown subcommand '" + std::string(args[1]) +
-                        "'");
+                        "'.");
         return {false, SlowLogCommand()};
     }
+}
+
+std::tuple<bool, PublishCommand> ParsePublishCommand(
+    const std::vector<std::string_view> &args, OutputHandler *output)
+{
+    assert(args[0] == "publish");
+    if (args.size() != 3)
+    {
+        output->OnError("ERR wrong number of arguments for 'publish' command");
+        return {false, PublishCommand()};
+    }
+    return {true, PublishCommand(args[1], args[2])};
 }
 
 std::tuple<bool, ReadOnlyCommand> ParseReadOnlyCommand(
@@ -9904,15 +10242,16 @@ std::tuple<bool, std::unique_ptr<CommandCommand>> ParseCommandCommand(
             {
                 return {true, std::make_unique<CommandListCommand>()};
             }
-            output->OnError("syntax error");
+            output->OnError("ERR syntax error");
             return {false, nullptr};
         }
-        output->OnError("unknown subcommand '" + std::string(args[1]) + "'.");
+        output->OnError("ERR unknown subcommand '" + std::string(args[1]) +
+                        "'.");
         return {false, nullptr};
         // TODO(lzx): Complete subcommands of this command
     }
 
-    output->OnError("unknown subcommand '" + std::string(args[1]) + "'.");
+    output->OnError("ERR unknown subcommand '" + std::string(args[1]) + "'.");
     return {false, nullptr};
 }
 
@@ -9932,7 +10271,7 @@ std::tuple<bool, std::unique_ptr<ClusterCommand>> ParseClusterCommand(
             return {true, std::make_unique<ClusterInfoCommand>()};
         }
         output->OnError("ERR wrong number of arguments for 'cluster|" +
-                        std::string(args[1]) + "'command");
+                        std::string(args[1]) + "' command");
         return {false, nullptr};
     }
     else if (0 == strcasecmp(args[1].data(), "nodes"))
@@ -9942,7 +10281,7 @@ std::tuple<bool, std::unique_ptr<ClusterCommand>> ParseClusterCommand(
             return {true, std::make_unique<ClusterNodesCommand>()};
         }
         output->OnError("ERR wrong number of arguments for 'cluster|" +
-                        std::string(args[1]) + "'command");
+                        std::string(args[1]) + "' command");
         return {false, nullptr};
     }
     else if (0 == strcasecmp(args[1].data(), "slots"))
@@ -9952,7 +10291,7 @@ std::tuple<bool, std::unique_ptr<ClusterCommand>> ParseClusterCommand(
             return {true, std::make_unique<ClusterSlotsCommand>()};
         }
         output->OnError("ERR wrong number of arguments for 'cluster|" +
-                        std::string(args[1]) + "'command");
+                        std::string(args[1]) + "' command");
         return {false, nullptr};
     }
     else if (0 == strcasecmp(args[1].data(), "keyslot"))
@@ -9962,12 +10301,58 @@ std::tuple<bool, std::unique_ptr<ClusterCommand>> ParseClusterCommand(
             return {true, std::make_unique<ClusterKeySlotCommand>(args[2])};
         }
         output->OnError("ERR wrong number of arguments for 'cluster|" +
-                        std::string(args[1]) + "'command");
+                        std::string(args[1]) + "' command");
         return {false, nullptr};
     }
 
-    output->OnError("unknown subcommand '" + std::string(args[1]) + "'.");
+    output->OnError("ERR unknown subcommand '" + std::string(args[1]) + "'.");
     return {false, nullptr};
+}
+
+std::tuple<bool, std::unique_ptr<FailoverCommand>> ParseFailoverCommand(
+    const std::vector<std::string_view> &args, OutputHandler *output)
+{
+    // syntax: failover to target_host:target_port
+    assert(0 == strcasecmp(args[0].data(), "failover"));
+
+    // Check command format and parse arguments
+    if (args.size() != 3)
+    {
+        output->OnError("ERR wrong number of arguments for 'failover' command");
+        return {false, nullptr};
+    }
+
+    // Validate the TO keyword
+    if (0 != strcasecmp(args[1].data(), "to"))
+    {
+        output->OnError("ERR syntax error: FAILOVER TO <host:port>");
+        return {false, nullptr};
+    }
+
+    // Parse target host:port from args
+    const int arg_index = 2;  // host:port is always at index 2
+    std::string target_str(args[arg_index].data(), args[arg_index].size());
+    size_t colon_pos = target_str.find(':');
+    if (colon_pos == std::string::npos)
+    {
+        output->OnError("ERR invalid format, expected host:port");
+        return {false, nullptr};
+    }
+
+    // Extract host and port
+    std::string target_host = target_str.substr(0, colon_pos);
+    uint16_t target_port = 0;
+    try
+    {
+        target_port = std::stoul(target_str.substr(colon_pos + 1));
+    }
+    catch (const std::exception &e)
+    {
+        output->OnError("ERR invalid port number");
+        return {false, nullptr};
+    }
+
+    return {true, std::make_unique<FailoverCommand>(target_host, target_port)};
 }
 
 std::tuple<bool, std::unique_ptr<ClientCommand>> ParseClientCommand(
@@ -9991,7 +10376,24 @@ std::tuple<bool, std::unique_ptr<ClientCommand>> ParseClientCommand(
     {
         if (args.size() == 4)
         {
-            return {true, std::make_unique<ClientSetInfoCommand>()};
+            ClientSetInfoCommand::Attribute attr;
+            if (0 == strcasecmp(args[2].data(), "lib-name"))
+            {
+                attr = ClientSetInfoCommand::Attribute::LIB_NAME;
+            }
+            else if (0 == strcasecmp(args[2].data(), "lib-ver"))
+            {
+                attr = ClientSetInfoCommand::Attribute::LIB_VER;
+            }
+            else
+            {
+                output->OnError("ERR Unrecognized option" +
+                                std::string(args[2]));
+                return {false, nullptr};
+            }
+
+            return {true,
+                    std::make_unique<ClientSetInfoCommand>(attr, args[3])};
         }
         output->OnError("ERR wrong number of arguments for 'client|" +
                         std::string(args[1]) + "'command");
@@ -10082,9 +10484,7 @@ std::tuple<bool, std::unique_ptr<ClientCommand>> ParseClientCommand(
     }
 
     output->OnFormatError(
-        "unknown subcommand or ERR wrong number of arguments for '%.128s'. "
-        "Try "
-        "%s HELP.",
+        "ERR unknown subcommand '%.128s' or wrong number of arguments.",
         args[1].data(),
         args[0].data());
     return {false, nullptr};
@@ -10139,7 +10539,7 @@ std::tuple<bool, ConfigCommand> ParseConfigCommand(
         }
         return {true, ConfigCommand(keys)};
     }
-    output->OnError("unknown subcommand '" + std::string(args[1]) + "'.");
+    output->OnError("ERR unknown subcommand '" + std::string(args[1]) + "'.");
     return {false, ConfigCommand()};
 }
 
@@ -16907,7 +17307,7 @@ bool SortCommand::Load(RedisServiceImpl *redis_impl,
 {
     EloqKey eloq_key(key);
     SortableLoadCommand cmd;
-    ObjectCommandTxRequest req(table_name, &eloq_key, &cmd, false, txm);
+    ObjectCommandTxRequest req(table_name, &eloq_key, &cmd, false, true, txm);
     bool success = redis_impl->ExecuteTxRequest(txm, &req, nullptr, error);
     if (success)
     {
@@ -16959,7 +17359,7 @@ bool SortCommand::MultiGet(RedisServiceImpl *redis_impl,
 
         MHGetCommand mhget_cmd(std::move(keys), std::move(cmds));
         MultiObjectCommandTxRequest mhget_req(
-            table_name, &mhget_cmd, false, txm);
+            table_name, &mhget_cmd, false, true, txm);
         success = redis_impl->ExecuteMultiObjTxRequest(
             txm, &mhget_req, nullptr, error);
         if (success)
@@ -16994,7 +17394,8 @@ bool SortCommand::MultiGet(RedisServiceImpl *redis_impl,
         }
 
         MGetCommand mget_cmd(std::move(keys), std::move(cmds));
-        MultiObjectCommandTxRequest mget_req(table_name, &mget_cmd, false, txm);
+        MultiObjectCommandTxRequest mget_req(
+            table_name, &mget_cmd, false, true, txm);
         success = redis_impl->ExecuteMultiObjTxRequest(
             txm, &mget_req, nullptr, error);
         if (success)
@@ -17027,7 +17428,7 @@ bool SortCommand::Store(RedisServiceImpl *redis_impl,
 {
     EloqKey eloq_key(key);
     StoreListCommand cmd(std::move(values));
-    ObjectCommandTxRequest req(table_name, &eloq_key, &cmd, false, txm);
+    ObjectCommandTxRequest req(table_name, &eloq_key, &cmd, false, true, txm);
     bool success = redis_impl->ExecuteTxRequest(txm, &req, nullptr, error);
     if (success)
     {
@@ -18545,8 +18946,9 @@ std::tuple<bool, BLMoveCommand> ParseBLMoveCommand(
     uint64_t ts = multi ? 0
                         : txservice::LocalCcShards::ClockTs() +
                               static_cast<uint64_t>(secs * 1000000);
-    txservice::BlockOperation bo = multi ? txservice::BlockOperation::NoBlock
-                                         : txservice::BlockOperation::PopBlock;
+    txservice::BlockOperation bo = multi
+                                       ? txservice::BlockOperation::NoBlock
+                                       : txservice::BlockOperation::PopNoBlock;
     return {true,
             BLMoveCommand(EloqKey(args[1]),
                           BlockLPopCommand(bo, s_left, 1),
@@ -18803,8 +19205,9 @@ std::tuple<bool, BLMoveCommand> ParseBRPopLPushCommand(
     uint64_t ts = multi ? 0
                         : txservice::LocalCcShards::ClockTs() +
                               static_cast<uint64_t>(secs * 1000000);
-    txservice::BlockOperation bo = multi ? txservice::BlockOperation::NoBlock
-                                         : txservice::BlockOperation::PopBlock;
+    txservice::BlockOperation bo = multi
+                                       ? txservice::BlockOperation::NoBlock
+                                       : txservice::BlockOperation::PopNoBlock;
     return {true,
             BLMoveCommand(EloqKey(args[1]),
                           BlockLPopCommand(bo, false, 1),

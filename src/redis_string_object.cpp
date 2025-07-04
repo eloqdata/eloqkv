@@ -336,7 +336,7 @@ bool RedisStringObject::Execute(BitFieldCommand &cmd) const
         }
         case BitFieldCommand::OpType::SET:
         {
-            int64_t limit;
+            int64_t limit = 0;
             bool ibu = IsBitfieldUnoverflow(scmd.value_,
                                             0,
                                             scmd.encoding_bits_,
@@ -365,7 +365,7 @@ bool RedisStringObject::Execute(BitFieldCommand &cmd) const
         {
             int64_t val = GetBitFieldValue(
                 p, scmd.offset_, scmd.encoding_bits_, scmd.encoding_i_);
-            int64_t limit;
+            int64_t limit = 0;
             bool ibu = IsBitfieldUnoverflow(val,
                                             scmd.value_,
                                             scmd.encoding_bits_,
@@ -592,7 +592,7 @@ void RedisStringObject::CommitBitField(
         }
         case BitFieldCommand::OpType::SET:
         {
-            int64_t limit;
+            int64_t limit = 0;
             bool ibu = IsBitfieldUnoverflow(scmd.value_,
                                             0,
                                             scmd.encoding_bits_,
@@ -614,7 +614,7 @@ void RedisStringObject::CommitBitField(
         {
             int64_t val = GetBitFieldValue(
                 p, scmd.offset_, scmd.encoding_bits_, scmd.encoding_i_);
-            int64_t limit;
+            int64_t limit = 0;
             bool ibu = IsBitfieldUnoverflow(val,
                                             scmd.value_,
                                             scmd.encoding_bits_,
@@ -700,7 +700,7 @@ void RedisStringObject::SetBitFieldValue(
         int64_t bit_p = 7 - (pos & 0x7);
 
         uint8_t bval = static_cast<uint8_t>(val & 0x1) << bit_p;
-        val = (val >> 1);
+        val >>= 1;
         uint8_t bone = ~(0x1 << bit_p);
         p[bys_p] = (p[bys_p] & bone) | bval;
         pos--;

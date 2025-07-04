@@ -40,8 +40,13 @@ class RedisConnectionContext;
 class RedisCommandHandler
 {
 public:
-    virtual ~RedisCommandHandler()
+    virtual ~RedisCommandHandler() = default;
+
+    static void Initialize(txservice::IsolationLevel iso_level,
+                           txservice::CcProtocol cc_protocol)
     {
+        iso_level_ = iso_level;
+        cc_protocol_ = cc_protocol;
     }
 
     // Once Server receives commands, it will first find the corresponding
@@ -84,10 +89,10 @@ public:
     }
 
 public:
-    static constexpr txservice::IsolationLevel iso_level_{
-        txservice::IsolationLevel::ReadCommitted};
-    static constexpr txservice::CcProtocol cc_protocol_{
-        txservice::CcProtocol::OccRead};
+    inline static txservice::IsolationLevel iso_level_ =
+        txservice::IsolationLevel::ReadCommitted;
+    inline static txservice::CcProtocol cc_protocol_ =
+        txservice::CcProtocol::OccRead;
     static constexpr bool auto_commit_{true};
 };
 
@@ -257,6 +262,24 @@ class ClusterCommandHandler : public RedisCommandHandler
 {
 public:
     explicit ClusterCommandHandler(RedisServiceImpl *redis_impl)
+        : redis_impl_(redis_impl)
+    {
+    }
+
+    brpc::RedisCommandHandlerResult Run(
+        RedisConnectionContext *ctx,
+        const std::vector<butil::StringPiece> &args,
+        brpc::RedisReply *output,
+        bool /*flush_batched*/) override;
+
+private:
+    RedisServiceImpl *redis_impl_;
+};
+
+class FailoverCommandHandler : public RedisCommandHandler
+{
+public:
+    explicit FailoverCommandHandler(RedisServiceImpl *redis_impl)
         : redis_impl_(redis_impl)
     {
     }
@@ -827,6 +850,11 @@ public:
         const std::vector<butil::StringPiece> &args,
         brpc::RedisReply *output,
         bool flush_batched);
+
+    size_t PendingRequestNum() const
+    {
+        return cmd_reqs_.size();
+    }
 
     bool Begin();
 

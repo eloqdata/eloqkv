@@ -19,34 +19,6 @@
  *    <http://www.gnu.org/licenses/>.
  *
  */
-/*
- * Copyright (c) 2009-2012, Salvatore Sanfilippo <antirez at gmail dot com>
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *
- *   * Redistributions of source code must retain the above copyright notice,
- *     this list of conditions and the following disclaimer.
- *   * Redistributions in binary form must reproduce the above copyright
- *     notice, this list of conditions and the following disclaimer in the
- *     documentation and/or other materials provided with the distribution.
- *   * Neither the name of Redis nor the names of its contributors may be used
- *     to endorse or promote products derived from this software without
- *     specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
- * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
- * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
- * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
- * POSSIBILITY OF SUCH DAMAGE.
- */
 #pragma once
 
 #include <absl/types/span.h>
@@ -77,6 +49,34 @@
 #include "tx_key.h"
 #include "tx_request.h"
 
+/*
+ * Copyright (c) 2009-2012, Salvatore Sanfilippo <antirez at gmail dot com>
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *
+ *   * Redistributions of source code must retain the above copyright notice,
+ *     this list of conditions and the following disclaimer.
+ *   * Redistributions in binary form must reproduce the above copyright
+ *     notice, this list of conditions and the following disclaimer in the
+ *     documentation and/or other materials provided with the distribution.
+ *   * Neither the name of Redis nor the names of its contributors may be used
+ *     to endorse or promote products derived from this software without
+ *     specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
+ * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ * POSSIBILITY OF SUCH DAMAGE.
+ */
 #define OBJ_SET_NX (1 << 0)     // Set if key not exists.
 #define OBJ_SET_XX (1 << 1)     // Set if key exists.
 #define OBJ_SET_SETNX (1 << 2)  // Set if command is setnx.
@@ -264,6 +264,7 @@ enum struct RedisCommandType
     COMMAND,
     CONFIG,
     CLUSTER,
+    FAILOVER,
     FLUSHDB,
     FLUSHALL,
     READONLY,
@@ -292,6 +293,13 @@ enum struct RedisCommandType
     GETEX,
     RECOVER,
     TIME,
+
+    // pubsub commands
+    PUBLISH,
+    SUBSCRIBE,
+    UNSUBSCRIBE,
+    PSUBSCRIBE,
+    PUNSUBSCRIBE,
 };
 
 enum RedisResultType
@@ -341,7 +349,8 @@ struct SlowLogEntry
 {
     SlowLogEntry() = default;
     SlowLogEntry(const SlowLogEntry &rhs)
-        : timestamp_(rhs.timestamp_),
+        : id_(rhs.id_),
+          timestamp_(rhs.timestamp_),
           execution_time_(rhs.execution_time_),
           cmd_(rhs.cmd_),
           client_addr_(rhs.client_addr_),
@@ -350,7 +359,8 @@ struct SlowLogEntry
     }
 
     SlowLogEntry(SlowLogEntry &&rhs)
-        : timestamp_(rhs.timestamp_),
+        : id_(rhs.id_),
+          timestamp_(rhs.timestamp_),
           execution_time_(rhs.execution_time_),
           cmd_(std::move(rhs.cmd_)),
           client_addr_(rhs.client_addr_),
@@ -360,6 +370,7 @@ struct SlowLogEntry
 
     SlowLogEntry &operator=(SlowLogEntry &&rhs)
     {
+        id_ = rhs.id_;
         timestamp_ = rhs.timestamp_;
         execution_time_ = rhs.execution_time_;
         cmd_ = std::move(rhs.cmd_);
@@ -368,6 +379,7 @@ struct SlowLogEntry
         return *this;
     }
 
+    uint64_t id_{0};
     uint64_t timestamp_{0};
     uint32_t execution_time_{0};
     std::vector<std::string> cmd_;
@@ -537,6 +549,11 @@ struct RedisMultiObjectCommand : public txservice::MultiObjectTxCommand
         return &vct_key_ptrs_[curr_step_];
     }
 
+    std::vector<txservice::TxKey> *KeyPointers(size_t step) override
+    {
+        return &vct_key_ptrs_[step];
+    }
+
     std::vector<txservice::TxCommand *> *CommandPointers() override
     {
         return &vct_cmd_ptrs_[curr_step_];
@@ -572,6 +589,7 @@ struct RedisMultiObjectCommand : public txservice::MultiObjectTxCommand
             }
         }
     }
+
     // The MultiObjectTxCommand can be split multi steps to run. Only the
     // previous step finished or failed, it can go to next step and stop the
     // entire command according to the result of HandleMiddleResult.
@@ -756,18 +774,19 @@ struct InfoCommand : public DirectCommand
     uint32_t core_num_{0};
     std::string enable_data_store_;
     std::string enable_wal_;
-    uint32_t node_memory_limit_mb_;
-    uint32_t node_log_limit_mb_;
+    uint32_t node_memory_limit_mb_{0};
+    uint32_t node_log_limit_mb_{0};
 
-    int64_t data_memory_allocated_;
-    int64_t data_memory_committed_;
-    uint64_t last_ckpt_ts_;
-    int event_dispatcher_num_;
-    const char *version_;
+    int64_t data_memory_allocated_{0};
+    int64_t data_memory_committed_{0};
+    uint64_t last_ckpt_ts_{0};
+    int event_dispatcher_num_{0};
+    const char *version_{nullptr};
 
     int64_t conn_received_count_{0};
     int64_t conn_rejected_count_{0};
     int64_t connecting_count_{0};
+    uint64_t max_connection_count_{0};
     int64_t blocked_clients_count_{0};
     int64_t cmd_read_count_{0};
     int64_t cmd_write_count_{0};
@@ -893,6 +912,25 @@ struct ClusterKeySlotCommand : public ClusterCommand
     int32_t result_;
 };
 
+struct FailoverCommand : public DirectCommand
+{
+    FailoverCommand() = default;
+    explicit FailoverCommand(std::string target_host, uint16_t target_port)
+        : target_host_(target_host), target_port_(target_port)
+    {
+    }
+
+    void Execute(RedisServiceImpl *redis_impl,
+                 RedisConnectionContext *ctx) override;
+
+    void OutputResult(OutputHandler *reply) const override;
+
+    std::string target_host_;
+    uint16_t target_port_{0};
+    bool failover_succeed_{false};
+    std::string error_message_;
+};
+
 struct ClientCommand : public DirectCommand
 {
     /**
@@ -937,6 +975,8 @@ struct ClientCommand : public DirectCommand
         std::string user_{"default"};  // unset yet
         uint64_t redir_;               // unset yet
         std::string resp_;             // unset yet
+        std::string lib_name_;
+        std::string lib_ver_;
     };
 
     ClientCommand() = default;
@@ -987,7 +1027,7 @@ struct ClientSetInfoCommand : public ClientCommand
     ClientSetInfoCommand() = default;
 
     ClientSetInfoCommand(Attribute attribute, std::string_view value)
-        : attribute_(attribute), value_()
+        : attribute_(attribute), value_(value)
     {
     }
 
@@ -1171,6 +1211,21 @@ struct SlowLogCommand : public DirectCommand
     uint32_t len_;
 };
 
+struct PublishCommand : public DirectCommand
+{
+    PublishCommand() = default;
+    PublishCommand(std::string_view chan, std::string_view msg)
+        : chan_(chan), message_(msg){};
+    void Execute(RedisServiceImpl *redis_impl,
+                 RedisConnectionContext *ctx) override;
+
+    void OutputResult(OutputHandler *reply) const override;
+
+    std::string_view chan_{};
+    std::string_view message_{};
+    int received_{};
+};
+
 struct StringCommand : public RedisCommand
 {
     std::unique_ptr<txservice::TxRecord> CreateObject(
@@ -1248,9 +1303,10 @@ struct SetCommand : public StringCommand
         return true;
     }
 
-    bool IgnoreKvValue() const override
+    bool IgnoreOldValue() const override
     {
-        if (flag_ & OBJ_SET_XX || flag_ & OBJ_SET_NX)
+        if (flag_ & OBJ_SET_XX || flag_ & OBJ_SET_NX || flag_ & OBJ_GET_SET ||
+            flag_ & OBJ_SET_KEEPTTL)
         {
             return false;
         }
@@ -2719,6 +2775,7 @@ public:
                   EloqKey &&dkey,
                   LMovePushCommand &&dest_cmd,
                   uint64_t ts_expired);
+
     void OutputResult(OutputHandler *reply) const override;
 
     bool HandleMiddleResult() override;
@@ -2727,7 +2784,7 @@ public:
 
     bool IsPassed() const override
     {
-        if (curr_step_ == 1)
+        if (curr_step_ == 3)
         {
             return dest_cmd_->result_.err_code_ == RD_OK ||
                    dest_cmd_->result_.err_code_ == RD_NIL;
@@ -2740,7 +2797,7 @@ public:
 
     bool IsExpired() const override
     {
-        if (curr_step_ != 0)
+        if (curr_step_ != 1)
         {
             return false;
         }
@@ -2750,7 +2807,7 @@ public:
 
     uint32_t NumOfFinishBlockCommands() const override
     {
-        return (curr_step_ == 0 && !is_forward_) ? 1 : 0;
+        return (curr_step_ == 1 && !is_forward_) ? 1 : 0;
     }
 
     bool IsBlockCommand() override
@@ -3273,6 +3330,34 @@ struct ZsetCommand : public RedisCommand
     RedisZsetResult zset_result_;
 };
 
+/*
+ * Copyright (c) 2009-2012, Salvatore Sanfilippo <antirez at gmail dot com>
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *
+ *   * Redistributions of source code must retain the above copyright notice,
+ *     this list of conditions and the following disclaimer.
+ *   * Redistributions in binary form must reproduce the above copyright
+ *     notice, this list of conditions and the following disclaimer in the
+ *     documentation and/or other materials provided with the distribution.
+ *   * Neither the name of Redis nor the names of its contributors may be used
+ *     to endorse or promote products derived from this software without
+ *     specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
+ * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ * POSSIBILITY OF SUCH DAMAGE.
+ */
 #define ZADD_IN_INCR (1 << 0)  // Increment the score instead of setting it.
 #define ZADD_IN_NX (1 << 1)    // Don't touch elements already existing.
 #define ZADD_IN_XX (1 << 2)    // Only touch elements already existing.
@@ -6360,7 +6445,7 @@ struct StoreListCommand : public RedisCommand
         return true;
     }
 
-    bool IgnoreKvValue() const override
+    bool IgnoreOldValue() const override
     {
         return IsOverwrite();
     }
@@ -6908,7 +6993,7 @@ struct RestoreCommand : public RedisCommand
         return replace_;
     }
 
-    bool IgnoreKvValue() const override
+    bool IgnoreOldValue() const override
     {
         return IsOverwrite();
     }
@@ -7135,11 +7220,10 @@ public:
         return true;
     }
 
-    std::unique_ptr<txservice::TxCommand> RecoverTTLObjectCommand() override
+    txservice::TxCommand *RecoverTTLObjectCommand() override
     {
         assert(recover_ttl_obj_cmd_ != nullptr);
-        return std::unique_ptr<TxCommand>(
-            static_cast<TxCommand *>(recover_ttl_obj_cmd_.release()));
+        return recover_ttl_obj_cmd_.get();
     }
 
     txservice::ExecResult ExecuteOn(const txservice::TxObject &object) override;
@@ -7165,6 +7249,34 @@ public:
     std::unique_ptr<RecoverObjectCommand> recover_ttl_obj_cmd_{nullptr};
 };
 
+/*
+ * Copyright (c) 2009-2016, Salvatore Sanfilippo <antirez at gmail dot com>
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *
+ *   * Redistributions of source code must retain the above copyright notice,
+ *     this list of conditions and the following disclaimer.
+ *   * Redistributions in binary form must reproduce the above copyright
+ *     notice, this list of conditions and the following disclaimer in the
+ *     documentation and/or other materials provided with the distribution.
+ *   * Neither the name of Redis nor the names of its contributors may be used
+ *     to endorse or promote products derived from this software without
+ *     specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
+ * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ * POSSIBILITY OF SUCH DAMAGE.
+ */
 #define EXPIRE_NX (1 << 0)  // Set expiry only when the key has no expiry
 #define EXPIRE_XX                                                              \
     (1 << 1)  // Set expiry only when the key has an existing expiry
@@ -7222,11 +7334,10 @@ public:
         return true;
     }
 
-    std::unique_ptr<txservice::TxCommand> RecoverTTLObjectCommand() override
+    txservice::TxCommand *RecoverTTLObjectCommand() override
     {
         assert(recover_ttl_obj_cmd_ != nullptr);
-        return std::unique_ptr<TxCommand>(
-            static_cast<TxCommand *>(recover_ttl_obj_cmd_.release()));
+        return recover_ttl_obj_cmd_.get();
     }
 
     txservice::ExecResult ExecuteOn(const txservice::TxObject &object) override;
@@ -7357,11 +7468,10 @@ struct PersistCommand : public RedisCommand
     txservice::ExecResult ExecuteOn(const txservice::TxObject &object) override;
     txservice::TxObject *CommitOn(txservice::TxObject *obj_ptr) override;
 
-    std::unique_ptr<txservice::TxCommand> RecoverTTLObjectCommand() override
+    txservice::TxCommand *RecoverTTLObjectCommand() override
     {
         assert(recover_ttl_obj_cmd_ != nullptr);
-        return std::unique_ptr<TxCommand>(
-            static_cast<TxCommand *>(recover_ttl_obj_cmd_.release()));
+        return recover_ttl_obj_cmd_.get();
     }
 
     void Serialize(std::string &str) const override;
@@ -7428,6 +7538,9 @@ std::tuple<bool, std::unique_ptr<CommandCommand>> ParseCommandCommand(
 std::tuple<bool, std::unique_ptr<ClusterCommand>> ParseClusterCommand(
     const std::vector<std::string_view> &args, OutputHandler *output);
 
+std::tuple<bool, std::unique_ptr<FailoverCommand>> ParseFailoverCommand(
+    const std::vector<std::string_view> &args, OutputHandler *output);
+
 std::tuple<bool, std::unique_ptr<ClientCommand>> ParseClientCommand(
     const std::vector<std::string_view> &args, OutputHandler *output);
 
@@ -7435,6 +7548,9 @@ std::tuple<bool, DBSizeCommand> ParseDBSizeCommand(
     const std::vector<std::string_view> &args, OutputHandler *output);
 
 std::tuple<bool, SlowLogCommand> ParseSlowLogCommand(
+    const std::vector<std::string_view> &args, OutputHandler *output);
+
+std::tuple<bool, PublishCommand> ParsePublishCommand(
     const std::vector<std::string_view> &args, OutputHandler *output);
 
 std::tuple<bool, ReadOnlyCommand> ParseReadOnlyCommand(

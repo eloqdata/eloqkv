@@ -49,30 +49,42 @@ option(BRPC_WITH_GLOG "With glog" ON)
 
 option(ABSL_PROPAGATE_CXX_STD "ABSL PROPAGATE CXX STD" ON)
 
-# KV data store backend for redis server, Cassandra, DynamoDB, RocksDB Cloud
-set(WITH_KV_STORE "CASSANDRA" CACHE STRING "The KV data store for Monograph Redis")
-set_property(CACHE WITH_KV_STORE PROPERTY STRINGS "CASSANDRA" "DYNAMODB" "ROCKSDB")
-message(NOTICE "With DATA_STORE: ${WITH_KV_STORE}")
+option(WITH_ASAN "Enable memory sanitize" OFF)
+message(NOTICE "WITH ASAN: ${WITH_ASAN}")
 
-# Set the cloud storage backend for RocksDB Cloud
-if (WITH_KV_STORE STREQUAL "ROCKSDB")
-  set(ROCKSDB_CLOUD_FS  "" CACHE STRING "The RocksDB backend file system, S3 or GCS")
-  set_property(CACHE ROCKSDB_CLOUD_FS PROPERTY STRINGS "S3" "GCS")
-   message(NOTICE "With ROCKSDB_CLOUD_FS: ${ROCKSDB_CLOUD_FS}")
-endif ()
+# KV data store backend for redis server, Cassandra, DynamoDB, RocksDB Cloud
+set(WITH_DATA_STORE "CASSANDRA" CACHE STRING "The KV data store for Monograph Redis")
+set_property(CACHE WITH_DATA_STORE PROPERTY STRINGS "CASSANDRA" "DYNAMODB" "ROCKSDB" "ROCKSDB_CLOUD_S3" "ROCKSDB_CLOUD_GCS" "ELOQDSS_ROCKSDB_CLOUD_S3" "ELOQDSS_ROCKSDB_CLOUD_GCS" "ELOQDSS_ELOQSTORE")
+message(NOTICE "With DATA_STORE: ${WITH_DATA_STORE}")
+
+
+option(USE_ONE_ELOQDSS_PARTITION_ENABLED "Whether use one partition for kv store" OFF)
+message(NOTICE "USE_ONE_ELOQDSS_PARTITION_ENABLED : ${USE_ONE_ELOQDSS_PARTITION_ENABLED}")
+if (USE_ONE_ELOQDSS_PARTITION_ENABLED)
+    add_compile_definitions(USE_ONE_ELOQDSS_PARTITION)
+endif()
 
 # Add compile flags for KV stores
-if (WITH_KV_STORE STREQUAL "CASSANDRA")
-   add_compile_definitions(KV_DATA_STORE_TYPE=1)
-elseif (WITH_KV_STORE STREQUAL "DYNAMODB")
-   add_compile_definitions(KV_DATA_STORE_TYPE=2)
-elseif (WITH_KV_STORE STREQUAL "ROCKSDB")
-   add_compile_definitions(KV_DATA_STORE_TYPE=3)
-   if (ROCKSDB_CLOUD_FS STREQUAL "S3")
-     add_compile_definitions(ROCKSDB_CLOUD_FS_TYPE=1)
-   elseif (ROCKSDB_CLOUD_FS STREQUAL "GCS")
-     add_compile_definitions(ROCKSDB_CLOUD_FS_TYPE=2)
-   endif ()
+if (WITH_DATA_STORE STREQUAL "CASSANDRA")
+   add_compile_definitions(DATA_STORE_TYPE_CASSANDRA)
+elseif (WITH_DATA_STORE STREQUAL "DYNAMODB")
+   add_compile_definitions(DATA_STORE_TYPE_DYNAMODB)
+elseif (WITH_DATA_STORE STREQUAL "ROCKSDB")
+   add_compile_definitions(DATA_STORE_TYPE_ROCKSDB)
+elseif (WITH_DATA_STORE STREQUAL "ROCKSDB_CLOUD_S3")
+   add_compile_definitions(DATA_STORE_TYPE_ROCKSDB_CLOUD_S3)
+   add_compile_definitions(ROCKSDB_CLOUD_FS_TYPE=1)
+elseif (WITH_DATA_STORE STREQUAL "ROCKSDB_CLOUD_GCS")
+   add_compile_definitions(DATA_STORE_TYPE_ROCKSDB_CLOUD_GCS)
+   add_compile_definitions(ROCKSDB_CLOUD_FS_TYPE=2)
+elseif (WITH_DATA_STORE STREQUAL "ELOQDSS_ROCKSDB_CLOUD_S3")
+   add_compile_definitions(DATA_STORE_TYPE_ELOQDSS_ROCKSDB_CLOUD_S3)
+   add_compile_definitions(ROCKSDB_CLOUD_FS_TYPE=1)
+elseif (WITH_DATA_STORE STREQUAL "ELOQDSS_ROCKSDB_CLOUD_GCS")
+   add_compile_definitions(DATA_STORE_TYPE_ELOQDSS_ROCKSDB_CLOUD_GCS)
+   add_compile_definitions(ROCKSDB_CLOUD_FS_TYPE=2)
+elseif (WITH_DATA_STORE STREQUAL "ELOQDSS_ELOQSTORE")
+   add_compile_definitions(DATA_STORE_TYPE_ELOQDSS_ELOQSTORE)
 endif ()
 
 option(WITH_LOG_SERVICE "Compile with built-in log service." OFF)
@@ -91,6 +103,16 @@ option(EXT_TX_PROC_ENABLED "Allows runtime threads to move forward the tx servic
 if (EXT_TX_PROC_ENABLED)
     message("EXT_TX_PROC_ENABLED: " ${EXT_TX_PROC_ENABLED})
     add_compile_definitions(EXT_TX_PROC_ENABLED)
+endif()
+
+option(ELOQ_MODULE_ENABLED "Enable EloqModule" ON)
+message("ELOQ_MODULE_ENABLED: " ${ELOQ_MODULE_ENABLED})
+if (ELOQ_MODULE_ENABLED)
+    add_compile_definitions(ELOQ_MODULE_ENABLED)
+endif()
+
+if (ELOQ_MODULE_ENABLED AND NOT EXT_TX_PROC_ENABLED)
+    message(FATAL_ERROR "ELOQ_MODULE_ENABLED requires EXT_TX_PROC_ENABLED to be ON.")
 endif()
 
 option(DISABLE_CKPT_REPORT "Enable DISABLE_CKPT_REPORT" OFF)
@@ -171,8 +193,17 @@ if (CMAKE_SYSTEM_NAME STREQUAL "Darwin")
     endif ()
 endif ()
 
-set(CMAKE_CPP_FLAGS "${DEFINE_CLOCK_GETTIME} -DGFLAGS_NS=${GFLAGS_NS} -g")
+set(CMAKE_CXX_FLAGS "${DEFINE_CLOCK_GETTIME} -DGFLAGS_NS=${GFLAGS_NS} -g")
 #set(CMAKE_CXX_FLAGS "${CMAKE_CPP_FLAGS} -DNDEBUG -O2 -D__const__= -pipe -W -Wall -Wno-unused-parameter -fPIC -fno-omit-frame-pointer")
+
+if (WITH_ASAN)
+    # Add compile flags
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fsanitize=address -fno-omit-frame-pointer")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=address -fno-omit-frame-pointer")
+    # Add link flags for executables and shared libraries
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fsanitize=address -fno-omit-frame-pointer")
+    set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -fsanitize=address -fno-omit-frame-pointer")
+endif()
 
 find_path(LEVELDB_INCLUDE_PATH NAMES leveldb/db.h)
 find_library(LEVELDB_LIB NAMES leveldb)
@@ -192,14 +223,31 @@ endif ()
 find_package(OpenSSL)
 include_directories(${OPENSSL_INCLUDE_DIR})
 
-if (WITH_KV_STORE STREQUAL "DYNAMODB")
+if (WITH_DATA_STORE STREQUAL "DYNAMODB")
   find_package(AWSSDK REQUIRED COMPONENTS dynamodb)
 endif ()
 
 # Add RocksDB deps
-if(WITH_KV_STORE STREQUAL "ROCKSDB")
-  if (ROCKSDB_CLOUD_FS MATCHES "S3|GCS")
-    if (ROCKSDB_CLOUD_FS STREQUAL "S3")
+if(WITH_DATA_STORE STREQUAL "ROCKSDB")
+      find_path(ROCKSDB_INCLUDE_PATH NAMES rocksdb/db.h)
+      if (NOT ROCKSDB_INCLUDE_PATH)
+    	message(FATAL_ERROR "Fail to find RocksDB include path")
+      endif ()
+      message(STATUS "ROCKSDB_INCLUDE_PATH: ${ROCKSDB_INCLUDE_PATH}")
+      include_directories(${ROCKSDB_INCLUDE_PATH})
+
+      find_library(ROCKSDB_LIB NAMES rocksdb)
+      if (NOT ROCKSDB_LIB)
+    	  message(FATAL_ERROR "Fail to find RocksDB lib path")
+      endif ()
+      message(STATUS "ROCKSDB_LIB: ${ROCKSDB_LIB}")
+      set(ROCKSDB_LIBRARIES ${ROCKSDB_LIBRARIES} ${ROCKSDB_LIB})
+endif()
+
+
+if ((WITH_DATA_STORE STREQUAL "ROCKSDB_CLOUD_S3") OR (WITH_DATA_STORE STREQUAL "ROCKSDB_CLOUD_GCS")
+          OR (WITH_DATA_STORE STREQUAL "ELOQDSS_ROCKSDB_CLOUD_S3") OR (WITH_DATA_STORE STREQUAL "ELOQDSS_ROCKSDB_CLOUD_GCS"))
+    if ((WITH_DATA_STORE STREQUAL "ROCKSDB_CLOUD_S3") OR (WITH_DATA_STORE STREQUAL "ELOQDSS_ROCKSDB_CLOUD_S3"))
         find_path(AWS_CORE_INCLUDE_PATH aws/core/Aws.h)
         if((NOT AWS_CORE_INCLUDE_PATH))
           message(FATAL_ERROR "Fail to find aws/core include path")
@@ -257,7 +305,7 @@ if(WITH_KV_STORE STREQUAL "ROCKSDB")
         set(ROCKSDB_LIBRARIES ${ROCKSDB_LIBRARIES} ${AWS_S3_LIB})
 
         find_library(ROCKSDB_CLOUD_LIB NAMES rocksdb-cloud-aws)
-      elseif (ROCKSDB_CLOUD_FS STREQUAL "GCS")
+    elseif ((WITH_DATA_STORE STREQUAL "ROCKSDB_CLOUD_GCS") OR (WITH_DATA_STORE STREQUAL "ELOQDSS_ROCKSDB_CLOUD_GCS"))
         find_path(GCP_CS_INCLUDE_PATH google/cloud/storage/client.h)
         if((NOT GCP_CS_INCLUDE_PATH))
           message(FATAL_ERROR "Fail to find google/cloud/storage include path")
@@ -280,38 +328,42 @@ if(WITH_KV_STORE STREQUAL "ROCKSDB")
         set(ROCKSDB_LIBRARIES ${ROCKSDB_LIBRARIES} ${GCP_CS_LIB})
 
         find_library(ROCKSDB_CLOUD_LIB NAMES rocksdb-cloud-gcp)
-      endif ()
+    endif ()
 
-      find_path(ROCKSDB_CLOUD_INCLUDE_PATH NAMES rocksdb/db.h PATH_SUFFIXES "rocksdb_cloud_header")
-      if (NOT ROCKSDB_CLOUD_INCLUDE_PATH)
-        message(FATAL_ERROR "Fail to find RocksDB Cloud include path")
-      endif ()
-      message(STATUS "ROCKSDB_CLOUD_INCLUDE_PATH: ${ROCKSDB_CLOUD_INCLUDE_PATH}")
-      set(ROCKSDB_INCLUDE_PATH ${ROCKSDB_INCLUDE_PATH} ${ROCKSDB_CLOUD_INCLUDE_PATH})
-      include_directories(${ROCKSDB_INCLUDE_PATH})
+    # Common RocksDB Cloud setup (outside the S3/GCS specific blocks)
+    find_path(ROCKSDB_CLOUD_INCLUDE_PATH NAMES rocksdb/db.h PATH_SUFFIXES "rocksdb_cloud_header")
+    if (NOT ROCKSDB_CLOUD_INCLUDE_PATH)
+      message(FATAL_ERROR "Fail to find RocksDB Cloud include path")
+    endif ()
+    message(STATUS "ROCKSDB_CLOUD_INCLUDE_PATH: ${ROCKSDB_CLOUD_INCLUDE_PATH}")
+    set(ROCKSDB_INCLUDE_PATH ${ROCKSDB_INCLUDE_PATH} ${ROCKSDB_CLOUD_INCLUDE_PATH})
+    include_directories(${ROCKSDB_INCLUDE_PATH})
 
-      if (NOT ROCKSDB_CLOUD_LIB)
-        message(FATAL_ERROR "Fail to find RocksDB Cloud lib path")
-      endif ()
-      message(STATUS "ROCKSDB_CLOUD_LIB: ${ROCKSDB_CLOUD_LIB}")
-      set(ROCKSDB_LIBRARIES ${ROCKSDB_LIBRARIES} ${ROCKSDB_CLOUD_LIB})
-    else ()
-      find_path(ROCKSDB_INCLUDE_PATH NAMES rocksdb/db.h)
-      if (NOT ROCKSDB_INCLUDE_PATH)
-    	message(FATAL_ERROR "Fail to find RocksDB include path")
-      endif ()
-      message(STATUS "ROCKSDB_INCLUDE_PATH: ${ROCKSDB_INCLUDE_PATH}")
-      include_directories(${ROCKSDB_INCLUDE_PATH})
+    if (NOT ROCKSDB_CLOUD_LIB)
+      message(FATAL_ERROR "Fail to find RocksDB Cloud lib path")
+    endif ()
+    message(STATUS "ROCKSDB_CLOUD_LIB: ${ROCKSDB_CLOUD_LIB}")
+    set(ROCKSDB_LIBRARIES ${ROCKSDB_LIBRARIES} ${ROCKSDB_CLOUD_LIB})
+endif()
 
-      find_library(ROCKSDB_LIB NAMES rocksdb)
-      if (NOT ROCKSDB_LIB)
-    	  message(FATAL_ERROR "Fail to find RocksDB lib path")
-      endif ()
-      message(STATUS "ROCKSDB_LIB: ${ROCKSDB_LIB}")
-      set(ROCKSDB_LIBRARIES ${ROCKSDB_LIBRARIES} ${ROCKSDB_LIB})
 
-    endif()
+if (WITH_DATA_STORE STREQUAL "CASSANDRA")
+    # cass handler
+    SET(RESMONOGRAPH_LIBRARY
+        ${RESMONOGRAPH_LIBRARY}
+        cassandra_static
+    )
+elseif (WITH_DATA_STORE STREQUAL "DYNAMODB")
+    SET(RESMONOGRAPH_LIBRARY ${RESMONOGRAPH_LIBRARY} ${AWSSDK_LINK_LIBRARIES})
+elseif (WITH_DATA_STORE STREQUAL "ROCKSDB")
+    SET(RESMONOGRAPH_LIBRARY ${RESMONOGRAPH_LIBRARY} ${ROCKSDB_LIBRARIES})
+elseif ((WITH_DATA_STORE STREQUAL "ROCKSDB_CLOUD_S3") OR (WITH_DATA_STORE STREQUAL "ROCKSDB_CLOUD_GCS")
+        OR (WITH_DATA_STORE STREQUAL "ELOQDSS_ROCKSDB_CLOUD_S3") OR (WITH_DATA_STORE STREQUAL "ELOQDSS_ROCKSDB_CLOUD_GCS"))
+    SET(RESMONOGRAPH_LIBRARY ${RESMONOGRAPH_LIBRARY} ${ROCKSDB_LIBRARIES})
+elseif (WITH_DATA_STORE STREQUAL "ELOQDSS_ELOQSTORE")
+    SET(RESMONOGRAPH_LIBRARY ${RESMONOGRAPH_LIBRARY} eloqstore)
 endif ()
+
 
 set(DYNAMIC_LIB
         ${CMAKE_THREAD_LIBS_INIT}
@@ -326,14 +378,18 @@ set(DYNAMIC_LIB
         dl
         )
 
-set(DS_PROTO_DIR ${CMAKE_CURRENT_SOURCE_DIR}/include/store_handler)
-message(NOTICE "data store service proto dir: ${DS_PROTO_DIR}")
-set(PROTO_SRC ${DS_PROTO_DIR})
-set(PROTO_NAME ds_request)
-execute_process(
-	COMMAND protoc ./${PROTO_NAME}.proto --cpp_out=./
-	WORKING_DIRECTORY ${PROTO_SRC}
-)
+if ((WITH_DATA_STORE STREQUAL "ELOQDSS_ROCKSDB_CLOUD_S3") OR
+        (WITH_DATA_STORE STREQUAL "ELOQDSS_ROCKSDB_CLOUD_GCS") OR
+        (WITH_DATA_STORE STREQUAL "ELOQDSS_ELOQSTORE"))
+    set(DS_PROTO_DIR ${CMAKE_CURRENT_SOURCE_DIR}/store_handler/eloq_data_store_service)
+    message(NOTICE "data store service proto dir: ${DS_PROTO_DIR}")
+    set(PROTO_SRC ${DS_PROTO_DIR})
+    set(PROTO_NAME ds_request)
+    execute_process(
+        COMMAND protoc ./${PROTO_NAME}.proto --cpp_out=./
+        WORKING_DIRECTORY ${PROTO_SRC}
+    )
+endif()
 
 if (BRPC_WITH_GLOG)
     find_path(GLOG_INCLUDE_PATH NAMES glog/logging.h)
@@ -363,8 +419,12 @@ if (CMAKE_SYSTEM_NAME STREQUAL "Darwin")
             "-Wl,-U,_ProfilerStop")
 endif ()
 
-if(WITH_KV_STORE STREQUAL "CASSANDRA")
+if(WITH_DATA_STORE STREQUAL "CASSANDRA")
     INCLUDE(build_cass_driver.cmake)
+elseif(WITH_DATA_STORE STREQUAL "ELOQDSS_ELOQSTORE")
+    option(WITH_TXSERVICE "Whether compile eloqstore with txservice" ON)
+    set(ELOQSTORE_PARENT_DIR ${CMAKE_CURRENT_SOURCE_DIR}/store_handler/eloq_data_store_service CACHE PATH "EloqStore parent directory")
+    INCLUDE(${CMAKE_CURRENT_SOURCE_DIR}/store_handler/eloq_data_store_service/build_eloq_store.cmake)
 endif ()
 
 add_subdirectory(tx_service/abseil-cpp)
@@ -387,8 +447,6 @@ SET(RESMONOGRAPH_SOURCES
         src/eloq_catalog_factory.cpp
         src/eloq_key.cpp
         src/eloq_string.cpp
-        src/ini.c
-        src/INIReader.cpp
         src/lua_interpreter.cpp
         src/metrics_registry_impl.cpp
         src/pub_sub_manager.cpp
@@ -407,7 +465,13 @@ SET(RESMONOGRAPH_SOURCES
         src/redis_connection_context.cpp
         src/redis_stats.cpp
         )
-SET(RESMONOGRAPH_LIBRARY txservice ${METRICS_LIB})
+
+SET(INI_SOURCES src/ini.c src/INIReader.cpp)
+if (NOT (WITH_DATA_STORE STREQUAL "ELOQDSS_ELOQSTORE"))
+  SET(RESMONOGRAPH_SOURCES ${RESMONOGRAPH_SOURCES} ${INI_SOURCES})
+endif()
+
+SET(RESMONOGRAPH_LIBRARY ${RESMONOGRAPH_LIBRARY} txservice ${METRICS_LIB})
 if (WITH_LOG_SERVICE)
     SET(RESMONOGRAPH_LIBRARY ${RESMONOGRAPH_LIBRARY} logservice)
 endif ()
@@ -416,55 +480,67 @@ endif ()
 SET(CRCSPEED_SOURCES crcspeed/crcspeed.c crcspeed/crc16speed.c crcspeed/crc64speed.c)
 SET(RESMONOGRAPH_SOURCES ${RESMONOGRAPH_SOURCES} ${CRCSPEED_SOURCES})
 
-if (WITH_KV_STORE STREQUAL "CASSANDRA")
+if (WITH_DATA_STORE STREQUAL "CASSANDRA")
     # cass handler
     SET(RESMONOGRAPH_SOURCES
         ${RESMONOGRAPH_SOURCES}
-        src/store_handler/cass_handler.cpp
-        src/store_handler/cass_scanner.cpp
-        src/store_handler/cass_handler_typed.cpp
+        store_handler/cass_handler.cpp
+        store_handler/cass_scanner.cpp
     )
-elseif (WITH_KV_STORE STREQUAL "DYNAMODB")
+elseif (WITH_DATA_STORE STREQUAL "DYNAMODB")
     SET(RESMONOGRAPH_SOURCES ${RESMONOGRAPH_SOURCES}
-        src/store_handler/dynamo_handler.cpp
-        src/store_handler/dynamo_scanner.cpp
-        src/store_handler/dynamo_handler_typed.cpp
-        )
-elseif (WITH_KV_STORE STREQUAL "ROCKSDB")
+        store_handler/dynamo_handler.cpp
+        store_handler/dynamo_scanner.cpp
+        store_handler/dynamo_handler_typed.cpp
+    )
+elseif ((WITH_DATA_STORE STREQUAL "ROCKSDB") OR (WITH_DATA_STORE STREQUAL "ROCKSDB_CLOUD_S3")  OR (WITH_DATA_STORE STREQUAL "ROCKSDB_CLOUD_GCS"))
     SET(RESMONOGRAPH_SOURCES ${RESMONOGRAPH_SOURCES}
-        include/store_handler/ds_request.pb.cc
-        src/store_handler/store_util.cpp
-        src/store_handler/rocksdb_config.cpp
-        src/store_handler/rocksdb_handler.cpp
-        src/store_handler/rocksdb_scanner.cpp
-        src/store_handler/rocksdb_cloud_data_store.cpp
-        src/store_handler/data_store_service_config.cpp
-        src/store_handler/data_store_service.cpp
-        src/store_handler/data_store_service_client.cpp
-        src/store_handler/data_store_service_scanner.cpp
-        src/store_handler/data_store_fault_inject.cpp
-        src/store_handler/thread_worker_pool.cpp
-       )
+        store_handler/rocksdb_config.cpp
+        store_handler/rocksdb_handler.cpp
+        store_handler/rocksdb_scanner.cpp
+        store_handler/store_util.cpp
+    )
+elseif ((WITH_DATA_STORE STREQUAL "ELOQDSS_ROCKSDB_CLOUD_S3") OR
+        (WITH_DATA_STORE STREQUAL "ELOQDSS_ROCKSDB_CLOUD_GCS"))
+    SET(RESMONOGRAPH_SOURCES ${RESMONOGRAPH_SOURCES}
+        store_handler/data_store_service_client.cpp
+        store_handler/data_store_service_client_closure.cpp
+        store_handler/data_store_service_scanner.cpp
+        store_handler/store_util.cpp
+        store_handler/eloq_data_store_service/thread_worker_pool.cpp
+        store_handler/eloq_data_store_service/data_store_service.cpp
+        store_handler/eloq_data_store_service/data_store_fault_inject.cpp
+        store_handler/eloq_data_store_service/data_store_service_config.cpp
+        store_handler/eloq_data_store_service/rocksdb_cloud_data_store.cpp
+        store_handler/eloq_data_store_service/ds_request.pb.cc
+        store_handler/eloq_data_store_service/rocksdb_config.cpp
+    )
+elseif (WITH_DATA_STORE STREQUAL "ELOQDSS_ELOQSTORE")
+    SET(RESMONOGRAPH_SOURCES ${RESMONOGRAPH_SOURCES}
+        store_handler/data_store_service_client.cpp
+        store_handler/data_store_service_scanner.cpp
+        store_handler/data_store_service_client_closure.cpp
+        store_handler/store_util.cpp
+        store_handler/eloq_data_store_service/thread_worker_pool.cpp
+        store_handler/eloq_data_store_service/data_store_service.cpp
+        store_handler/eloq_data_store_service/data_store_fault_inject.cpp
+        store_handler/eloq_data_store_service/data_store_service_config.cpp
+        store_handler/eloq_data_store_service/eloq_store_data_store.cpp
+        store_handler/eloq_data_store_service/ds_request.pb.cc
+    )
 endif ()
 
 
-if (WITH_KV_STORE STREQUAL "CASSANDRA")
-    # cass handler
-    SET(RESMONOGRAPH_LIBRARY
-        ${RESMONOGRAPH_LIBRARY}
-        cassandra_static
-    )
-elseif (WITH_KV_STORE STREQUAL "DYNAMODB")
-    SET(RESMONOGRAPH_LIBRARY ${RESMONOGRAPH_LIBRARY} ${AWSSDK_LINK_LIBRARIES})
-elseif (WITH_KV_STORE STREQUAL "ROCKSDB")
-    SET(RESMONOGRAPH_LIBRARY ${RESMONOGRAPH_LIBRARY} ${ROCKSDB_LIBRARIES})
-endif ()
 
 include_directories(
         ${PROJECT_SOURCE_DIR}/
         ${PROJECT_SOURCE_DIR}/include
         ${PROJECT_SOURCE_DIR}/include/redis
-        ${PROJECT_SOURCE_DIR}/include/store_handler
+        ${PROJECT_SOURCE_DIR}/store_handler
+if ((WITH_DATA_STORE STREQUAL "ELOQDSS_ROCKSDB_CLOUD_S3") OR
+     (WITH_DATA_STORE STREQUAL "ELOQDSS_ROCKSDB_CLOUD_GCS"))
+        ${PROJECT_SOURCE_DIR}/store_handler/eloq_data_store_service
+endif()
         ${PROJECT_SOURCE_DIR}/tx_service/abseil-cpp
         ${PROJECT_SOURCE_DIR}/eloq_metrics/include
         ${PROJECT_SOURCE_DIR}/tx_service/include
@@ -491,7 +567,19 @@ add_subdirectory(fpconv)
 add_executable(eloqkv src/redis_server.cpp ${RESMONOGRAPH_SOURCES})
 target_link_libraries(eloqkv ${DYNAMIC_LIB} ${RESMONOGRAPH_LIBRARY} ${ABSEIL} lua fpconv)
 
-if (WITH_KV_STORE STREQUAL "ROCKSDB")
+option(WITH_BOOST_STACKTRACE "With boost stack trace." OFF)
+message("WITH_BOOST_STACKTRACE: " ${WITH_BOOST_STACKTRACE})
+
+if (WITH_BOOST_STACKTRACE)
+    #target_compile_options(eloqkv PRIVATE -fno-pie)
+    #target_link_options(eloqkv PRIVATE -no-pie)
+    find_library(BOOST_STACKTRACE_LIB boost_stacktrace_backtrace)
+    target_link_libraries(eloqkv ${BOOST_STACKTRACE_LIB})
+    add_compile_definitions(BOOST_STACKTRACE_LINK)
+endif ()
+
+
+if (WITH_DATA_STORE STREQUAL "ROCKSDB")
 add_executable(eloqkv_to_aof src/tools/eloqkv2aof/eloqkv2aof.cpp ${RESMONOGRAPH_SOURCES})
 target_link_libraries(eloqkv_to_aof ${DYNAMIC_LIB} ${RESMONOGRAPH_LIBRARY} ${ABSEIL} lua fpconv)
 add_executable(eloqkv_to_rdb src/tools/eloqkv2rdb/eloqkv2rdb.cpp ${RESMONOGRAPH_SOURCES})
@@ -503,9 +591,6 @@ endif()
 #set(AUX_LIB readline ncurses)
 #add_executable(eloqkv-client src/redis_cli.cpp)
 #target_link_libraries(eloqkv-client ${BRPC_LIB} ${DYNAMIC_LIB} ${AUX_LIB})
-
-#target_compile_options(redis_server PRIVATE -fsanitize=address -fno-omit-frame-pointer)
-#target_link_options(redis_server PRIVATE -fsanitize=address -fno-omit-frame-pointer)
 
 option(BUILD_WITH_TESTS "Run unit-tests" OFF)
 if(${BUILD_WITH_TESTS})
@@ -526,7 +611,7 @@ set_target_properties(eloqkv PROPERTIES
 install(TARGETS eloqkv
         RUNTIME DESTINATION bin)
 
-if (WITH_KV_STORE STREQUAL "ROCKSDB")
+if (WITH_DATA_STORE STREQUAL "ROCKSDB")
 install(TARGETS eloqkv_to_aof
         RUNTIME DESTINATION bin)
 install(TARGETS eloqkv_to_rdb

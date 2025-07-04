@@ -66,6 +66,7 @@ const char *redis_error_messages[] = {
     "ERR max object size limit of 256 MB exceeded",
     "ERR the key has no associated expiration time",
     "ERR cluster is shutting down",
+    "ERR cluster leader is doing failover",
 };
 
 extern const char *redis_get_error_messages(int nr)

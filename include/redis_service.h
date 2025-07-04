@@ -33,18 +33,33 @@
 #include <utility>
 #include <vector>
 
-#include "data_store_service.h"
-#include "data_store_service_client.h"
 #include "eloq_metrics/include/meter.h"
 #include "error_messages.h"
 #include "pub_sub_manager.h"
-#include "rocksdb_cloud_data_store.h"
 #include "store_handler/kv_store.h"
 
-#if KV_DATA_STORE_TYPE == KV_DATA_STORE_TYPE_DYNAMODB ||                       \
-    (KV_DATA_STORE_TYPE == KV_DATA_STORE_TYPE_ROCKSDB &&                       \
-     ROCKSDB_CLOUD_FS_TYPE == ROCKSDB_CLOUD_FS_TYPE_S3)
+#if ELOQDS()
+#include "data_store_service.h"
+#include "store_handler/data_store_service_client.h"
+#endif
+
+#if defined(DATA_STORE_TYPE_DYNAMODB) ||                                       \
+    (ROCKSDB_CLOUD_FS_TYPE == ROCKSDB_CLOUD_FS_TYPE_S3)
 #include <aws/core/Aws.h>
+#endif
+
+#if defined(DATA_STORE_TYPE_ROCKSDB) ||                                        \
+    defined(DATA_STORE_TYPE_ROCKSDB_CLOUD_S3) ||                               \
+    defined(DATA_STORE_TYPE_ROCKSDB_CLOUD_GCS)
+#include "store_handler/rocksdb_handler.h"
+#endif
+
+#ifdef DATA_STORE_TYPE_CASSANDRA
+#include "store_handler/cass_handler.h"
+#endif
+
+#ifdef DATA_STORE_TYPE_DYNAMODB
+#include "store_handler/dynamo_handler.h"
 #endif
 
 #if (WITH_LOG_SERVICE)
@@ -175,6 +190,18 @@ public:
 
     bool Init(brpc::Server &brpc_server);
 
+    bool InitTxLogService(
+        uint32_t node_id,
+        int txlog_group_replica_num,
+        const std::string &log_path,
+        const std::string &local_ip,
+        uint16_t local_tx_port,
+        bool enable_brpc_builtin_services,
+        const INIReader &config_reader,
+        std::unordered_map<uint32_t, std::vector<NodeConfig>> &ng_configs,
+        std::vector<std::string> &txlog_ips,
+        std::vector<uint16_t> &txlog_ports);
+
     void Stop();
 
     // The number of master nodes serving at least one hash slot in the cluster.
@@ -207,6 +234,8 @@ public:
 
     // For ClusterSlots command. Results will be returned through arg 'info'.
     void RedisClusterSlots(std::vector<SlotInfo> &info);
+
+    std::string GenerateMovedErrorMessage(uint16_t slot_num);
 
     std::unique_ptr<brpc::ConnectionContext> NewConnectionContext(
         brpc::Socket *socket) const override;
@@ -281,7 +310,8 @@ public:
                         const EloqKey &key,
                         RedisCommand *cmd,
                         OutputHandler *output,
-                        bool auto_commit);
+                        bool auto_commit,
+                        bool always_redirect = true);
 
     /**
      * @return There is no tx request error during the process of the command.
@@ -292,7 +322,8 @@ public:
                         txservice::TransactionExecution *txm,
                         RedisMultiObjectCommand *cmd,
                         OutputHandler *output,
-                        bool auto_commit);
+                        bool auto_commit,
+                        bool always_redirect = true);
 
     /**
      * @return There is no tx request error during the process of the command.
@@ -457,6 +488,8 @@ public:
 
     void ResizeSlowLog(uint32_t len);
 
+    size_t MaxConnectionCount() const;
+
 private:
     static bool SendTxRequest(TransactionExecution *txm,
                               TxRequest *tx_req,
@@ -501,23 +534,25 @@ private:
     CommandMap command_map_;
 
     std::unique_ptr<TxService> tx_service_;
-#if KV_DATA_STORE_TYPE == KV_DATA_STORE_TYPE_DYNAMODB ||                       \
-    (KV_DATA_STORE_TYPE == KV_DATA_STORE_TYPE_ROCKSDB &&                       \
-     ROCKSDB_CLOUD_FS_TYPE == ROCKSDB_CLOUD_FS_TYPE_S3)
+#if defined(DATA_STORE_TYPE_DYNAMODB) ||                                       \
+    (ROCKSDB_CLOUD_FS_TYPE == ROCKSDB_CLOUD_FS_TYPE_S3)
     Aws::SDKOptions aws_options_;
 #endif
-#if KV_DATA_STORE_TYPE == KV_DATA_STORE_TYPE_CASSANDRA
+
+#if defined(DATA_STORE_TYPE_CASSANDRA)
     std::unique_ptr<EloqDS::CassHandler> store_hd_;
-#elif KV_DATA_STORE_TYPE == KV_DATA_STORE_TYPE_DYNAMODB
+#elif defined(DATA_STORE_TYPE_DYNAMODB)
     std::unique_ptr<EloqDS::DynamoHandler> store_hd_;
-#elif KV_DATA_STORE_TYPE == KV_DATA_STORE_TYPE_ROCKSDB
-#if ROCKSDB_CLOUD_FS()
+#elif defined(DATA_STORE_TYPE_ROCKSDB)
+    std::unique_ptr<RocksDBHandlerImpl> store_hd_;
+#elif defined(DATA_STORE_TYPE_ROCKSDB_CLOUD_S3) ||                             \
+    defined(DATA_STORE_TYPE_ROCKSDB_CLOUD_GCS)
+    std::unique_ptr<RocksDBCloudHandlerImpl> store_hd_;
+#elif ELOQDS()
     std::unique_ptr<EloqDS::DataStoreServiceClient> store_hd_;
     std::unique_ptr<EloqDS::DataStoreService> data_store_service_;
-#else
-    std::unique_ptr<RocksDBHandlerImpl> store_hd_;
 #endif
-#endif
+
 #if (WITH_LOG_SERVICE)
     std::unique_ptr<::txlog::LogServer> log_server_;
 #endif

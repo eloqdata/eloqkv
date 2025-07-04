@@ -21,6 +21,8 @@
  */
 #include "redis_object.h"  // RedisEloqObject
 
+#include <memory>
+
 #include "redis_hash_object.h"
 #include "redis_list_object.h"
 #include "redis_set_object.h"

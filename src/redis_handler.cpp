@@ -35,6 +35,7 @@
 #include "eloq_key.h"
 #include "eloq_string.h"
 #include "error_messages.h"
+#include "raft_host_manager.h"
 #include "redis_command.h"
 #include "redis_connection_context.h"
 #include "redis_object.h"
@@ -212,6 +213,26 @@ brpc::RedisCommandHandlerResult ClusterCommandHandler::Run(
     return brpc::REDIS_CMD_HANDLED;
 }
 
+brpc::RedisCommandHandlerResult FailoverCommandHandler::Run(
+    RedisConnectionContext *ctx,
+    const std::vector<butil::StringPiece> &args,
+    brpc::RedisReply *output,
+    bool /*flush_batched*/)
+{
+    assert(args[0] == "failover");
+
+    RedisReplier reply(output);
+    std::vector<std::string_view> cmd_arg_list = Transform(args);
+
+    auto [success, cmd] = ParseFailoverCommand(cmd_arg_list, &reply);
+    if (success)
+    {
+        redis_impl_->ExecuteCommand(ctx, cmd.get(), &reply);
+    }
+
+    return brpc::REDIS_CMD_HANDLED;
+}
+
 brpc::RedisCommandHandlerResult ClientCommandHandler::Run(
     RedisConnectionContext *ctx,
     const std::vector<butil::StringPiece> &args,
@@ -349,7 +370,7 @@ brpc::RedisCommandHandlerResult GetCommandHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
 
     return brpc::REDIS_CMD_HANDLED;
@@ -379,7 +400,7 @@ brpc::RedisCommandHandlerResult GetDelCommandHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
 
     return brpc::REDIS_CMD_HANDLED;
@@ -409,7 +430,7 @@ brpc::RedisCommandHandlerResult SetCommandHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
     return brpc::REDIS_CMD_HANDLED;
 }
@@ -438,7 +459,7 @@ brpc::RedisCommandHandlerResult SetNXCommandHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
 
     return brpc::REDIS_CMD_HANDLED;
@@ -468,7 +489,7 @@ brpc::RedisCommandHandlerResult GetSetCommandHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
 
     return brpc::REDIS_CMD_HANDLED;
@@ -498,7 +519,7 @@ brpc::RedisCommandHandlerResult StrLenCommandHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
 
     return brpc::REDIS_CMD_HANDLED;
@@ -528,7 +549,7 @@ brpc::RedisCommandHandlerResult PSetExCommandHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
 
     return brpc::REDIS_CMD_HANDLED;
@@ -558,7 +579,7 @@ brpc::RedisCommandHandlerResult SetExCommandHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
 
     return brpc::REDIS_CMD_HANDLED;
@@ -588,7 +609,7 @@ brpc::RedisCommandHandlerResult GetBitCommandHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
 
     return brpc::REDIS_CMD_HANDLED;
@@ -618,7 +639,7 @@ brpc::RedisCommandHandlerResult GetRangeCommandHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
 
     return brpc::REDIS_CMD_HANDLED;
@@ -648,7 +669,7 @@ brpc::RedisCommandHandlerResult SetBitCommandHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
 
     return brpc::REDIS_CMD_HANDLED;
@@ -678,7 +699,7 @@ brpc::RedisCommandHandlerResult SetRangeCommandHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
 
     return brpc::REDIS_CMD_HANDLED;
@@ -707,7 +728,7 @@ brpc::RedisCommandHandlerResult BitCountCommandHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
 
     return brpc::REDIS_CMD_HANDLED;
@@ -737,7 +758,7 @@ brpc::RedisCommandHandlerResult AppendCommandHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
 
     return brpc::REDIS_CMD_HANDLED;
@@ -767,7 +788,7 @@ brpc::RedisCommandHandlerResult BitFieldCommandHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
 
     return brpc::REDIS_CMD_HANDLED;
@@ -797,7 +818,7 @@ brpc::RedisCommandHandlerResult BitFieldRoCommandHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
 
     return brpc::REDIS_CMD_HANDLED;
@@ -827,7 +848,7 @@ brpc::RedisCommandHandlerResult BitPosCommandHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
 
     return brpc::REDIS_CMD_HANDLED;
@@ -858,7 +879,7 @@ brpc::RedisCommandHandlerResult BitOpCommandHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
 
     return brpc::REDIS_CMD_HANDLED;
@@ -888,7 +909,7 @@ brpc::RedisCommandHandlerResult SubStrCommandHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
 
     return brpc::REDIS_CMD_HANDLED;
@@ -918,7 +939,7 @@ brpc::RedisCommandHandlerResult IncrByFloatCommandHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
 
     return brpc::REDIS_CMD_HANDLED;
@@ -967,7 +988,7 @@ brpc::RedisCommandHandlerResult RPushHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
     return brpc::REDIS_CMD_HANDLED;
 }
@@ -996,7 +1017,7 @@ brpc::RedisCommandHandlerResult HSetHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
 
     return brpc::REDIS_CMD_HANDLED;
@@ -1026,7 +1047,7 @@ brpc::RedisCommandHandlerResult LPushHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
 
     return brpc::REDIS_CMD_HANDLED;
@@ -1056,7 +1077,7 @@ brpc::RedisCommandHandlerResult HGetHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
 
     return brpc::REDIS_CMD_HANDLED;
@@ -1086,7 +1107,7 @@ brpc::RedisCommandHandlerResult LRangeHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
 
     return brpc::REDIS_CMD_HANDLED;
@@ -1116,7 +1137,7 @@ brpc::RedisCommandHandlerResult LPopHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
 
     return brpc::REDIS_CMD_HANDLED;
@@ -1146,7 +1167,7 @@ brpc::RedisCommandHandlerResult RPopHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
 
     return brpc::REDIS_CMD_HANDLED;
@@ -1176,7 +1197,7 @@ brpc::RedisCommandHandlerResult LMPopHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
     return brpc::REDIS_CMD_HANDLED;
 }
@@ -1232,7 +1253,7 @@ brpc::RedisCommandHandlerResult CommitHandler::Run(
     ctx->txm = nullptr;
     if (!success)
     {
-        output->SetError("ERR " + txservice::TxRequest::ErrorMessage(err_code));
+        output->SetError("ERR " + txservice::TxErrorMessage(err_code));
         return brpc::REDIS_CMD_HANDLED;
     }
     output->SetStatus("OK");
@@ -1461,8 +1482,12 @@ bool MultiTransactionHandler::WatchKeys(
                                    redis_impl_->txn_protocol_);
     }
 
-    MultiObjectCommandTxRequest tx_req(
-        redis_impl_->RedisTableName(ctx->db_id), &watch_cmd, false, txm_, true);
+    MultiObjectCommandTxRequest tx_req(redis_impl_->RedisTableName(ctx->db_id),
+                                       &watch_cmd,
+                                       false,
+                                       true,
+                                       txm_,
+                                       true);
 
     success =
         redis_impl_->ExecuteMultiObjTxRequest(txm_, &tx_req, nullptr, &reply);
@@ -1663,7 +1688,7 @@ brpc::RedisCommandHandlerResult IncrHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
 
     return brpc::REDIS_CMD_HANDLED;
@@ -1693,7 +1718,7 @@ brpc::RedisCommandHandlerResult DecrHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
 
     return brpc::REDIS_CMD_HANDLED;
@@ -1723,7 +1748,7 @@ brpc::RedisCommandHandlerResult IncrByHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
 
     return brpc::REDIS_CMD_HANDLED;
@@ -1753,7 +1778,7 @@ brpc::RedisCommandHandlerResult DecrByHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
 
     return brpc::REDIS_CMD_HANDLED;
@@ -1784,7 +1809,7 @@ brpc::RedisCommandHandlerResult TypeHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
 
     return brpc::REDIS_CMD_HANDLED;
@@ -1819,7 +1844,7 @@ brpc::RedisCommandHandlerResult DelHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
 
     return brpc::REDIS_CMD_HANDLED;
@@ -1849,7 +1874,7 @@ brpc::RedisCommandHandlerResult ZAddHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
 
     return brpc::REDIS_CMD_HANDLED;
@@ -1879,7 +1904,7 @@ brpc::RedisCommandHandlerResult ZRangeHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
 
     return brpc::REDIS_CMD_HANDLED;
@@ -1909,7 +1934,7 @@ brpc::RedisCommandHandlerResult ZRangeStoreHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
 
     return brpc::REDIS_CMD_HANDLED;
@@ -1939,7 +1964,7 @@ brpc::RedisCommandHandlerResult ZRemHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
 
     return brpc::REDIS_CMD_HANDLED;
@@ -1969,7 +1994,7 @@ brpc::RedisCommandHandlerResult ZScoreHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
 
     return brpc::REDIS_CMD_HANDLED;
@@ -1999,7 +2024,7 @@ brpc::RedisCommandHandlerResult ZMScoreHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
 
     return brpc::REDIS_CMD_HANDLED;
@@ -2029,7 +2054,7 @@ brpc::RedisCommandHandlerResult ZMPopHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
 
     return brpc::REDIS_CMD_HANDLED;
@@ -2059,7 +2084,7 @@ brpc::RedisCommandHandlerResult ZCountHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
 
     return brpc::REDIS_CMD_HANDLED;
@@ -2089,7 +2114,7 @@ brpc::RedisCommandHandlerResult ZCardHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
 
     return brpc::REDIS_CMD_HANDLED;
@@ -2119,7 +2144,7 @@ brpc::RedisCommandHandlerResult ZRangeByScoreHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
 
     return brpc::REDIS_CMD_HANDLED;
@@ -2149,7 +2174,7 @@ brpc::RedisCommandHandlerResult ZRevRangeHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
 
     return brpc::REDIS_CMD_HANDLED;
@@ -2179,7 +2204,7 @@ brpc::RedisCommandHandlerResult ZRevRangeByLexHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
 
     return brpc::REDIS_CMD_HANDLED;
@@ -2210,7 +2235,7 @@ brpc::RedisCommandHandlerResult ZRevRangeByScoreHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
 
     return brpc::REDIS_CMD_HANDLED;
@@ -2240,7 +2265,7 @@ brpc::RedisCommandHandlerResult ZLexCountHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
 
     return brpc::REDIS_CMD_HANDLED;
@@ -2270,7 +2295,7 @@ brpc::RedisCommandHandlerResult ZPopMinHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
 
     return brpc::REDIS_CMD_HANDLED;
@@ -2300,7 +2325,7 @@ brpc::RedisCommandHandlerResult ZPopMaxHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
 
     return brpc::REDIS_CMD_HANDLED;
@@ -2330,7 +2355,7 @@ brpc::RedisCommandHandlerResult ZRangeByLexHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
 
     return brpc::REDIS_CMD_HANDLED;
@@ -2360,7 +2385,7 @@ brpc::RedisCommandHandlerResult ZRangeByRankHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
 
     return brpc::REDIS_CMD_HANDLED;
@@ -2390,7 +2415,7 @@ brpc::RedisCommandHandlerResult ZRemRangeHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
 
     return brpc::REDIS_CMD_HANDLED;
@@ -2450,7 +2475,7 @@ brpc::RedisCommandHandlerResult ZUnionHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
 
     return brpc::REDIS_CMD_HANDLED;
@@ -2481,7 +2506,7 @@ brpc::RedisCommandHandlerResult ZUnionStoreHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
 
     return brpc::REDIS_CMD_HANDLED;
@@ -2512,7 +2537,7 @@ brpc::RedisCommandHandlerResult ZInterHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
 
     return brpc::REDIS_CMD_HANDLED;
@@ -2543,7 +2568,7 @@ brpc::RedisCommandHandlerResult ZInterCardHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
 
     return brpc::REDIS_CMD_HANDLED;
@@ -2574,7 +2599,7 @@ brpc::RedisCommandHandlerResult ZInterStoreHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
 
     return brpc::REDIS_CMD_HANDLED;
@@ -2604,7 +2629,7 @@ brpc::RedisCommandHandlerResult ZRandMemberHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
 
     return brpc::REDIS_CMD_HANDLED;
@@ -2634,7 +2659,7 @@ brpc::RedisCommandHandlerResult ZRankHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
 
     return brpc::REDIS_CMD_HANDLED;
@@ -2664,7 +2689,7 @@ brpc::RedisCommandHandlerResult ZRevRankHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
 
     return brpc::REDIS_CMD_HANDLED;
@@ -2695,7 +2720,7 @@ brpc::RedisCommandHandlerResult ZDiffHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
 
     return brpc::REDIS_CMD_HANDLED;
@@ -2726,7 +2751,7 @@ brpc::RedisCommandHandlerResult ZDiffStoreHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
 
     return brpc::REDIS_CMD_HANDLED;
@@ -2756,7 +2781,7 @@ brpc::RedisCommandHandlerResult ZIncrByHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
 
     return brpc::REDIS_CMD_HANDLED;
@@ -2786,7 +2811,7 @@ brpc::RedisCommandHandlerResult MSetHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
 
     return brpc::REDIS_CMD_HANDLED;
@@ -2816,7 +2841,7 @@ brpc::RedisCommandHandlerResult MSetNxHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
 
     return brpc::REDIS_CMD_HANDLED;
@@ -2846,7 +2871,7 @@ brpc::RedisCommandHandlerResult MGetHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
 
     return brpc::REDIS_CMD_HANDLED;
@@ -2876,7 +2901,7 @@ brpc::RedisCommandHandlerResult HDelHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
 
     return brpc::REDIS_CMD_HANDLED;
@@ -2906,7 +2931,7 @@ brpc::RedisCommandHandlerResult HExistsHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
 
     return brpc::REDIS_CMD_HANDLED;
@@ -2936,7 +2961,7 @@ brpc::RedisCommandHandlerResult HIncrbyHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
 
     return brpc::REDIS_CMD_HANDLED;
@@ -2966,7 +2991,7 @@ brpc::RedisCommandHandlerResult HIncrByFloatHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
 
     return brpc::REDIS_CMD_HANDLED;
@@ -2996,7 +3021,7 @@ brpc::RedisCommandHandlerResult HMGetHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
 
     return brpc::REDIS_CMD_HANDLED;
@@ -3026,7 +3051,7 @@ brpc::RedisCommandHandlerResult HKeysHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
 
     return brpc::REDIS_CMD_HANDLED;
@@ -3056,7 +3081,7 @@ brpc::RedisCommandHandlerResult HValsHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
 
     return brpc::REDIS_CMD_HANDLED;
@@ -3086,7 +3111,7 @@ brpc::RedisCommandHandlerResult HRandFieldHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
 
     return brpc::REDIS_CMD_HANDLED;
@@ -3116,7 +3141,7 @@ brpc::RedisCommandHandlerResult HScanHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
 
     return brpc::REDIS_CMD_HANDLED;
@@ -3146,7 +3171,7 @@ brpc::RedisCommandHandlerResult HSetNxHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
 
     return brpc::REDIS_CMD_HANDLED;
@@ -3176,7 +3201,7 @@ brpc::RedisCommandHandlerResult HGetAllHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
 
     return brpc::REDIS_CMD_HANDLED;
@@ -3206,7 +3231,7 @@ brpc::RedisCommandHandlerResult HLenHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
 
     return brpc::REDIS_CMD_HANDLED;
@@ -3236,7 +3261,7 @@ brpc::RedisCommandHandlerResult HStrLenHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
 
     return brpc::REDIS_CMD_HANDLED;
@@ -3266,7 +3291,7 @@ brpc::RedisCommandHandlerResult LLenHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
 
     return brpc::REDIS_CMD_HANDLED;
@@ -3296,7 +3321,7 @@ brpc::RedisCommandHandlerResult LTrimHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
 
     return brpc::REDIS_CMD_HANDLED;
@@ -3326,7 +3351,7 @@ brpc::RedisCommandHandlerResult LIndexHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
 
     return brpc::REDIS_CMD_HANDLED;
@@ -3356,7 +3381,7 @@ brpc::RedisCommandHandlerResult LInsertHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
 
     return brpc::REDIS_CMD_HANDLED;
@@ -3386,7 +3411,7 @@ brpc::RedisCommandHandlerResult LPosHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
 
     return brpc::REDIS_CMD_HANDLED;
@@ -3416,7 +3441,7 @@ brpc::RedisCommandHandlerResult LSetHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
 
     return brpc::REDIS_CMD_HANDLED;
@@ -3446,7 +3471,7 @@ brpc::RedisCommandHandlerResult LMoveHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
 
     return brpc::REDIS_CMD_HANDLED;
@@ -3476,7 +3501,7 @@ brpc::RedisCommandHandlerResult RPopLPushHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
 
     return brpc::REDIS_CMD_HANDLED;
@@ -3506,7 +3531,7 @@ brpc::RedisCommandHandlerResult LRemHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
 
     return brpc::REDIS_CMD_HANDLED;
@@ -3536,7 +3561,7 @@ brpc::RedisCommandHandlerResult LPushXHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
 
     return brpc::REDIS_CMD_HANDLED;
@@ -3566,7 +3591,7 @@ brpc::RedisCommandHandlerResult RPushXHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
 
     return brpc::REDIS_CMD_HANDLED;
@@ -3594,7 +3619,7 @@ brpc::RedisCommandHandlerResult BLMoveHandler::Run(
             mcmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, &mcmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, &mcmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
 
     return brpc::REDIS_CMD_HANDLED;
@@ -3622,7 +3647,7 @@ brpc::RedisCommandHandlerResult BLMPopHandler::Run(
             mcmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, &mcmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, &mcmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
 
     return brpc::REDIS_CMD_HANDLED;
@@ -3650,7 +3675,7 @@ brpc::RedisCommandHandlerResult BLPopHandler::Run(
             mcmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, &mcmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, &mcmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
 
     return brpc::REDIS_CMD_HANDLED;
@@ -3678,7 +3703,7 @@ brpc::RedisCommandHandlerResult BRPopHandler::Run(
             mcmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, &mcmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, &mcmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
 
     return brpc::REDIS_CMD_HANDLED;
@@ -3706,7 +3731,7 @@ brpc::RedisCommandHandlerResult BRPopLPushHandler::Run(
             mcmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, &mcmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, &mcmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
 
     return brpc::REDIS_CMD_HANDLED;
@@ -3736,7 +3761,7 @@ brpc::RedisCommandHandlerResult SAddHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
 
     return brpc::REDIS_CMD_HANDLED;
@@ -3760,7 +3785,7 @@ brpc::RedisCommandHandlerResult SMembersHandler::Run(
         TransactionExecution *txm =
             in_tx ? ctx->txm : redis_impl_->NewTxm(iso_level_, cc_protocol_);
         redis_impl_->ExecuteCommand(
-            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
 
     return brpc::REDIS_CMD_HANDLED;
@@ -3790,7 +3815,7 @@ brpc::RedisCommandHandlerResult SRemHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
 
     return brpc::REDIS_CMD_HANDLED;
@@ -3820,7 +3845,7 @@ brpc::RedisCommandHandlerResult SCardHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
 
     return brpc::REDIS_CMD_HANDLED;
@@ -3850,7 +3875,7 @@ brpc::RedisCommandHandlerResult SDiffHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
 
     return brpc::REDIS_CMD_HANDLED;
@@ -3880,7 +3905,7 @@ brpc::RedisCommandHandlerResult SDiffStoreHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
 
     return brpc::REDIS_CMD_HANDLED;
@@ -3910,7 +3935,7 @@ brpc::RedisCommandHandlerResult SInterHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
 
     return brpc::REDIS_CMD_HANDLED;
@@ -3940,7 +3965,7 @@ brpc::RedisCommandHandlerResult SInterStoreHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
 
     return brpc::REDIS_CMD_HANDLED;
@@ -3970,7 +3995,7 @@ brpc::RedisCommandHandlerResult SInterCardHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
 
     return brpc::REDIS_CMD_HANDLED;
@@ -4000,7 +4025,7 @@ brpc::RedisCommandHandlerResult SIsMemberHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
 
     return brpc::REDIS_CMD_HANDLED;
@@ -4030,7 +4055,7 @@ brpc::RedisCommandHandlerResult SMIsMemberHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
 
     return brpc::REDIS_CMD_HANDLED;
@@ -4060,7 +4085,7 @@ brpc::RedisCommandHandlerResult SMoveHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
 
     return brpc::REDIS_CMD_HANDLED;
@@ -4090,7 +4115,7 @@ brpc::RedisCommandHandlerResult SUnionHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
 
     return brpc::REDIS_CMD_HANDLED;
@@ -4120,7 +4145,7 @@ brpc::RedisCommandHandlerResult SUnionStoreHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
 
     return brpc::REDIS_CMD_HANDLED;
@@ -4150,7 +4175,7 @@ brpc::RedisCommandHandlerResult SRandMemberHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
 
     return brpc::REDIS_CMD_HANDLED;
@@ -4180,7 +4205,7 @@ brpc::RedisCommandHandlerResult SPopHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
 
     return brpc::REDIS_CMD_HANDLED;
@@ -4210,7 +4235,7 @@ brpc::RedisCommandHandlerResult SScanHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
 
     return brpc::REDIS_CMD_HANDLED;
@@ -4240,7 +4265,7 @@ brpc::RedisCommandHandlerResult ExistsHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
 
     return brpc::REDIS_CMD_HANDLED;
@@ -4345,7 +4370,7 @@ brpc::RedisCommandHandlerResult DumpHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
 
     return brpc::REDIS_CMD_HANDLED;
@@ -4376,7 +4401,7 @@ brpc::RedisCommandHandlerResult RestoreHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
 
     return brpc::REDIS_CMD_HANDLED;
@@ -4548,13 +4573,20 @@ brpc::RedisCommandHandlerResult MemoryHandler::Run(
                 // on the cce so we need to mark it as volatile.
                 cmd.SetVolatile();
             }
-            redis_impl_->ExecuteCommand(
-                ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_);
+            redis_impl_->ExecuteCommand(ctx,
+                                        txm,
+                                        key,
+                                        &cmd,
+                                        &reply,
+                                        in_tx ? false : auto_commit_,
+                                        in_tx);
         }
     }
     else
     {
-        assert(false);
+        std::string err_msg = "ERR unknown subcommand '";
+        err_msg.append(cmd_arg_list[1]).append("'");
+        reply.OnError(err_msg);
     }
     return brpc::REDIS_CMD_HANDLED;
 }
@@ -4584,7 +4616,7 @@ brpc::RedisCommandHandlerResult ExpireCommandHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
     return brpc::REDIS_CMD_HANDLED;
 }
@@ -4614,7 +4646,7 @@ brpc::RedisCommandHandlerResult PExpireCommandHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
     return brpc::REDIS_CMD_HANDLED;
 }
@@ -4644,7 +4676,7 @@ brpc::RedisCommandHandlerResult ExpireAtCommandHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
     return brpc::REDIS_CMD_HANDLED;
 }
@@ -4674,7 +4706,7 @@ brpc::RedisCommandHandlerResult PExpireAtCommandHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
     return brpc::REDIS_CMD_HANDLED;
 }
@@ -4704,7 +4736,7 @@ brpc::RedisCommandHandlerResult TTLCommandHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
     return brpc::REDIS_CMD_HANDLED;
 }
@@ -4734,7 +4766,7 @@ brpc::RedisCommandHandlerResult PTTLCommandHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
     return brpc::REDIS_CMD_HANDLED;
 }
@@ -4764,7 +4796,7 @@ brpc::RedisCommandHandlerResult ExpireTimeCommandHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
     return brpc::REDIS_CMD_HANDLED;
 }
@@ -4794,7 +4826,7 @@ brpc::RedisCommandHandlerResult PExpireTimeCommandHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
     return brpc::REDIS_CMD_HANDLED;
 }
@@ -4823,7 +4855,7 @@ brpc::RedisCommandHandlerResult PersistCommandHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
     return brpc::REDIS_CMD_HANDLED;
 }
@@ -4852,7 +4884,7 @@ brpc::RedisCommandHandlerResult GetExCommandHandler::Run(
             cmd.SetVolatile();
         }
         redis_impl_->ExecuteCommand(
-            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_);
+            ctx, txm, key, &cmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
     return brpc::REDIS_CMD_HANDLED;
 }

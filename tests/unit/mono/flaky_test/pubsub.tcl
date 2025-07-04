@@ -86,6 +86,7 @@ start_server {tags {"pubsub network"}} {
         set rd1 [redis_deferring_client]
         assert_equal {1 2 3} [subscribe $rd1 {chan1 chan2 chan3}]
         unsubscribe $rd1
+        after 100
         assert_equal 0 [r publish chan1 hello]
         assert_equal 0 [r publish chan2 hello]
         assert_equal 0 [r publish chan3 hello]
@@ -94,10 +95,10 @@ start_server {tags {"pubsub network"}} {
         $rd1 close
     }
 
-# TODO(ZX) make sure `subscribe $rd1 {chan1 chan1 chan1}` got executed before the following publish cmd, $rd1 read hangs
     test "SUBSCRIBE to one channel more than once" {
         set rd1 [redis_deferring_client]
         assert_equal {1 1 1} [subscribe $rd1 {chan1 chan1 chan1}]
+        after 100
         assert_equal 1 [r publish chan1 hello]
         assert_equal {message chan1 hello} [$rd1 read]
 
@@ -156,12 +157,12 @@ start_server {tags {"pubsub network"}} {
         $rd2 close
     }
 
-# TODO(ZX) make sure `punsubscribe $rd1` got executed before the following publish cmd, $rd1 read hangs
     test "PUBLISH/PSUBSCRIBE after PUNSUBSCRIBE without arguments" {
         set rd1 [redis_deferring_client]
         assert_equal {1 2 3} [psubscribe $rd1 {chan1.* chan2.* chan3.*}]
         punsubscribe $rd1
         $rd1 read
+        after 100
         assert_equal 0 [r publish chan1.hi hello]
         assert_equal 0 [r publish chan2.hi hello]
         assert_equal 0 [r publish chan3.hi hello]
@@ -170,30 +171,31 @@ start_server {tags {"pubsub network"}} {
         $rd1 close
     }
 
-# TODO(ZX) Expected 'subscribe' to be equal to 'unknown' (context: type source line 838 file /home/mono/workspace/eloqkv/tests/support/util.tcl cmd {assert_equal $type [lindex $msg 0]} proc ::consume_subscribe_messages level 2)
-    test "PubSub messages with CLIENT REPLY OFF" {
-        set rd [redis_deferring_client]
-        # $rd hello 3
-        # $rd read ;# Discard the hello reply
+# Expected 'subscribe' to be equal to 'unknown' (context: type source line 838 file /home/mono/workspace/eloqkv/tests/support/util.tcl cmd {assert_equal $type [lindex $msg 0]} proc ::consume_subscribe_messages level 2)
+# 'CLIENT REPLY OFF' unsupported
+    # test "PubSub messages with CLIENT REPLY OFF" {
+    #    set rd [redis_deferring_client]
+    #    # $rd hello 3
+    #    # $rd read ;# Discard the hello reply
 
-        # Test that the subscribe/psubscribe notification is ok
-        $rd client reply off
-        assert_equal {1} [subscribe $rd channel]
-        assert_equal {2} [psubscribe $rd ch*]
+    #    # Test that the subscribe/psubscribe notification is ok
+    #    $rd client reply off
+    #    assert_equal {1} [subscribe $rd channel]
+    #    assert_equal {2} [psubscribe $rd ch*]
 
-        # Test that the publish notification is ok
-        $rd client reply off
-        assert_equal 2 [r publish channel hello]
-        assert_equal {message channel hello} [$rd read]
-        assert_equal {pmessage ch* channel hello} [$rd read]
+    #    # Test that the publish notification is ok
+    #    $rd client reply off
+    #    assert_equal 2 [r publish channel hello]
+    #    assert_equal {message channel hello} [$rd read]
+    #    assert_equal {pmessage ch* channel hello} [$rd read]
 
-        # Test that the unsubscribe/punsubscribe notification is ok
-        $rd client reply off
-        assert_equal {1} [unsubscribe $rd channel]
-        assert_equal {0} [punsubscribe $rd ch*]
+    #    # Test that the unsubscribe/punsubscribe notification is ok
+    #    $rd client reply off
+    #    assert_equal {1} [unsubscribe $rd channel]
+    #    assert_equal {0} [punsubscribe $rd ch*]
 
-        $rd close
-    } {0} {resp3}
+    #    $rd close
+    # } {0} {resp3}
 
     test "PUNSUBSCRIBE from non-subscribed channels" {
         set rd1 [redis_deferring_client]

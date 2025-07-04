@@ -350,7 +350,6 @@ std::pair<bool, std::string> LuaInterpreter::CreateFunction(
     funcname[0] = 'f';
     funcname[1] = '_';
     sha1hex(funcname + 2, body.data(), body.size());
-    funcname[42] = '\0';
 
     lua_getglobal(lua_, funcname);
     if (lua_isnil(lua_, -1))

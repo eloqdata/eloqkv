@@ -141,7 +141,7 @@ void RedisHashSetObject::Execute(SRandMemberCommand &cmd) const
     }
     int32_t cnt = 0;
     if (sz > 0 && count > 0 && sz / count > 100 &&
-        hash_set_.bucket_count() > count)
+        static_cast<int64_t>(hash_set_.bucket_count()) > count)
     {
         /*
         absl::flat_hash_set<size_t> visited;
@@ -216,7 +216,7 @@ void RedisHashSetObject::Execute(SPopCommand &cmd) const
     int32_t cnt = 0;
 
     if (sz > 0 && count > 0 && sz / count > 100 &&
-        hash_set_.bucket_count() > count)
+        static_cast<int64_t>(hash_set_.bucket_count()) > count)
     {
         /*
         absl::flat_hash_set<size_t> visited;
@@ -590,6 +590,7 @@ void RedisHashSetTTLObject::Deserialize(const char *buf, size_t &offset)
     RedisObjectType obj_type = static_cast<RedisObjectType>(*(buf + offset));
     assert(obj_type == RedisObjectType::TTLSet);
     offset += 1;
+    (void) obj_type;
 
     uint64_t *ttl_ptr = (uint64_t *) (buf + offset);
     ttl_ = *ttl_ptr;

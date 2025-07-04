@@ -97,6 +97,20 @@ public:
     TxRecord::Uptr DeserializeObject(const char *buf,
                                      size_t &offset) const override;
 
+    void SetEncodedBlob(const unsigned char *blob_ptr,
+                        size_t blob_size) override
+    {
+        // deserialize object from blob str
+        size_t offset = 0;
+        Deserialize(reinterpret_cast<const char *>(blob_ptr), offset);
+    }
+
+    void SetUnpackInfo(const unsigned char *unpack_ptr,
+                       size_t unpack_size) override
+    {
+        // Do nothing
+    }
+
     static TxRecord::Uptr Create()
     {
         return std::make_unique<RedisEloqObject>();
