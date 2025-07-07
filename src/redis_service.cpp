@@ -78,7 +78,13 @@
 #include "log_service_metrics.h"
 #endif
 
-#if ELOQDS()
+#if (defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB_CLOUD_S3) ||                      \
+     defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB_CLOUD_GCS) ||                     \
+     defined(DATA_STORE_TYPE_ELOQDSS_ELOQSTORE))
+#define ELOQDS 1
+#endif
+
+#if ELOQDS
 #include <filesystem>
 
 #include "eloq_data_store_service/data_store_service.h"
@@ -323,7 +329,7 @@ DEFINE_bool(retry_on_occ_error, true, "Retry transaction on OCC caused error.");
 
 DEFINE_bool(fork_host_manager, true, "fork host manager process");
 
-#if ELOQDS()
+#if ELOQDS
 DEFINE_string(eloq_dss_peer_node,
               "",
               "EloqDataStoreService peer node address. Used to fetch eloq-dss "
@@ -1057,7 +1063,7 @@ bool RedisServiceImpl::Init(brpc::Server &brpc_server)
             (FLAGS_bootstrap || is_single_node),
             enable_cache_replacement_);
 
-#elif ELOQDS()
+#elif ELOQDS
 
         bool is_single_node =
             (standby_ip_port_list.empty() && voter_ip_port_list.empty() &&
@@ -1909,7 +1915,34 @@ bool RedisServiceImpl::InitTxLogService(
         txlog_rocksdb_cloud_config.log_purger_starting_second_ =
             log_purger_tm.tm_sec;
     }
-
+#if defined(OPEN_LOG_SERVICE)
+    if (FLAGS_bootstrap)
+    {
+        log_server_ = std::make_unique<::txlog::LogServer>(
+            txlog_node_id,
+            log_server_port,
+            log_path,
+            1,
+            txlog_rocksdb_cloud_config,
+            FLAGS_txlog_in_mem_data_log_queue_size_high_watermark,
+            txlog_rocksdb_max_write_buffer_number,
+            txlog_rocksdb_max_background_jobs,
+            txlog_rocksdb_target_file_size_base_val);
+    }
+    else
+    {
+        log_server_ = std::make_unique<::txlog::LogServer>(
+            txlog_node_id,
+            log_server_port,
+            log_path,
+            1,
+            txlog_rocksdb_cloud_config,
+            FLAGS_txlog_in_mem_data_log_queue_size_high_watermark,
+            txlog_rocksdb_max_write_buffer_number,
+            txlog_rocksdb_max_background_jobs,
+            txlog_rocksdb_target_file_size_base_val);
+    }
+#else
     if (FLAGS_bootstrap)
     {
         log_server_ = std::make_unique<::txlog::LogServer>(
@@ -1959,6 +1992,7 @@ bool RedisServiceImpl::InitTxLogService(
             check_replay_log_size_interval_sec,
             notify_checkpointer_threshold_size_val);
     }
+#endif
 #else
     size_t txlog_rocksdb_sst_files_size_limit_val =
         !CheckCommandLineFlagIsDefault("txlog_rocksdb_sst_files_size_limit")
@@ -1969,6 +2003,32 @@ bool RedisServiceImpl::InitTxLogService(
                   FLAGS_txlog_rocksdb_sst_files_size_limit));
 
     // Start internal logserver.
+#if defined(OPEN_LOG_SERVICE)
+    if (FLAGS_bootstrap)
+    {
+        log_server_ = std::make_unique<::txlog::LogServer>(
+            txlog_node_id,
+            log_server_port,
+            log_path,
+            1,
+            txlog_rocksdb_sst_files_size_limit_val,
+            txlog_rocksdb_max_write_buffer_number,
+            txlog_rocksdb_max_background_jobs,
+            txlog_rocksdb_target_file_size_base_val);
+    }
+    else
+    {
+        log_server_ = std::make_unique<::txlog::LogServer>(
+            txlog_node_id,
+            log_server_port,
+            log_path,
+            1,
+            txlog_rocksdb_sst_files_size_limit_val,
+            txlog_rocksdb_max_write_buffer_number,
+            txlog_rocksdb_max_background_jobs,
+            txlog_rocksdb_target_file_size_base_val);
+    }
+#else
     if (FLAGS_bootstrap)
     {
         log_server_ = std::make_unique<::txlog::LogServer>(
@@ -2008,6 +2068,7 @@ bool RedisServiceImpl::InitTxLogService(
             check_replay_log_size_interval_sec,
             notify_checkpointer_threshold_size_val);
     }
+#endif
 #endif
 #endif
     DLOG(INFO) << "Log server started, node_id: " << txlog_node_id
@@ -2038,7 +2099,7 @@ void RedisServiceImpl::Stop()
     {
         LOG(INFO) << "Shutting down the storage handler.";
         store_hd_ = nullptr;  // Wait for all in-fight requests complete.
-#if ELOQDS()
+#if ELOQDS
         if (data_store_service_ != nullptr)
         {
             data_store_service_->DisconnectDataStore();
@@ -2443,7 +2504,7 @@ void RedisServiceImpl::RedisClusterSlots(std::vector<SlotInfo> &info)
                 }
             }
         }  // end-if
-    }      // end-for
+    }  // end-for
 
     if (info.size() > 1)
     {
@@ -6249,7 +6310,7 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
                                      txservice::store::DataStoreDataType::Blob);
         }
 
-#elif defined(DATA_STORE_TYPE_ROCKSDB) || ELOQDS()
+#elif defined(DATA_STORE_TYPE_ROCKSDB) || ELOQDS
         if (cmd->obj_type_ != RedisObjectType::Unknown)
         {
             char type = static_cast<char>(cmd->obj_type_);

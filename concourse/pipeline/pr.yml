@@ -1,0 +1,100 @@
+resource_types:
+  - name: pull-request
+    type: docker-image
+    source:
+      repository: teliaoss/github-pr-resource
+
+resources:
+  - name: redis_pr
+    type: pull-request
+    check_every: 3m
+    source:
+      repository: eloqdata/eloqkv
+      base_branch: "main"
+      access_token: ((git-token))
+      ignore_drafts: true
+
+  - name: redis_src
+    type: git
+    source:
+      branch: main
+      uri: git@github.com:eloqdata/eloqkv.git
+      private_key: ((git-key))
+      submodules: false
+
+  - name: eloq_metrics_src
+    type: git
+    source:
+      branch: main
+      uri: git@github.com:eloqdata/eloq-metrics.git
+      private_key: ((git-key))
+
+  - name: txservice_src
+    type: git
+    source:
+      branch: main
+      uri: git@github.com:eloqdata/tx_service.git
+      private_key: ((git-key))
+
+  - name: logservice_src
+    type: git
+    source:
+      branch: main
+      uri: git@github.com:eloqdata/log_service.git
+      private_key: ((git-key))
+
+  - name: eloq_test_src
+    type: git
+    source:
+      branch: main
+      uri: git@github.com:eloqdata/eloq-test.git
+      private_key: ((git-key))
+
+  - name: mono_ubuntu_2204
+    type: registry-image
+    source:
+      repository: monographdb/monograph-dev-ci-ubuntu2204
+      tag: latest
+      username: monographdb
+      password: Mono_cz158#
+
+jobs:
+  - name: compile-test
+    build_log_retention:
+      builds: 500
+    serial: true
+    plan:
+      - in_parallel:
+          steps:
+            - get: redis_src
+            - get: eloq_metrics_src
+            - get: txservice_src
+            - get: logservice_src
+            - get: eloq_test_src
+            - get: redis_pr
+              trigger: true
+              version: every
+            - get: mono_ubuntu_2204
+      - put: redis_pr
+        params:
+          path: redis_pr
+          status: pending
+      - task: compile-test-task
+        image: mono_ubuntu_2204
+        file: redis_pr/concourse/tasks/compile_test_redis.yml
+        vars:
+          cass-host: ((cassandra-host))
+          minio-access-key: ((minio-access-key))
+          minio-endpoint: ((minio-endpoint))
+          minio-secret-key: ((minio-secret-key))
+        privileged: true
+        on_failure:
+          put: redis_pr
+          params:
+            path: redis_pr
+            status: failure
+      - put: redis_pr
+        params:
+          path: redis_pr
+          status: success
+

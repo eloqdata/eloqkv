@@ -38,7 +38,13 @@
 #include "pub_sub_manager.h"
 #include "store_handler/kv_store.h"
 
-#if ELOQDS()
+#if (defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB_CLOUD_S3) ||                      \
+     defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB_CLOUD_GCS) ||                     \
+     defined(DATA_STORE_TYPE_ELOQDSS_ELOQSTORE))
+#define ELOQDS 1
+#endif
+
+#if ELOQDS
 #include "data_store_service.h"
 #include "store_handler/data_store_service_client.h"
 #endif
@@ -548,7 +554,7 @@ private:
 #elif defined(DATA_STORE_TYPE_ROCKSDB_CLOUD_S3) ||                             \
     defined(DATA_STORE_TYPE_ROCKSDB_CLOUD_GCS)
     std::unique_ptr<RocksDBCloudHandlerImpl> store_hd_;
-#elif ELOQDS()
+#elif ELOQDS
     std::unique_ptr<EloqDS::DataStoreServiceClient> store_hd_;
     std::unique_ptr<EloqDS::DataStoreService> data_store_service_;
 #endif

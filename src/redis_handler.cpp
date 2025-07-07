@@ -35,7 +35,6 @@
 #include "eloq_key.h"
 #include "eloq_string.h"
 #include "error_messages.h"
-#include "raft_host_manager.h"
 #include "redis_command.h"
 #include "redis_connection_context.h"
 #include "redis_object.h"

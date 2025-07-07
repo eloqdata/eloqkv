@@ -1,0 +1,77 @@
+resources:
+  - name: txservice_src
+    type: git
+    check_every: 3m
+    source:
+      branch: main
+      uri: git@github.com:eloqdata/tx_service.git
+      private_key: ((git-key))
+
+  - name: redis_src
+    type: git
+    check_every: 3m
+    source:
+      branch: merge
+      uri: git@github.com:eloqdata/eloqkv.git
+      private_key: ((git-key))
+
+  - name: logservice_src
+    type: git
+    check_every: 3m
+    source:
+      branch: main
+      uri: git@github.com:eloqdata/log_service.git
+      private_key: ((git-key))
+
+  - name: eloq_test_src
+    type: git
+    check_every: 3m
+    source:
+      branch: main
+      uri: git@github.com:eloqdata/eloq-test.git
+      private_key: ((git-key))
+
+  - name: eloq_metrics_src
+    type: git
+    check_every: 3m
+    source:
+      branch: main
+      uri: git@github.com:eloqdata/eloq-metrics.git
+      private_key: ((git-key))
+
+  - name: mono_ubuntu_2004
+    type: registry-image
+    source:
+      repository: monographdb/monograph-dev-ci-ubuntu2004
+      tag: latest
+      username: monographdb
+      password: Mono_cz158#
+
+jobs:
+  - name: compile-test
+    build_log_retention:
+      builds: 500
+    serial: true
+    plan:
+      - in_parallel:
+          steps:
+            - get: eloq_metrics_src
+              trigger: true
+            - get: txservice_src
+              trigger: true
+            - get: redis_src
+              trigger: true
+            - get: logservice_src
+              trigger: true
+            - get: eloq_test_src
+              trigger: true
+            - get: mono_ubuntu_2004
+      - task: compile-test-task
+        image: mono_ubuntu_2004
+        file: redis_src/concourse/tasks/compile_test_main.yml
+        vars:
+          cass-host: ((cassandra-host))
+          minio-access-key: ((minio-access-key))
+          minio-endpoint: ((minio-endpoint))
+          minio-secret-key: ((minio-secret-key))
+        privileged: true

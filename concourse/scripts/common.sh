@@ -1,0 +1,1705 @@
+#!/bin/bash
+
+cat << EOF
+################################################################################
+#If the lengthy task output renders extremely slow,please try fly watch command#
+#(https://concoursetutorial.com/basics/watch-job-output.html)                  #
+################################################################################
+EOF
+
+function kernel_version_greater_than_6.5() {
+  kernel_version=$(uname -r)
+  major=$(echo "$kernel_version" | cut -d. -f1)
+  minor=$(echo "$kernel_version" | cut -d. -f2)
+
+  if (( major > 6 )) || { (( major == 6 )) && (( minor >= 5 )); }; then
+    echo "true"
+  else
+    echo "false"
+  fi
+}
+
+enable_io_uring=$(kernel_version_greater_than_6.5)
+
+# Function to check if Redis server is ready
+function is_redis_ready() {
+  redis-cli -h 127.0.0.1 -p 6379 ping | grep -q "PONG"
+}
+
+function wait_until_ready() {
+  local timeout=300
+  local elapsed=0
+  local interval=1
+
+  while ! is_redis_ready; do
+    sleep $interval
+    elapsed=$((elapsed + interval))
+    echo "Wait until ready for $elapsed seconds."
+    if [ $elapsed -ge $timeout ]; then
+      echo "Timeout: Redis is not ready after $timeout seconds."
+      return 1
+    fi
+  done
+  echo "Redis is ready."
+  return 0
+}
+
+# Function to wait until server is finished
+function wait_until_finished() {
+  local timeout=120
+  local elapsed=0
+  local interval=1
+
+  while [ $(ps aux | grep eloqkv | grep -v grep | grep -v launch_sv | grep -v dss_server | wc -l) -gt 0 ]; do
+    sleep $interval
+    elapsed=$((elapsed + interval))
+    if [ $elapsed -ge $timeout ]; then
+      echo "Timeout: Process still running after 20 seconds."
+      # list eloqkv still alived
+      ps aux | grep eloqkv | grep -v grep | grep -v launch_sv | grep -v dss_server
+      return 1
+    fi
+  done
+  return 0
+}
+
+function run_tcl_tests()
+{
+  local test_to_run=$1
+  local is_cluster=${3:-false}
+  local fault_inject="--tags -needs:fault_inject"
+  if [[ $2 = "Debug" ]]; then
+    fault_inject=""
+  fi
+  local evicted=${4:-false}
+  local no_evicted="--tags -needs:no_evicted"
+  if [[ $evicted = "false" ]]; then
+    no_evicted=""
+  fi
+
+  local eloqkv_base_path="/home/mono/workspace/eloqkv"
+
+  cd ${eloqkv_base_path}
+
+  local succeed=true
+  local tcl_script_command=" \
+    tclsh tests/test_helper.tcl \
+    --host 127.0.0.1 \
+    --port 6379 \
+    --tags -needs:repl \
+    --tags -needs:config-maxmemory \
+    --tags -needs:debug \
+    --tags -needs:redis_config \
+    --tags -needs:redis_expire \
+    --tags -needs:slow_test \
+    --tags -needs:support_cmd_later \
+    $fault_inject \
+    $no_evicted \
+    --single /unit/mono/"
+  local files=$(find ${eloqkv_base_path}/tests/unit/mono -maxdepth 2 -type f)
+
+  for file in $files; do
+    local file_extension="${file##*.}"
+    local relative_path="${file#${eloqkv_base_path}/tests/unit/mono/}"
+    relative_path="${relative_path%.*}"
+
+    if [[ "$file_extension" = "tcl" ]]; then
+      if [[ "$test_to_run" = "all" || "$relative_path" = "$test_to_run" ]]; then
+        echo "Running Tcl script for file: $relative_path"
+        local full="$tcl_script_command$relative_path"
+
+        if ! $full; then
+          echo "Error running Tcl script for file: $relative_path" >&2
+          if [[ "$file" != *"/flaky_test/"* ]]; then
+            succeed=false
+          else
+            echo "The test is flaky, keep running"
+          fi
+        fi
+      fi
+    fi
+
+    if [[ $succeed = false ]]; then
+      exit 1
+    fi
+  done
+}
+
+function cleanup_minio_bucket()
+{
+  bucket_name=$1
+  #prefix="eloqkv-"
+  bucket_full_name="eloqkv-${bucket_name}"
+  SCRIPT_DIR="/home/mono/workspace/eloqkv/concourse/scripts"
+  echo "Clean up bucket ${bucket_name}"
+  python3 ${SCRIPT_DIR}/cleanup_minio_bucket.py \
+               --minio_endpoint ${ROCKSDB_CLOUD_S3_ENDPOINT} \
+               --minio_access_key ${ROCKSDB_CLOUD_AWS_ACCESS_KEY_ID} \
+               --minio_secret_key ${ROCKSDB_CLOUD_AWS_SECRET_ACCESS_KEY} \
+               --bucket_name ${bucket_full_name}
+}
+
+function run_build() {
+  local build_type=$1
+  local kv_store_type=$2
+
+  # compile eloqkv
+  cd /home/mono/workspace/eloqkv
+  cmake \
+    -S /home/mono/workspace/eloqkv \
+    -B /home/mono/workspace/eloqkv/cmake \
+    -DCMAKE_BUILD_TYPE=$build_type \
+    -DWITH_DATA_STORE=$kv_store_type \
+    -DBUILD_WITH_TESTS=ON \
+    -DWITH_LOG_SERVICE=ON \
+    -DUSE_ONE_ELOQDSS_PARTITION_ENABLED=ON
+
+  # Define the output log file
+  log_file="/tmp/compile_info.log"
+
+  # Function to run cmake build and check for errors
+  run_cmake_build() {
+    local target=$1
+    echo "redirecting output to /tmp/compile_info.log to prevent ci pipeline crash"
+    cmake --build /home/mono/workspace/eloqkv/cmake --target "$target" -j 8 > "$log_file" 2>&1
+    local exit_status=$?
+
+    if [ $exit_status -ne 0 ]; then
+      echo "CMake build for target '$target' failed. Printing the last 100 lines of the log:"
+      tail -n 500 "$log_file"
+      exit $exit_status
+    else
+      echo "CMake build for target '$target' completed successfully."
+      # Optionally, remove the log file if the build succeeded
+      rm "$log_file"
+    fi
+  }
+
+  # Run builds for the specified targets
+  targets=("eloqkv" "object_serialize_deserialize_test")
+
+  set +e
+  for target in "${targets[@]}"; do
+    run_cmake_build "$target"
+  done
+  set -e
+
+  # compile log service to setup redis cluster later
+  cd /home/mono/workspace/eloqkv/log_service
+  cmake -B bld -DCMAKE_BUILD_TYPE=$build_type && cmake --build bld -j 8
+
+  set +e
+  mkdir -p "/home/mono/workspace/eloqkv/cmake/install/bin"
+  set -e
+  cp /home/mono/workspace/eloqkv/cmake/eloqkv  /home/mono/workspace/eloqkv/cmake/install/bin/
+  cp /home/mono/workspace/eloqkv/log_service/bld/launch_sv  /home/mono/workspace/eloqkv/cmake/install/bin/
+
+case "$kv_store_type" in
+  ELOQDSS_*)
+      echo "build dss_server"
+      cd /home/mono/workspace/eloqkv/store_handler/eloq_data_store_service
+      cmake -B bld -DCMAKE_BUILD_TYPE=$build_type -DWITH_DATA_STORE=$kv_store_type && cmake --build bld -j8
+      cp /home/mono/workspace/eloqkv/store_handler/eloq_data_store_service/bld/dss_server  /home/mono/workspace/eloqkv/cmake/install/bin/
+      ;;
+esac
+
+  cd /home/mono/workspace/eloqkv
+
+}
+
+function run_eloq_ttl_tests() {
+  #TestsWithMem TestsWithKV TestsWithLog
+  local test_case=$1
+  local enable_wal=$2
+  local enable_data_store=$3
+  local kv_type=$4
+
+  local timestamp=$(($(date +%s%N) / 1000000))
+  local keyspace_name="redis_test_${timestamp}"
+  echo "cassandra keyspace name is, ${keyspace_name}"
+
+  cd /home/mono/workspace/eloqkv
+  local exe_path="/home/mono/workspace/eloqkv/cmake/eloqkv"
+  local python_test_file="/home/mono/workspace/eloq_test/redis_test/single_test/test_ttl_eloqkv.py"
+  python3 $python_test_file $exe_path ${test_case} --enable_wal=${enable_wal} --enable_data_store=${enable_data_store} --kv_type=${kv_type} --cass_host=${CASS_HOST} --cass_keyspace=${keyspace_name} --cass_bin="/home/mono/workspace/apache-cassandra-4.0.6/bin/"
+
+}
+
+function run_eloqkv_tests() {
+  local build_type=$1
+  local kv_store_type=$2
+  local eloqkv_base_path="/home/mono/workspace/eloqkv"
+
+  cd ${eloqkv_base_path}
+
+  if [[ $kv_store_type = "CASSANDRA" ]]; then
+    # generate cassandra keyspace name.
+    local timestamp=$(($(date +%s%N) / 1000000))
+    local keyspace_name="redis_test_${timestamp}"
+    echo "cassandra keyspace name is, ${keyspace_name}"
+    /home/mono/workspace/apache-cassandra-4.0.6/bin/cqlsh $CASS_HOST -e "DROP KEYSPACE IF EXISTS $keyspace_name;"
+
+    # run redis
+    echo "redirecting output to /tmp/ to prevent ci pipeline crash"
+    /home/mono/workspace/eloqkv/cmake/eloqkv \
+      --port=6379 \
+      --core_number=2 \
+      --enable_wal=true \
+      --enable_data_store=true \
+      --cass_hosts=$CASS_HOST \
+      --cass_keyspace=$keyspace_name \
+      --maxclients=1000000 \
+      --checkpoint_interval=36000 \
+      --enable_io_uring=${enable_io_uring} \
+      --logtostderr=true \
+      >/tmp/redis_server_single_node_before_replay.log 2>&1 \
+      &
+
+    local redis_pid=$!
+
+    # Wait for Redis server to be ready
+    wait_until_ready
+    echo "Redis server is ready!"
+
+    run_tcl_tests all $build_type
+
+    # log replay test
+    echo "Running log replay test for $build_type build: "
+
+    local python_test_file="/home/mono/workspace/eloqkv/tests/unit/mono/log_replay_test/log_replay_test.py"
+    python3 $python_test_file --load > /tmp/load.log 2>&1
+
+    # wait for load to finish
+    sleep 10
+
+    # kill redis_server
+    if [[ -n $redis_pid && -e /proc/$redis_pid ]]; then
+      kill -9 $redis_pid
+    fi
+
+    # wait for kill to finish
+    wait_until_finished
+
+    # run redis
+    echo "redirecting output to /tmp/ to prevent ci pipeline crash"
+    /home/mono/workspace/eloqkv/cmake/eloqkv \
+      --port=6379 \
+      --core_number=2 \
+      --enable_wal=true \
+      --enable_data_store=true \
+      --cass_hosts=$CASS_HOST \
+      --cass_keyspace=$keyspace_name \
+      --maxclients=1000000 \
+      --checkpoint_interval=36000 \
+      --enable_io_uring=${enable_io_uring} \
+      --logtostderr=true \
+      >/tmp/redis_server_single_node_after_replay.log 2>&1 \
+      &
+
+    local redis_pid=$!
+
+    # Wait for Redis server to be ready
+    wait_until_ready
+    echo "Redis server is ready!"
+
+    python3 $python_test_file --verify
+
+    # wait for verify to finish
+    sleep 10
+
+    file1="database_snapshot_before_replay.json" # First JSON file
+    file2="database_snapshot_after_replay.json"  # Second JSON file
+
+    if [[ -z "$file1" || -z "$file2" ]]; then
+      echo "ERROR: database_snapshot_before_replay.json or database_snapshot_after_replay.json not generated"
+      exit 1
+    fi
+
+    # Sort JSON content and compare using diff
+    if diff <(jq -S . "$file1") <(jq -S . "$file2") &>/dev/null; then
+      echo "PASS: The JSON files are identical."
+    else
+      echo "FAIL: The JSON files are different."
+      exit 1
+    fi
+
+    # kill redis_server
+    if [[ -n $redis_pid && -e /proc/$redis_pid ]]; then
+      kill $redis_pid
+    fi
+
+    # wait for kill to finish
+    wait_until_finished
+
+    cd /home/mono/workspace/eloqkv
+    if [ -d "./cc_ng" ]; then
+      rm -rf ./cc_ng
+    fi
+    if [ -d "./tx_log" ]; then
+      rm -rf ./tx_log
+    fi
+    if [ -d "./eloq_data" ]; then
+      rm -rf ./eloq_data
+    fi
+
+    # run redis with wal disabled.
+    echo "redirecting output to /tmp/ to prevent ci pipeline crash"
+    /home/mono/workspace/eloqkv/cmake/eloqkv \
+        --port=6379 \
+        --core_number=2 \
+        --enable_wal=false \
+        --enable_data_store=true \
+        --cass_hosts=$CASS_HOST \
+        --cass_keyspace=$keyspace_name \
+        --maxclients=1000000 \
+        --checkpoint_interval=10 \
+        --enable_io_uring=${enable_io_uring} \
+        --logtostderr=true \
+        >/tmp/redis_server_single_node_no_wal.log 2>&1 \
+        &
+    local redis_pid=$!
+
+    # Wait for Redis server to be ready
+    wait_until_ready
+    echo "Redis server is ready!"
+
+    run_tcl_tests all $build_type
+
+    # kill redis_server
+    if [[ -n $redis_pid && -e /proc/$redis_pid ]]; then
+      kill $redis_pid
+    fi
+
+    # wait for kill to finish
+    wait_until_finished
+
+    # drop cassandra keyspace
+    /home/mono/workspace/apache-cassandra-4.0.6/bin/cqlsh $CASS_HOST -e "DROP KEYSPACE IF EXISTS $keyspace_name;"
+
+    # run redis with wal and data store disabled.
+    echo "redirecting output to /tmp/ to prevent ci pipeline crash"
+    /home/mono/workspace/eloqkv/cmake/eloqkv \
+        --port=6379 \
+        --core_number=2 \
+        --enable_wal=false \
+        --enable_data_store=false \
+        --maxclients=1000000 \
+        --checkpoint_interval=10 \
+        --enable_io_uring=${enable_io_uring} \
+        --logtostderr=true \
+        >/tmp/redis_server_single_node_no_wal_no_data_store.log 2>&1 \
+        &
+    local redis_pid=$!
+
+    # Wait for Redis server to be ready
+    wait_until_ready
+
+    run_tcl_tests all $build_type
+
+    # kill redis_server
+    if [[ -n $redis_pid && -e /proc/$redis_pid ]]; then
+      kill $redis_pid
+    fi
+
+    # wait for kill to finish
+    wait_until_finished
+  elif [[ $kv_store_type = "ROCKSDB" ]]; then
+
+    echo "bootstrap rocksdb"
+
+    /home/mono/workspace/eloqkv/cmake/eloqkv \
+      --port=6379 \
+      --core_number=2 \
+      --enable_wal=true \
+      --enable_data_store=true \
+      --enable_io_uring=${enable_io_uring} \
+      --bootstrap=true &
+
+    echo "bootstrap is started, pid: $!"
+    # wait for bootstrap to finish
+    sleep 20
+
+    # run redis
+    echo "redirecting output to /tmp/ to prevent ci pipeline crash"
+    /home/mono/workspace/eloqkv/cmake/eloqkv \
+      --port=6379 \
+      --core_number=2 \
+      --enable_wal=true \
+      --enable_data_store=true \
+      --maxclients=1000000 \
+      --checkpoint_interval=36000 \
+      --enable_io_uring=${enable_io_uring} \
+      --logtostderr=true \
+      >/tmp/redis_server_single_node_before_replay.log 2>&1 \
+      &
+
+    local redis_pid=$!
+
+    # Wait for Redis server to be ready
+    wait_until_ready
+    echo "Redis server is ready!"
+
+    run_tcl_tests all $build_type
+
+    # log replay test
+    echo "Running log replay test for $build_type build: "
+
+    local python_test_file="/home/mono/workspace/eloqkv/tests/unit/mono/log_replay_test/log_replay_test.py"
+    python3 $python_test_file --load > /tmp/load.log 2>&1
+
+    # wait for load to finish
+    sleep 10
+
+    # kill redis_server
+    if [[ -n $redis_pid && -e /proc/$redis_pid ]]; then
+      kill -9 $redis_pid
+    fi
+
+    # wait for kill to finish
+    wait_until_finished
+
+    # run redis
+    echo "redirecting output to /tmp/ to prevent ci pipeline crash"
+    /home/mono/workspace/eloqkv/cmake/eloqkv \
+      --port=6379 \
+      --core_number=2 \
+      --enable_wal=true \
+      --enable_data_store=true \
+      --maxclients=1000000 \
+      --checkpoint_interval=36000 \
+      --enable_io_uring=${enable_io_uring} \
+      --logtostderr=true \
+      >/tmp/redis_server_single_node_after_replay.log 2>&1 \
+      &
+
+    local redis_pid=$!
+
+    # Wait for Redis server to be ready
+    wait_until_ready
+    echo "Redis server is ready!"
+
+    python3 $python_test_file --verify
+
+    # wait for verify to finish
+    sleep 10
+
+    file1="database_snapshot_before_replay.json" # First JSON file
+    file2="database_snapshot_after_replay.json"  # Second JSON file
+
+    if [[ -z "$file1" || -z "$file2" ]]; then
+      echo "ERROR: database_snapshot_before_replay.json or database_snapshot_after_replay.json not generated"
+      exit 1
+    fi
+
+    # Sort JSON content and compare using diff
+    if diff <(jq -S . "$file1") <(jq -S . "$file2") &>/dev/null; then
+      echo "PASS: The JSON files are identical."
+    else
+      echo "FAIL: The JSON files are different."
+      exit 1
+    fi
+
+    # kill redis_server
+    if [[ -n $redis_pid && -e /proc/$redis_pid ]]; then
+      kill $redis_pid
+    fi
+
+    # wait for kill to finish
+    wait_until_finished
+
+    cd /home/mono/workspace/eloqkv
+    if [ -d "./cc_ng" ]; then
+      rm -rf ./cc_ng
+    fi
+    if [ -d "./tx_log" ]; then
+      rm -rf ./tx_log
+    fi
+    if [ -d "./eloq_data" ]; then
+      rm -rf ./eloq_data
+    fi
+
+    # run redis with wal disabled.
+    echo "redirecting output to /tmp/ to prevent ci pipeline crash"
+    /home/mono/workspace/eloqkv/cmake/eloqkv \
+        --port=6379 \
+        --core_number=2 \
+        --enable_wal=false \
+        --enable_data_store=true \
+        --maxclients=1000000 \
+        --checkpoint_interval=10 \
+        --enable_io_uring=${enable_io_uring} \
+        --logtostderr=true \
+        >/tmp/redis_server_single_node_no_wal.log 2>&1 \
+        &
+    local redis_pid=$!
+
+    # Wait for Redis server to be ready
+    wait_until_ready
+    echo "Redis server is ready!"
+
+    run_tcl_tests all $build_type
+
+    # kill redis_server
+    if [[ -n $redis_pid && -e /proc/$redis_pid ]]; then
+      kill $redis_pid
+    fi
+
+    # wait for kill to finish
+    wait_until_finished
+
+    # run redis with wal and data store disabled.
+    echo "redirecting output to /tmp/ to prevent ci pipeline crash"
+    /home/mono/workspace/eloqkv/cmake/eloqkv \
+        --port=6379 \
+        --core_number=2 \
+        --enable_wal=false \
+        --enable_data_store=false \
+        --maxclients=1000000 \
+        --checkpoint_interval=10 \
+        --enable_io_uring=${enable_io_uring} \
+        --logtostderr=true \
+        >/tmp/redis_server_single_node_no_wal_no_data_store.log 2>&1 \
+        &
+    local redis_pid=$!
+
+    # Wait for Redis server to be ready
+    wait_until_ready
+    echo "Redis server is ready!"
+
+    run_tcl_tests all $build_type
+
+    # kill redis_server
+    if [[ -n $redis_pid && -e /proc/$redis_pid ]]; then
+      kill $redis_pid
+    fi
+
+    # wait for kill to finish
+    wait_until_finished
+
+  elif [[ $kv_store_type = "DYNAMODB" ]]; then
+    # generate dynamodb keyspace name.
+    local timestamp=$(($(date +%s%N) / 1000000))
+    local keyspace_name="redis_test_${timestamp}"
+    echo "dynamodb keyspace name is, ${keyspace_name}"
+
+
+    local dynamodb_endpoint=${DYNAMO_ENDPOINT}
+    local dynamodb_region=${AWS_DEFAULT_REGION}
+    local aws_access_key_id=${AWS_ACCESS_KEY_ID}
+    local aws_secret_key=${AWS_SECRET_ACCESS_KEY}
+
+
+    # run redis
+    echo "redirecting output to /tmp/ to prevent ci pipeline crash"
+    /home/mono/workspace/eloqkv/cmake/eloqkv \
+      --port=6379 \
+      --core_number=2 \
+      --enable_wal=true \
+      --enable_data_store=true \
+      --dynamodb_endpoint=$dynamodb_endpoint \
+      --dynamodb_region=$dynamodb_region \
+      --aws_access_key_id=$aws_access_key_id \
+      --aws_secret_key=$aws_secret_key \
+      --dynamodb_keyspace=$keyspace_name \
+      --maxclients=1000000 \
+      --checkpoint_interval=10 \
+      --enable_io_uring=${enable_io_uring} \
+      --logtostderr=true \
+      >/tmp/redis_server_single_node_before_replay.log 2>&1 \
+      &
+
+    local redis_pid=$!
+
+    # Wait for Redis server to be ready
+    wait_until_ready
+    echo "Redis server is ready!"
+
+    run_tcl_tests all $build_type
+
+    # log replay test
+    echo "Running log replay test for $build_type build: "
+
+    local python_test_file="/home/mono/workspace/eloqkv/tests/unit/mono/log_replay_test/log_replay_test.py"
+    python3 $python_test_file --load > /tmp/load.log 2>&1
+
+    # wait for load to finish
+    sleep 10
+
+    # kill redis_server
+    if [[ -n $redis_pid && -e /proc/$redis_pid ]]; then
+      kill -9 $redis_pid
+    fi
+
+    # wait for kill to finish
+    wait_until_finished
+
+    # run redis
+    echo "redirecting output to /tmp/ to prevent ci pipeline crash"
+    /home/mono/workspace/eloqkv/cmake/eloqkv \
+      --port=6379 \
+      --core_number=2 \
+      --enable_wal=true \
+      --enable_data_store=true \
+      --dynamodb_endpoint=$dynamodb_endpoint \
+      --dynamodb_region=$dynamodb_region \
+      --aws_access_key_id=$aws_access_key_id \
+      --aws_secret_key=$aws_secret_key \
+      --dynamodb_keyspace=$keyspace_name \
+      --maxclients=1000000 \
+      --checkpoint_interval=10 \
+      --enable_io_uring=${enable_io_uring} \
+      --logtostderr=true \
+      >/tmp/redis_server_single_node_after_replay.log 2>&1 \
+      &
+
+    local redis_pid=$!
+
+    # Wait for Redis server to be ready
+    wait_until_ready
+    echo "Redis server is ready!"
+
+    python3 $python_test_file --verify
+
+    # wait for verify to finish
+    sleep 10
+
+    file1="database_snapshot_before_replay.json" # First JSON file
+    file2="database_snapshot_after_replay.json"  # Second JSON file
+
+    if [[ -z "$file1" || -z "$file2" ]]; then
+      echo "ERROR: database_snapshot_before_replay.json or database_snapshot_after_replay.json not generated"
+      exit 1
+    fi
+
+    # Sort JSON content and compare using diff
+    if diff <(jq -S . "$file1") <(jq -S . "$file2") &>/dev/null; then
+      echo "PASS: The JSON files are identical."
+    else
+      echo "FAIL: The JSON files are different."
+      exit 1
+    fi
+
+    # kill redis_server
+    if [[ -n $redis_pid && -e /proc/$redis_pid ]]; then
+      kill $redis_pid
+    fi
+
+    # wait for kill to finish
+    wait_until_finished
+
+    cd /home/mono/workspace/eloqkv
+    if [ -d "./cc_ng" ]; then
+      rm -rf ./cc_ng
+    fi
+    if [ -d "./tx_log" ]; then
+      rm -rf ./tx_log
+    fi
+    if [ -d "./eloq_data" ]; then
+      rm -rf ./eloq_data
+    fi
+
+    # run redis with wal disabled.
+    echo "redirecting output to /tmp/ to prevent ci pipeline crash"
+    /home/mono/workspace/eloqkv/cmake/eloqkv \
+        --port=6379 \
+        --core_number=2 \
+        --enable_wal=false \
+        --enable_data_store=true \
+        --dynamodb_endpoint=$dynamodb_endpoint \
+        --dynamodb_region=$dynamodb_region \
+        --aws_access_key_id=$aws_access_key_id \
+        --aws_secret_key=$aws_secret_key \
+        --dynamodb_keyspace=$keyspace_name \
+        --maxclients=1000000 \
+        --checkpoint_interval=10 \
+        --enable_io_uring=${enable_io_uring} \
+        --logtostderr=true \
+        >/tmp/redis_server_single_node_no_wal.log 2>&1 \
+        &
+    local redis_pid=$!
+
+    # Wait for Redis server to be ready
+    wait_until_ready
+    echo "Redis server is ready!"
+
+    run_tcl_tests all $build_type
+
+    # kill redis_server
+    if [[ -n $redis_pid && -e /proc/$redis_pid ]]; then
+      kill $redis_pid
+    fi
+
+    # wait for kill to finish
+    wait_until_finished
+
+    # drop keyspace
+
+    # run redis with wal and data store disabled.
+    echo "redirecting output to /tmp/ to prevent ci pipeline crash"
+    /home/mono/workspace/eloqkv/cmake/eloqkv \
+        --port=6379 \
+        --core_number=2 \
+        --enable_wal=false \
+        --enable_data_store=false \
+        --maxclients=1000000 \
+        --checkpoint_interval=10 \
+        --enable_io_uring=${enable_io_uring} \
+        --logtostderr=true \
+        >/tmp/redis_server_single_node_no_wal_no_data_store.log 2>&1 \
+        &
+    local redis_pid=$!
+
+    # Wait for Redis server to be ready
+    wait_until_ready
+
+    run_tcl_tests all $build_type
+
+    # kill redis_server
+    if [[ -n $redis_pid && -e /proc/$redis_pid ]]; then
+      kill $redis_pid
+    fi
+
+    # wait for kill to finish
+    wait_until_finished
+
+
+  elif [[ $kv_store_type = "ELOQDSS_ROCKSDB_CLOUD_S3" ]]; then
+
+    echo "bootstrap eloqdss-rocksdb-cloud-s3"
+
+    local rocksdb_cloud_s3_endpoint_url=${ROCKSDB_CLOUD_S3_ENDPOINT}
+    local rocksdb_cloud_aws_access_key_id=${ROCKSDB_CLOUD_AWS_ACCESS_KEY_ID}
+    local rocksdb_cloud_aws_secret_access_key=${ROCKSDB_CLOUD_AWS_SECRET_ACCESS_KEY}
+    local rocksdb_cloud_bucket_name=${ROCKSDB_CLOUD_BUCKET_NAME}
+
+    /home/mono/workspace/eloqkv/cmake/eloqkv \
+      --port=6379 \
+      --core_number=2 \
+      --enable_wal=true \
+      --enable_data_store=true \
+      --rocksdb_cloud_s3_endpoint_url="${rocksdb_cloud_s3_endpoint_url}" \
+      --aws_access_key_id="${rocksdb_cloud_aws_access_key_id}" \
+      --aws_secret_key="${rocksdb_cloud_aws_secret_access_key}" \
+      --rocksdb_cloud_bucket_name=${rocksdb_cloud_bucket_name} \
+      --enable_io_uring=${enable_io_uring} \
+      --bootstrap=true &
+
+    echo "bootstrap is started, pid: $!"
+    # wait for bootstrap to finish
+    sleep 20
+
+    # run redis
+    echo "redirecting output to /tmp/ to prevent ci pipeline crash"
+    /home/mono/workspace/eloqkv/cmake/eloqkv \
+      --port=6379 \
+      --core_number=2 \
+      --enable_wal=true \
+      --enable_data_store=true \
+      --rocksdb_cloud_s3_endpoint_url="${rocksdb_cloud_s3_endpoint_url}" \
+      --aws_access_key_id="${rocksdb_cloud_aws_access_key_id}" \
+      --aws_secret_key="${rocksdb_cloud_aws_secret_access_key}" \
+      --rocksdb_cloud_bucket_name=${rocksdb_cloud_bucket_name} \
+      --maxclients=1000000 \
+      --checkpoint_interval=36000 \
+      --enable_io_uring=${enable_io_uring} \
+      --logtostderr=true \
+      >/tmp/redis_server_single_node_before_replay.log 2>&1 \
+      &
+
+    local redis_pid=$!
+
+    # Wait for Redis server to be ready
+    wait_until_ready
+    echo "Redis server is ready!"
+
+    run_tcl_tests all $build_type
+
+    # log replay test
+    echo "Running log replay test for $build_type build: "
+
+    local python_test_file="/home/mono/workspace/eloqkv/tests/unit/mono/log_replay_test/log_replay_test.py"
+    python3 $python_test_file --load > /tmp/load.log 2>&1
+
+    # wait for load to finish
+    sleep 10
+
+    # kill redis_server
+    if [[ -n $redis_pid && -e /proc/$redis_pid ]]; then
+      kill -9 $redis_pid
+    fi
+
+    # wait for kill to finish
+    wait_until_finished
+
+    # run redis
+    echo "redirecting output to /tmp/ to prevent ci pipeline crash"
+    /home/mono/workspace/eloqkv/cmake/eloqkv \
+      --port=6379 \
+      --core_number=2 \
+      --enable_wal=true \
+      --enable_data_store=true \
+      --rocksdb_cloud_s3_endpoint_url="${rocksdb_cloud_s3_endpoint_url}" \
+      --aws_access_key_id="${rocksdb_cloud_aws_access_key_id}" \
+      --aws_secret_key="${rocksdb_cloud_aws_secret_access_key}" \
+      --rocksdb_cloud_bucket_name=${rocksdb_cloud_bucket_name} \
+      --maxclients=1000000 \
+      --checkpoint_interval=36000 \
+      --enable_io_uring=${enable_io_uring} \
+      --logtostderr=true \
+      >/tmp/redis_server_single_node_after_replay.log 2>&1 \
+      &
+
+    local redis_pid=$!
+
+    # Wait for Redis server to be ready
+    wait_until_ready
+    echo "Redis server is ready!"
+
+    python3 $python_test_file --verify
+
+    # wait for verify to finish
+    sleep 10
+
+    file1="database_snapshot_before_replay.json" # First JSON file
+    file2="database_snapshot_after_replay.json"  # Second JSON file
+
+    if [[ -z "$file1" || -z "$file2" ]]; then
+      echo "ERROR: database_snapshot_before_replay.json or database_snapshot_after_replay.json not generated"
+      exit 1
+    fi
+
+    # Sort JSON content and compare using diff
+    if diff <(jq -S . "$file1") <(jq -S . "$file2") &>/dev/null; then
+      echo "PASS: The JSON files are identical."
+    else
+      echo "FAIL: The JSON files are different."
+      exit 1
+    fi
+
+    # kill redis_server
+    if [[ -n $redis_pid && -e /proc/$redis_pid ]]; then
+      kill $redis_pid
+    fi
+
+    # wait for kill to finish
+    wait_until_finished
+
+    cd /home/mono/workspace/eloqkv
+    if [ -d "./cc_ng" ]; then
+      rm -rf ./cc_ng
+    fi
+    if [ -d "./tx_log" ]; then
+      rm -rf ./tx_log
+    fi
+    if [ -d "./eloq_data" ]; then
+      rm -rf ./eloq_data
+    fi
+
+    # run redis with wal disabled.
+    echo "redirecting output to /tmp/ to prevent ci pipeline crash"
+    /home/mono/workspace/eloqkv/cmake/eloqkv \
+        --port=6379 \
+        --core_number=2 \
+        --enable_wal=false \
+        --enable_data_store=true \
+        --rocksdb_cloud_s3_endpoint_url="${rocksdb_cloud_s3_endpoint_url}" \
+        --aws_access_key_id="${rocksdb_cloud_aws_access_key_id}" \
+        --aws_secret_key="${rocksdb_cloud_aws_secret_access_key}" \
+        --rocksdb_cloud_bucket_name=${rocksdb_cloud_bucket_name} \
+        --maxclients=1000000 \
+        --checkpoint_interval=10 \
+        --enable_io_uring=${enable_io_uring} \
+        --logtostderr=true \
+        >/tmp/redis_server_single_node_no_wal.log 2>&1 \
+        &
+    local redis_pid=$!
+
+    # Wait for Redis server to be ready
+    wait_until_ready
+    echo "Redis server is ready!"
+
+    run_tcl_tests all $build_type
+
+    # kill redis_server
+    if [[ -n $redis_pid && -e /proc/$redis_pid ]]; then
+      kill $redis_pid
+    fi
+
+    # wait for kill to finish
+    wait_until_finished
+
+    # run redis with wal and data store disabled.
+    echo "redirecting output to /tmp/ to prevent ci pipeline crash"
+    /home/mono/workspace/eloqkv/cmake/eloqkv \
+        --port=6379 \
+        --core_number=2 \
+        --enable_wal=false \
+        --enable_data_store=false \
+        --rocksdb_cloud_s3_endpoint_url="${rocksdb_cloud_s3_endpoint_url}" \
+        --aws_access_key_id="${rocksdb_cloud_aws_access_key_id}" \
+        --aws_secret_key="${rocksdb_cloud_aws_secret_access_key}" \
+        --rocksdb_cloud_bucket_name=${rocksdb_cloud_bucket_name} \
+        --maxclients=1000000 \
+        --checkpoint_interval=10 \
+        --enable_io_uring=${enable_io_uring} \
+        --logtostderr=true \
+        >/tmp/redis_server_single_node_no_wal_no_data_store.log 2>&1 \
+        &
+    local redis_pid=$!
+
+    # Wait for Redis server to be ready
+    wait_until_ready
+    echo "Redis server is ready!"
+
+    run_tcl_tests all $build_type
+
+    # kill redis_server
+    if [[ -n $redis_pid && -e /proc/$redis_pid ]]; then
+      kill $redis_pid
+    fi
+
+    # wait for kill to finish
+    wait_until_finished
+
+    # clean up bucket in minio
+    cleanup_minio_bucket $ROCKSDB_CLOUD_BUCKET_NAME
+  elif [[ $kv_store_type = "ELOQDSS_ELOQSTORE" ]]; then
+    echo "single eloqkv node with dss_eloqstore." > /tmp/redis_single_node.log
+
+    local eloq_data_path="/tmp/eloqkv_data"
+    local node_memory_limit_mb=8192
+    local eloq_store_worker_num=2
+    local eloq_store_data_path="/tmp/eloqkv_data/eloq_store"
+    local eloqkv_bin_path="/home/mono/workspace/eloqkv/cmake/eloqkv"
+
+    # run redis with small ckpt interval.
+    rm -rf ${eloq_data_path}/*
+    echo "redirecting output to /tmp/ to prevent ci pipeline crash" >> /tmp/redis_single_node.log
+    echo "small ckpt interval with wal and data store." >> /tmp/redis_single_node.log
+    ${eloqkv_bin_path} \
+        --port=6379 \
+        --core_number=2 \
+        --enable_wal=true \
+        --enable_data_store=true \
+        --node_memory_limit_mb=${node_memory_limit_mb} \
+        --eloq_data_path=${eloq_data_path} \
+        --eloq_store_worker_num=${eloq_store_worker_num} \
+        --eloq_store_data_path=${eloq_store_data_path} \
+        --maxclients=1000000 \
+	      --logtostderr=true \
+        --checkpoint_interval=1 \
+	      --kickout_data_for_test=true \
+        >/tmp/redis_server_single_node_small_ckpt_interval.log 2>&1 \
+        &
+    local redis_pid=$!
+
+    # Wait for Redis server to be ready
+    wait_until_ready
+    echo "Redis server is ready!" >> /tmp/redis_single_node.log
+
+    run_tcl_tests all $build_type false true
+
+    echo "finished small ckpt interval with wal and data store." >> /tmp/redis_single_node.log
+    echo "" >> /tmp/redis_single_node.log
+    # kill redis_server
+    if [[ -n $redis_pid && -e /proc/$redis_pid ]]; then
+      kill $redis_pid
+    fi
+
+    # wait for kill to finish
+    wait_until_finished
+
+    # run redis
+    rm -rf ${eloq_data_path}/*
+    echo "redirecting output to /tmp/ to prevent ci pipeline crash" >> /tmp/redis_single_node.log
+    echo "big ckpt interval before replay with wal and data store." >> /tmp/redis_single_node.log
+    ${eloqkv_bin_path} \
+      --port=6379 \
+      --core_number=2 \
+      --enable_wal=true \
+      --enable_data_store=true \
+      --node_memory_limit_mb=${node_memory_limit_mb} \
+      --eloq_data_path=${eloq_data_path} \
+      --eloq_store_worker_num=${eloq_store_worker_num} \
+      --eloq_store_data_path=${eloq_store_data_path} \
+      --maxclients=1000000 \
+      --logtostderr=true \
+      --checkpoint_interval=36000 \
+      >/tmp/redis_server_single_node_before_replay.log 2>&1 \
+      &
+    local redis_pid=$!
+
+    # Wait for Redis server to be ready
+    wait_until_ready
+    echo "Redis server is ready!" >> /tmp/redis_single_node.log
+
+    run_tcl_tests all $build_type
+    echo "finished big ckpt interval before replay with wal and data store." >> /tmp/redis_single_node.log
+    echo "" >> /tmp/redis_single_node.log
+
+    # log replay test
+    echo "Running log replay test for $build_type build: " >> /tmp/redis_single_node.log
+    echo "" >> /tmp/redis_single_node.log
+
+    local python_test_file="${eloqkv_base_path}/tests/unit/mono/log_replay_test/log_replay_test.py"
+    python3 $python_test_file --load > /tmp/load.log 2>&1
+
+    # wait for load to finish
+    sleep 10
+
+    # kill redis_server
+    if [[ -n $redis_pid && -e /proc/$redis_pid ]]; then
+      kill -9 $redis_pid
+    fi
+
+    # wait for kill to finish
+    wait_until_finished
+
+    # run redis
+    echo "redirecting output to /tmp/ to prevent ci pipeline crash" >> /tmp/redis_single_node.log
+    echo "big ckpt interval after replay with wal and data store." >> /tmp/redis_single_node.log
+    ${eloqkv_bin_path} \
+      --port=6379 \
+      --core_number=2 \
+      --enable_wal=true \
+      --enable_data_store=true \
+      --node_memory_limit_mb=${node_memory_limit_mb} \
+      --eloq_data_path=${eloq_data_path} \
+      --eloq_store_worker_num=${eloq_store_worker_num} \
+      --eloq_store_data_path=${eloq_store_data_path} \
+      --maxclients=1000000 \
+      --logtostderr=true \
+      --checkpoint_interval=36000 \
+      >/tmp/redis_server_single_node_after_replay.log 2>&1 \
+      &
+    local redis_pid=$!
+
+    # Wait for Redis server to be ready
+    wait_until_ready
+    echo "Redis server is ready!" >> /tmp/redis_single_node.log
+
+    echo "verify log replay result" >> /tmp/redis_single_node.log
+    python3 $python_test_file --verify
+
+    # wait for verify to finish
+    sleep 10
+
+    file1="database_snapshot_before_replay.json" # First JSON file
+    file2="database_snapshot_after_replay.json"  # Second JSON file
+
+    if [[ -z "$file1" || -z "$file2" ]]; then
+      echo "ERROR: database_snapshot_before_replay.json or database_snapshot_after_replay.json not generated"
+      exit 1
+    fi
+
+    # Sort JSON content and compare using diff
+    if diff <(jq -S . "$file1") <(jq -S . "$file2") &>/dev/null; then
+      echo "PASS: The JSON files are identical."
+    else
+      echo "FAIL: The JSON files are different."
+      exit 1
+    fi
+
+    echo "finished big ckpt interval after replay with wal and data store." >> /tmp/redis_single_node.log
+    echo "" >> /tmp/redis_single_node.log
+    # kill redis_server
+    if [[ -n $redis_pid && -e /proc/$redis_pid ]]; then
+      kill $redis_pid
+    fi
+
+    # wait for kill to finish
+    wait_until_finished
+
+    cd ${eloq_data_path}
+    if [ -d "./cc_ng" ]; then
+      rm -rf ./cc_ng
+    fi
+    if [ -d "./tx_log" ]; then
+      rm -rf ./tx_log
+    fi
+    if [ -d "./log_service" ]; then
+      rm -rf ./log_service
+    fi
+
+    # run redis with wal disabled.
+    rm -rf ${eloq_data_path}/*
+    echo "redirecting output to /tmp/ to prevent ci pipeline crash" >> /tmp/redis_single_node.log
+    echo "default ckpt interval without wal and with data store." >> /tmp/redis_single_node.log
+    ${eloqkv_bin_path} \
+        --port=6379 \
+        --core_number=2 \
+        --enable_wal=false \
+        --enable_data_store=true \
+	      --node_memory_limit_mb=${node_memory_limit_mb} \
+        --eloq_data_path=${eloq_data_path} \
+        --eloq_store_worker_num=${eloq_store_worker_num} \
+        --eloq_store_data_path=${eloq_store_data_path} \
+        --maxclients=1000000 \
+        --logtostderr=true \
+        --checkpoint_interval=10 \
+        >/tmp/redis_server_single_node_no_wal_default_ckpt_interval.log 2>&1 \
+        &
+    local redis_pid=$!
+
+    # Wait for Redis server to be ready
+    wait_until_ready
+    echo "Redis server is ready!" >> /tmp/redis_single_node.log
+
+    run_tcl_tests all $build_type
+
+    echo "finished default ckpt interval without wal and with data store." >> /tmp/redis_single_node.log
+    echo "" >> /tmp/redis_single_node.log
+    # kill redis_server
+    if [[ -n $redis_pid && -e /proc/$redis_pid ]]; then
+      kill $redis_pid
+    fi
+
+    # wait for kill to finish
+    wait_until_finished
+
+    # run redis with wal disabled and small ckpt interval.
+    rm -rf ${eloq_data_path}/*
+    echo "redirecting output to /tmp/ to prevent ci pipeline crash" >> /tmp/redis_single_node.log
+    echo "samll ckpt interval without wal and with data store." >> /tmp/redis_single_node.log
+    ${eloqkv_bin_path} \
+        --port=6379 \
+        --core_number=2 \
+        --enable_wal=false \
+        --enable_data_store=true \
+	      --node_memory_limit_mb=${node_memory_limit_mb} \
+        --eloq_data_path=${eloq_data_path} \
+        --eloq_store_worker_num=${eloq_store_worker_num} \
+        --eloq_store_data_path=${eloq_store_data_path} \
+        --maxclients=1000000 \
+        --logtostderr=true \
+        --checkpoint_interval=1 \
+	      --kickout_data_for_test=true \
+        >/tmp/redis_server_single_node_nowal_small_ckpt_interval.log 2>&1 \
+        &
+    local redis_pid=$!
+
+    # Wait for Redis server to be ready
+    wait_until_ready
+    echo "Redis server is ready!" >> /tmp/redis_single_node.log
+
+    run_tcl_tests all $build_type false true
+    echo "finished samll ckpt interval without wal and with data store." >> /tmp/redis_single_node.log
+    echo "" >> /tmp/redis_single_node.log
+
+    # kill redis_server
+    if [[ -n $redis_pid && -e /proc/$redis_pid ]]; then
+      kill $redis_pid
+    fi
+
+    # wait for kill to finish
+    wait_until_finished
+    #exit 0
+
+    # run redis with wal and data store disabled.
+    rm -rf ${eloq_data_path}/*
+    echo "redirecting output to /tmp/ to prevent ci pipeline crash" >> /tmp/redis_single_node.log
+    echo "default ckpt interval without wal and without data store." >> /tmp/redis_single_node.log
+    ${eloqkv_bin_path} \
+        --port=6379 \
+        --core_number=2 \
+        --enable_wal=false \
+        --enable_data_store=false \
+	      --node_memory_limit_mb=${node_memory_limit_mb} \
+        --eloq_data_path=${eloq_data_path} \
+        --eloq_store_worker_num=${eloq_store_worker_num} \
+        --eloq_store_data_path=${eloq_store_data_path} \
+        --maxclients=1000000 \
+        --logtostderr=true \
+        --checkpoint_interval=10 \
+        >/tmp/redis_server_single_node_no_wal_no_data_store_default_ckpt_interval.log 2>&1 \
+        &
+    local redis_pid=$!
+
+    # Wait for Redis server to be ready
+    wait_until_ready
+    echo "Redis server is ready!" >> /tmp/redis_single_node.log
+
+    run_tcl_tests all $build_type
+    echo "finished default ckpt interval without wal and without data store." >> /tmp/redis_single_node.log
+
+    # kill redis_server
+    if [[ -n $redis_pid && -e /proc/$redis_pid ]]; then
+      kill $redis_pid
+    fi
+
+    # wait for kill to finish
+    wait_until_finished
+  fi
+
+}
+
+# Function to wait until data store server is ready
+function wait_dss_until_ready(){
+  local interval=1
+  local timeout=300
+  local elapsed=0
+  local dss_log_path="/tmp/eloq_dss_data/eloq_dss_server.log"
+
+  while [ $(grep -i "DataStoreService Server Started" ${dss_log_path} | wc -l) -eq 0 ]; do
+    sleep $interval
+    elapsed=$((elapsed + interval))
+    echo "Wait until data store server ready for $elapsed seconds."
+    if [ $elapsed -ge $timeout ]; then
+      echo "Timeout: Data store server is not ready after $elapsed seconds."
+      return 1
+    fi
+  done
+  return 0
+}
+
+# Function to wait until data store server is finished
+function wait_dss_until_finished() {
+  local interval=1
+  local timeout=120
+  local elapsed=0
+
+  while [ $(ps aux | grep dss_server | grep -v grep | wc -l) -gt 0 ]; do
+    sleep $interval
+    elapsed=$((elapsed + interval))
+    if [ $elapsed -ge $timeout ]; then
+      echo "Timeout: Process still running after $timeout seconds."
+      # list dss still alived
+      ps aux | grep dss_server | grep -v grep
+      return 1
+    fi
+  done
+  return 0
+}
+
+function stop_and_clean_dss_server() {
+  local kv_store_type=$1
+
+  set +e
+  pkill -x dss_server
+  rm data_store_config.ini
+  rm /tmp/data_store_config.ini
+  rm -rf /tmp/eloq_dss_data
+  set -e
+
+  wait_dss_until_finished
+
+  if [[ $kv_store_type = "ELOQDSS_ROCKSDB_CLOUD_S3" ]]; then
+    # clean up bucket in minio
+    cleanup_minio_bucket $ROCKSDB_CLOUD_BUCKET_NAME
+  fi
+
+}
+
+function start_dss_server() {
+    local dss_ip=$1
+    local dss_port=$2
+    local kv_store_type=$3
+    local eloqkv_base_path="/home/mono/workspace/eloqkv"
+    local dss_data_path="/tmp/eloq_dss_data"
+    local dss_log_path="/tmp/eloq_dss_data/eloq_dss_server.log"
+    local dss_server_configs=
+
+    if [[ $kv_store_type = "ELOQDSS_ROCKSDB_CLOUD_S3" ]]; then
+        local rocksdb_cloud_s3_endpoint_url=${ROCKSDB_CLOUD_S3_ENDPOINT}
+        local rocksdb_cloud_aws_access_key_id=${ROCKSDB_CLOUD_AWS_ACCESS_KEY_ID}
+        local rocksdb_cloud_aws_secret_access_key=${ROCKSDB_CLOUD_AWS_SECRET_ACCESS_KEY}
+        local rocksdb_cloud_bucket_name=${ROCKSDB_CLOUD_BUCKET_NAME}
+        dss_server_configs="--rocksdb_cloud_s3_endpoint_url=${rocksdb_cloud_s3_endpoint_url} \
+                            --aws_access_key_id=${rocksdb_cloud_aws_access_key_id} \
+                            --aws_secret_key=${rocksdb_cloud_aws_secret_access_key} \
+                            --rocksdb_cloud_bucket_name=${rocksdb_cloud_bucket_name} "
+    elif [[ $kv_store_type = "ELOQDSS_ELOQSTORE" ]]; then
+        local eloq_store_worker_num=2
+        local eloq_store_data_path="${dss_data_path}/eloq_store"
+        local eloq_store_open_files_limit=10240
+        dss_server_configs="--eloq_store_worker_num=${eloq_store_worker_num} \
+                            --eloq_store_data_path=${eloq_store_data_path} \
+                            --eloq_store_open_files_limit=${eloq_store_open_files_limit}"
+    fi
+
+    rm -rf ${dss_data_path}
+    mkdir ${dss_data_path}
+    echo "starting dss_server"
+    ${eloqkv_base_path}/store_handler/eloq_data_store_service/bld/dss_server \
+      ${dss_server_configs} \
+      --data_path=${dss_data_path} \
+      --ip=$dss_ip \
+      --port=$dss_port \
+      --logtostderr=true \
+      > ${dss_log_path} 2>&1 \
+      &
+    local dss_server_pid=$!
+
+    wait_dss_until_ready
+    echo "dss_server is started, pid: $dss_server_pid"
+}
+
+function run_eloqkv_cluster_tests() {
+  local build_type=$1
+  local kv_store_type=$2
+  local eloqkv_base_path="/home/mono/workspace/eloqkv"
+
+  cd ${eloqkv_base_path}
+
+  if [[ $kv_store_type = "CASSANDRA" ]]; then
+
+    # pure memory mode does not need log service
+
+    rm -rf /tmp/redis_server_data*
+    echo "starting redis servers"
+    local ports=(6379 7379 8379)
+    local redis_pids=()
+    local index=0
+
+    for port in "${ports[@]}"; do
+      echo "redirecting output to /tmp/ to prevent ci pipeline crash"
+      /home/mono/workspace/eloqkv/cmake/eloqkv \
+        --port=$port \
+        --core_number=2 \
+        --enable_wal=false \
+        --enable_data_store=false \
+        --eloq_data_path="/tmp/redis_server_data_$index" \
+        --event_dispatcher_num=1 \
+        --auto_redirect=true \
+        --maxclients=1000000 \
+        --checkpoint_interval=36000 \
+        --ip_port_list=127.0.0.1:6379,127.0.0.1:7379,127.0.0.1:8379 \
+        --txlog_service_list=$log_service_ip_port \
+        --txlog_group_replica_num=3 \
+        --cass_hosts=$CASS_HOST \
+        --cass_port=9042 \
+        --cass_user=cassandra \
+        --cass_password=cassandra \
+        --cass_keyspace=$keyspace_name \
+        --cass_keyspace_class=SimpleStrategy \
+        --cass_keyspace_replication=1 \
+        --enable_io_uring=${enable_io_uring} \
+        --logtostderr=true \
+        >/tmp/redis_server_multi_node_$index.log 2>&1 \
+        &
+      redis_pids+=($!)
+      index=$((index + 1))
+    done
+    echo "redis_servers are started, pids: ${redis_pids[@]}"
+
+    # Wait for Redis server to be ready
+    wait_until_ready
+    echo "Redis server is ready!"
+
+    run_tcl_tests all $build_type true
+
+    # kill redis servers
+    for pid in "${redis_pids[@]}"; do
+      if [[ -n $pid && -e /proc/$pid ]]; then
+        kill $pid
+      fi
+    done
+
+    wait_until_finished
+
+    # generate cassandra keyspace name.
+    local timestamp=$(($(date +%s%N)/1000000))
+    local keyspace_name="redis_test_${timestamp}"
+    echo "cassandra keyspace name is, ${keyspace_name}"
+    rm -rf /tmp/redis_server_data*
+    /home/mono/workspace/apache-cassandra-4.0.6/bin/cqlsh $CASS_HOST -e "DROP KEYSPACE IF EXISTS $keyspace_name;"
+
+    echo "bootstrap before start cluster to avoid contention"
+    /home/mono/workspace/eloqkv/cmake/eloqkv \
+      --port=6379 \
+      --core_number=2 \
+      --enable_wal=false \
+      --enable_data_store=true \
+      --eloq_data_path="/tmp/redis_server_data_0" \
+      --event_dispatcher_num=1 \
+      --auto_redirect=true \
+      --maxclients=1000000 \
+      --checkpoint_interval=36000 \
+      --ip_port_list=127.0.0.1:6379,127.0.0.1:7379,127.0.0.1:8379 \
+      --cass_hosts=$CASS_HOST \
+      --cass_port=9042 \
+      --cass_user=cassandra \
+      --cass_password=cassandra \
+      --cass_keyspace=$keyspace_name \
+      --cass_keyspace_class=SimpleStrategy \
+      --cass_keyspace_replication=1 \
+      --logtostderr=true \
+      --bootstrap \
+      --enable_io_uring=${enable_io_uring} \
+      >/tmp/redis_server_multi_node_bootstrap.log 2>&1 \
+      &
+
+    echo "bootstrap is started, pid: $!"
+    # wait for bootstrap to finish
+    sleep 20
+
+
+
+    redis_pids=()
+    local index=0
+    for port in "${ports[@]}"; do
+      /home/mono/workspace/eloqkv/cmake/eloqkv \
+        --port=$port \
+        --core_number=2 \
+        --enable_wal=false \
+        --enable_data_store=true \
+        --eloq_data_path="/tmp/redis_server_data_$index" \
+        --cass_hosts=$CASS_HOST \
+        --cass_keyspace=$keyspace_name \
+        --cass_port=9042 \
+        --cass_user=cassandra \
+        --cass_password=cassandra \
+        --cass_keyspace=$keyspace_name \
+        --cass_keyspace_class=SimpleStrategy \
+        --cass_keyspace_replication=1 \
+        --enable_io_uring=${enable_io_uring} \
+        --maxclients=1000000 \
+        --logtostderr=true \
+        >/tmp/redis_server_multi_node_$index.log 2>&1 \
+        &
+      redis_pids+=($!)
+      index=$((index + 1))
+    done
+    echo "redis_servers are started, pids: ${redis_pids[@]}"
+
+    # Wait for Redis server to be ready
+    wait_until_ready
+    echo "Redis server is ready!"
+
+    # wait for redis servers to be ready
+    run_tcl_tests all $build_type true
+
+    # kill redis servers
+    for pid in "${redis_pids[@]}"; do
+      if [[ -n $pid && -e /proc/$pid ]]; then
+        kill $pid
+      fi
+    done
+
+    wait_until_finished
+
+    # drop cassandra keyspace
+    /home/mono/workspace/apache-cassandra-4.0.6/bin/cqlsh $CASS_HOST -e "DROP KEYSPACE IF EXISTS $keyspace_name;"
+
+  fi
+}
+
+
+function run_eloq_test(){
+  local build_type=$1
+  local kv_store_type=$2
+
+  if [[ "$build_type" != "Debug" ]]; then
+    echo "Not Debug build type, skip run_eloq_test."
+    return 0
+  fi
+
+  # Disable grpc fork protection which might blocks forever.
+  # https://github.com/grpc/grpc/blob/master/doc/fork_support.md
+  export GRPC_ENABLE_FORK_SUPPORT=0
+
+  local eloqkv_install_path="/home/mono/workspace/eloqkv/cmake/install"
+
+  if [ ! -d "/home/mono/workspace/eloq_test/" ]; then
+    echo "/home/mono/workspace/eloq_test/ not exists, exit !!!"
+  fi
+
+  cd /home/mono/workspace/eloq_test
+  ./setup
+
+  if [ -d "/home/mono/workspace/eloq_test/runtime" ]; then
+    rm -rf /home/mono/workspace/eloq_test/runtime/*
+  else
+    mkdir /home/mono/workspace/eloq_test/runtime
+  fi
+
+  # generate cassandra keyspace name.
+  local timestamp=$(($(date +%s%N)/1000000))
+  local keyspace_name="redis_test_${timestamp}"
+
+  if [[ $kv_store_type = "CASSANDRA" ]]; then
+    echo "cassandra keyspace name is, ${keyspace_name}"
+    # drop cassandra keyspace
+    /home/mono/workspace/apache-cassandra-4.0.6/bin/cqlsh $CASS_HOST -e "DROP KEYSPACE IF EXISTS $keyspace_name;"
+
+    sed -i "s/eloq_keyspace_name.*=.\+/eloq_keyspace_name=${keyspace_name}/g" ./storage.cnf
+    sed -i "s/eloq_cass_hosts.*=.\+/eloq_cass_hosts=${CASS_HOST}/g" ./storage.cnf
+
+    sed -i "s/cass_keyspace=.\+/cass_keyspace=${keyspace_name}/g" ./bootstrap_cnf/*_cass.cnf
+    sed -i "s/cass_hosts.*=.\+/cass_hosts=${CASS_HOST}/g" ./bootstrap_cnf/*_cass.cnf
+
+    # run cluster scale tests.
+    python3 redis_test/single_test/cluster_scale_test.py --dbtype redis --storage cassandra --install_path ${eloqkv_install_path}
+    python3 redis_test/single_test/cluster_rolling_upgrade.py --dbtype redis --storage cassandra --install_path ${eloqkv_install_path}
+    python3 redis_test/multi_test/cluster_scale_test.py --dbtype redis --storage cassandra --install_path ${eloqkv_install_path}
+    python3 redis_test/multi_test/cluster_rolling_upgrade.py --dbtype redis --storage cassandra --install_path ${eloqkv_install_path}
+    rm -rf runtime/*
+
+    # run log service scale tests.
+    python3 redis_test/log_service_test/log_service_scale_test.py --dbtype redis --storage cassandra --install_path ${eloqkv_install_path}
+    rm -rf runtime/*
+
+
+    # run standby tests.
+#    python3 redis_test/standby_test/test_without_kv.py --dbtype redis --storage cassandra --install_path ${eloqkv_install_path}
+#    rm -rf runtime/*
+#    sleep 2
+    python3 redis_test/standby_test/test_with_kv.py --dbtype redis --storage cassandra --install_path ${eloqkv_install_path}
+    rm -rf runtime/*
+    sleep 1
+    python3 redis_test/standby_test/test_with_wal_and_cass.py --dbtype redis --storage cassandra --install_path ${eloqkv_install_path}
+    rm -rf runtime/*
+    sleep 1
+    python3 redis_test/standby_test/test_with_failover.py --dbtype redis --storage cassandra --install_path ${eloqkv_install_path}
+
+    # run ttl tests
+    python3 redis_test/ttl_test/ttl_test_with_mem.py --dbtype redis --storage cassandra --install_path ${eloqkv_install_path}
+    python3 redis_test/ttl_test/ttl_test_with_kv.py --dbtype redis --storage cassandra --install_path ${eloqkv_install_path}
+    python3 redis_test/ttl_test/ttl_test_with_wal.py --dbtype redis --storage cassandra --install_path ${eloqkv_install_path}
+
+  elif [[ $kv_store_type = "ROCKSDB" ]]; then
+#    python3 redis_test/standby_test/test_without_kv.py --dbtype redis --storage rocksdb --install_path ${eloqkv_install_path}
+#    rm -rf runtime/*
+#    sleep 1
+    python3 redis_test/standby_test/test_with_kv.py --dbtype redis --storage rocksdb --install_path ${eloqkv_install_path}
+    rm -rf runtime/*
+    sleep 1
+    python3 redis_test/standby_test/test_with_failover.py --dbtype redis --storage rocksdb --install_path ${eloqkv_install_path}
+
+    # run ttl tests
+    python3 redis_test/ttl_test/ttl_test_with_mem.py --dbtype redis --storage rocksdb --install_path ${eloqkv_install_path}
+    python3 redis_test/ttl_test/ttl_test_with_kv.py --dbtype redis --storage rocksdb --install_path ${eloqkv_install_path}
+    python3 redis_test/ttl_test/ttl_test_with_wal.py --dbtype redis --storage rocksdb --install_path ${eloqkv_install_path}
+
+
+  elif [[ $kv_store_type = "DYNAMODB" ]]; then
+    echo "dynamodb keyspace name is, ${keyspace_name}"
+
+    local dynamodb_endpoint=${DYNAMO_ENDPOINT}
+    local dynamodb_region=$(sed 's/\//\\\//g' <<< ${AWS_DEFAULT_REGION})
+    local aws_access_key_id=$(sed 's/\//\\\//g' <<< ${AWS_ACCESS_KEY_ID})
+    local aws_secret_key=$(sed 's/\//\\\//g' <<< ${AWS_SECRET_ACCESS_KEY})
+    local dynamo_endpoint_escape=$(sed 's/\//\\\//g' <<< ${DYNAMO_ENDPOINT})
+
+    sed -i "s/eloq_keyspace_name.*=.\+/eloq_keyspace_name=${keyspace_name}/g" ./storage.cnf
+    sed -i "s/eloq_dynamodb_endpoint.*=.\+/eloq_dynamodb_endpoint=${dynamo_endpoint_escape}/g" ./storage.cnf
+    sed -i "s/eloq_dynamodb_region.*=.\+/eloq_dynamodb_region=${dynamodb_region}/g" ./storage.cnf
+    sed -i "s/eloq_aws_access_key_id.*=.\+/eloq_aws_access_key_id=${aws_access_key_id}/g" ./storage.cnf
+    sed -i "s/eloq_aws_secret_key.*=.\+/eloq_aws_secret_key=${aws_secret_key}/g" ./storage.cnf
+
+    sed -i "s/dynamodb_keyspace=.\+/dynamodb_keyspace=${keyspace_name}/g" ./bootstrap_cnf/*_dynamo.cnf
+    sed -i "s/dynamodb_endpoint.*=.\+/dynamodb_endpoint=${dynamo_endpoint_escape}/g" ./bootstrap_cnf/*_dynamo.cnf
+    sed -i "s/dynamodb_region.*=.\+/dynamodb_region=${dynamodb_region}/g" ./bootstrap_cnf/*_dynamo.cnf
+    sed -i "s/aws_access_key_id.*=.\+/aws_access_key_id=${aws_access_key_id}/g" ./bootstrap_cnf/*_dynamo.cnf
+    sed -i "s/aws_secret_key.*=.\+/aws_secret_key=${aws_secret_key}/g" ./bootstrap_cnf/*_dynamo.cnf
+
+    # run cluster scale tests.
+    python3 redis_test/single_test/cluster_scale_test.py --dbtype redis --storage dynamo --install_path ${eloqkv_install_path}
+    python3 redis_test/multi_test/cluster_scale_test.py --dbtype redis --storage dynamo --install_path ${eloqkv_install_path}
+    rm -rf runtime/*
+    # run standby tests.
+#    python3 redis_test/standby_test/test_without_kv.py --dbtype redis --storage dynamo --install_path ${eloqkv_install_path}
+#    rm -rf runtime/*
+#    sleep 2
+    python3 redis_test/standby_test/test_with_kv.py --dbtype redis --storage dynamo --install_path ${eloqkv_install_path}
+    rm -rf runtime/*
+    sleep 1
+    python3 redis_test/standby_test/test_with_wal_and_cass.py --dbtype redis --storage dynamo --install_path ${eloqkv_install_path}
+    rm -rf runtime/*
+    sleep 1
+    python3 redis_test/standby_test/test_with_failover.py --dbtype redis --storage dynamo --install_path ${eloqkv_install_path}
+
+
+  elif [[ $kv_store_type = "ELOQDSS_ROCKSDB_CLOUD_S3" ]]; then
+
+    local rocksdb_cloud_s3_endpoint_url=${ROCKSDB_CLOUD_S3_ENDPOINT}
+    local rocksdb_cloud_s3_endpoint_url_escape=${ROCKSDB_CLOUD_S3_ENDPOINT_ESCAPE}
+    local rocksdb_cloud_aws_access_key_id=${ROCKSDB_CLOUD_AWS_ACCESS_KEY_ID}
+    local rocksdb_cloud_aws_secret_access_key=${ROCKSDB_CLOUD_AWS_SECRET_ACCESS_KEY}
+    local rocksdb_cloud_bucket_name=${ROCKSDB_CLOUD_BUCKET_NAME}
+
+    echo "rocksdb_cloud_s3_endpoint_url: ${rocksdb_cloud_s3_endpoint_url}"
+    sed -i "s/rocksdb_cloud_s3_endpoint_url.*=.\+/rocksdb_cloud_s3_endpoint_url=${rocksdb_cloud_s3_endpoint_url_escape}/g" ./storage.cnf
+    sed -i "s/aws_access_key_id.*=.\+/aws_access_key_id=${rocksdb_cloud_aws_access_key_id}/g" ./storage.cnf
+    sed -i "s/aws_secret_key.*=.\+/aws_secret_key=${rocksdb_cloud_aws_secret_access_key}/g" ./storage.cnf
+    sed -i "s/rocksdb_cloud_bucket_name.*=.\+/rocksdb_cloud_bucket_name=${rocksdb_cloud_bucket_name}/g" ./storage.cnf
+
+    sed -i "s/rocksdb_cloud_s3_endpoint_url.*=.\+/rocksdb_cloud_s3_endpoint_url=${rocksdb_cloud_s3_endpoint_url_escape}/g"  ./bootstrap_cnf/*_rocksdb_cloud_s3.cnf
+    sed -i "s/aws_access_key_id.*=.\+/aws_access_key_id=${rocksdb_cloud_aws_access_key_id}/g"  ./bootstrap_cnf/*_rocksdb_cloud_s3.cnf
+    sed -i "s/aws_secret_key.*=.\+/aws_secret_key=${rocksdb_cloud_aws_secret_access_key}/g"  ./bootstrap_cnf/*_rocksdb_cloud_s3.cnf
+    sed -i "s/rocksdb_cloud_bucket_name.*=.\+/rocksdb_cloud_bucket_name=${rocksdb_cloud_bucket_name}/g"  ./bootstrap_cnf/*_rocksdb_cloud_s3.cnf
+
+
+    sed -i "s/rocksdb_cloud_s3_endpoint_url.*=.\+/rocksdb_cloud_s3_endpoint_url=${rocksdb_cloud_s3_endpoint_url_escape}/g"  ./bootstrap_cnf/eloqdss_server.cnf
+    sed -i "s/aws_access_key_id.*=.\+/aws_access_key_id=${rocksdb_cloud_aws_access_key_id}/g"  ./bootstrap_cnf/eloqdss_server.cnf
+    sed -i "s/aws_secret_key.*=.\+/aws_secret_key=${rocksdb_cloud_aws_secret_access_key}/g"  ./bootstrap_cnf/eloqdss_server.cnf
+    sed -i "s/rocksdb_cloud_bucket_name.*=.\+/rocksdb_cloud_bucket_name=${rocksdb_cloud_bucket_name}/g"  ./bootstrap_cnf/eloqdss_server.cnf
+
+    # run cluster scale tests.
+    # python3 redis_test/single_test/cluster_scale_test.py --dbtype redis --storage eloqdss-rocksdb-cloud-s3 --install_path ${eloqkv_install_path}
+    # python3 redis_test/single_test/cluster_rolling_upgrade.py --dbtype redis --storage eloqdss-rocksdb-cloud-s3 --install_path ${eloqkv_install_path}
+    # python3 redis_test/multi_test/cluster_scale_test.py --dbtype redis --storage eloqdss-rocksdb-cloud-s3 --install_path ${eloqkv_install_path}
+    # python3 redis_test/multi_test/cluster_rolling_upgrade.py --dbtype redis --storage eloqdss-rocksdb-cloud-s3 --install_path ${eloqkv_install_path}
+    # rm -rf runtime/*
+
+    # run log service scale tests.
+    python3 redis_test/log_service_test/log_service_scale_test.py --dbtype redis --storage eloqdss-rocksdb-cloud-s3 --install_path ${eloqkv_install_path}
+    rm -rf runtime/*
+
+    # run standby tests.
+    python3 redis_test/standby_test/test_with_kv.py --dbtype redis --storage eloqdss-rocksdb-cloud-s3 --install_path ${eloqkv_install_path}
+    rm -rf runtime/*
+    sleep 1
+    python3 redis_test/standby_test/test_with_wal_and_cass.py --dbtype redis --storage eloqdss-rocksdb-cloud-s3 --install_path ${eloqkv_install_path}
+    rm -rf runtime/*
+    sleep 1
+    python3 redis_test/standby_test/test_with_failover.py --dbtype redis --storage eloqdss-rocksdb-cloud-s3 --install_path ${eloqkv_install_path}
+
+    rm -rf runtime/*
+    python3 redis_test/datastore_test/datastore_scale_test.py --dbtype redis --storage eloqdss-rocksdb-cloud-s3 --install_path ${eloqkv_install_path}
+
+    # run ttl tests
+    rm -rf runtime/*
+    python3 redis_test/ttl_test/ttl_test_with_mem.py --dbtype redis --storage eloqdss-rocksdb-cloud-s3 --install_path ${eloqkv_install_path}
+    python3 redis_test/ttl_test/ttl_test_with_kv.py --dbtype redis --storage eloqdss-rocksdb-cloud-s3 --install_path ${eloqkv_install_path}
+    python3 redis_test/ttl_test/ttl_test_with_wal.py --dbtype redis --storage eloqdss-rocksdb-cloud-s3 --install_path ${eloqkv_install_path}
+
+    # clean up test bucket
+    cleanup_minio_bucket $ROCKSDB_CLOUD_BUCKET_NAME
+
+  elif [[ $kv_store_type = "ELOQDSS_ELOQSTORE" ]]; then
+    echo "Run eloq_test for ELOQDSS_ELOQSTORE"
+    # run single/multi test
+    rm -rf runtime/*
+    python3 run_tests.py --dbtype redis --group single --storage eloqdss-eloqstore --install_path ${eloqkv_install_path}
+
+    python3 redis_test/multi_test/smoke_test.py --dbtype redis --storage eloqdss-eloqstore --install_path ${eloqkv_install_path}
+
+    # disable unstable multi test
+    # python3 redis_test/multi_test/cluster_rolling_upgrade.py --dbtype redis --storage eloqdss-eloqstore --install_path ${eloqkv_install_path}
+    # python3 redis_test/multi_test/cluster_scale_test.py --dbtype redis --storage eloqdss-eloqstore --install_path ${eloqkv_install_path}
+
+    # run log service scale test
+    rm -rf runtime/*
+    python3 redis_test/log_service_test/log_service_scale_test.py --dbtype redis --storage eloqdss-eloqstore --install_path ${eloqkv_install_path}
+
+    # run standby test
+    rm -rf runtime/*
+    python3 redis_test/standby_test/test_with_kv.py --dbtype redis --storage eloqdss-eloqstore --install_path ${eloqkv_install_path}
+    sleep 1
+    rm -rf runtime/*
+    python3 redis_test/standby_test/test_with_failover.py --dbtype redis --storage eloqdss-eloqstore --install_path ${eloqkv_install_path}
+    sleep 1
+    rm -rf runtime/*
+    # disable unstable test
+    #python3 redis_test/standby_test/test_with_wal_and_cass.py --dbtype redis --storage eloqdss-eloqstore --install_path ${eloqkv_install_path}
+
+    # run ttl tests
+    rm -rf runtime/*
+    python3 redis_test/ttl_test/ttl_test_with_mem.py --dbtype redis --storage eloqdss-eloqstore --install_path ${eloqkv_install_path}
+    python3 redis_test/ttl_test/ttl_test_with_kv.py --dbtype redis --storage eloqdss-eloqstore --install_path ${eloqkv_install_path}
+    python3 redis_test/ttl_test/ttl_test_with_wal.py --dbtype redis --storage eloqdss-eloqstore --install_path ${eloqkv_install_path}
+  fi
+
+  return 0
+}

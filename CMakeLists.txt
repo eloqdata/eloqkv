@@ -93,6 +93,12 @@ if (WITH_LOG_SERVICE)
    add_compile_definitions(WITH_LOG_SERVICE=1)
 endif()
 
+option(OPEN_LOG_SERVICE "Compile with built-in log service." ON)
+message("OPEN_LOG_SERVICE: " ${WITH_LOG_SERVICE})
+if (OPEN_LOG_SERVICE)
+   add_compile_definitions(OPEN_LOG_SERVICE=1)
+endif()
+
 option(RANGE_PARTITION_ENABLED "Whether enable range partition" OFF)
 message(NOTICE "RANGE_PARTITION_ENABLED : ${RANGE_PARTITION_ENABLED}")
 if (RANGE_PARTITION_ENABLED)
@@ -430,9 +436,15 @@ endif ()
 add_subdirectory(tx_service/abseil-cpp)
 
 INCLUDE(build_tx_service.cmake)
+
 if (WITH_LOG_SERVICE)
-INCLUDE(build_log_service.cmake)
-endif ()
+  if (OPEN_LOG_SERVICE)
+    include(build_open_log_service.cmake)
+  else()
+    include(build_log_service.cmake)
+  endif()
+endif()
+
 INCLUDE(build_eloq_metrics.cmake)
 
 SET(RESMONOGRAPH_SOURCES

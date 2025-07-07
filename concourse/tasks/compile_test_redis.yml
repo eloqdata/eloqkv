@@ -1,0 +1,14 @@
+platform: linux
+image_resource:
+  type: registry-image
+inputs:
+  - name: eloq_metrics_src
+  - name: txservice_src
+  - name: logservice_src
+  - name: redis_src
+  - name: eloq_test_src
+  - name: redis_pr
+
+run:
+  path: redis_pr/concourse/scripts/compile_test_redis.bash
+  args: ["((cass-host))", "((minio-endpoint))", "((minio-access-key))", "((minio-secret-key))"] 

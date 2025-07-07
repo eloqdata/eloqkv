@@ -36,6 +36,13 @@
 #include "tx_key.h"
 #include "tx_service/include/sequences/sequences.h"
 #include "type.h"
+
+#if (defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB_CLOUD_S3) ||                      \
+     defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB_CLOUD_GCS) ||                     \
+     defined(DATA_STORE_TYPE_ELOQDSS_ELOQSTORE))
+#define ELOQDS 1
+#endif
+
 #ifdef DATA_STORE_TYPE_CASSANDRA
 #include "cass/include/cassandra.h"
 #include "store_handler/cass_handler.h"
@@ -43,7 +50,7 @@
 #include "store_handler/dynamo_handler.h"
 #elif defined(DATA_STORE_TYPE_ROCKSDB)
 #include "store_handler/rocksdb_handler.h"
-#elif ELOQDS()
+#elif ELOQDS
 #include "data_store_service_client.h"
 #endif
 
@@ -93,7 +100,7 @@ RedisTableSchema::RedisTableSchema(const txservice::TableName &redis_table_name,
     kv_info_->kv_table_name_ = kv_table_name;
     key_schema_ = std::make_unique<RedisKeySchema>(key_schema_ts);
     record_schema_ = std::make_unique<RedisRecordSchema>();
-#elif ELOQDS()
+#elif ELOQDS
     // TODO(lokax): catalog image format
     kv_info_ = std::make_unique<txservice::KVCatalogInfo>();
     // Catalog image only stores kv_table_name for now.
