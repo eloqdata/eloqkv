@@ -1,6 +1,7 @@
-
-<img src="images/eloqkv_github_logo.png" alt="EloqKV" width="100%">
-
+<div align="center">
+<a href='https://www.eloqdata.com'>
+<img src="images/eloqkv_github_logo.jpg" alt="EloqKV" height=100></img>
+</a>
 # EloqKV  
 **Redis-Compatible, Database-Powered — ACID Transactions, Tiered Storage & SQL-Style Syntax, Built for Real Workloads.**  
 
