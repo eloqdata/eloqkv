@@ -35,8 +35,6 @@ EloqKV is the most cost effective **Redis-compatible database** designed for dev
 | **Scalability**              | Single-threaded            | Multi-threaded (1.6million QPS/node) |
 | **Cold Data**                | Memory-only                | Auto-tiering to disk                 |
 
-👉 **Use Cases**: Real-time analytics, financial systems, IoT data streams — anywhere you need Redis’ speed **but** can’t compromise on reliability.  
-
 ---
 
 ## Key Features  
