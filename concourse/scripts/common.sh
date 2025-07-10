@@ -207,6 +207,77 @@ esac
 
 }
 
+function run_build_ent() {
+  local build_type=$1
+  local kv_store_type=$2
+
+  # compile eloqkv
+  cd /home/mono/workspace/eloqkv
+  cmake \
+    -S /home/mono/workspace/eloqkv \
+    -B /home/mono/workspace/eloqkv/cmake \
+    -DCMAKE_BUILD_TYPE=$build_type \
+    -DWITH_DATA_STORE=$kv_store_type \
+    -DBUILD_WITH_TESTS=ON \
+    -DWITH_LOG_SERVICE=ON \
+    -DUSE_ONE_ELOQDSS_PARTITION_ENABLED=ON \
+    -DOPEN_LOG_SERVICE=OFF \
+    -DFORK_HM_PROCESS=ON
+
+  # Define the output log file
+  log_file="/tmp/compile_info.log"
+
+  # Function to run cmake build and check for errors
+  run_cmake_build() {
+    local target=$1
+    echo "redirecting output to /tmp/compile_info.log to prevent ci pipeline crash"
+    cmake --build /home/mono/workspace/eloqkv/cmake --target "$target" -j 8 > "$log_file" 2>&1
+    local exit_status=$?
+
+    if [ $exit_status -ne 0 ]; then
+      echo "CMake build for target '$target' failed. Printing the last 100 lines of the log:"
+      tail -n 500 "$log_file"
+      exit $exit_status
+    else
+      echo "CMake build for target '$target' completed successfully."
+      # Optionally, remove the log file if the build succeeded
+      rm "$log_file"
+    fi
+  }
+
+  # Run builds for the specified targets
+  targets=("eloqkv" "host_manager" "object_serialize_deserialize_test")
+
+  set +e
+  for target in "${targets[@]}"; do
+    run_cmake_build "$target"
+  done
+  set -e
+
+  # compile log service to setup redis cluster later
+  cd /home/mono/workspace/eloqkv/log_service
+  cmake -B bld -DCMAKE_BUILD_TYPE=$build_type && cmake --build bld -j 8
+
+  set +e
+  mkdir -p "/home/mono/workspace/eloqkv/cmake/install/bin"
+  set -e
+  cp /home/mono/workspace/eloqkv/cmake/eloqkv  /home/mono/workspace/eloqkv/cmake/install/bin/
+  cp /home/mono/workspace/eloqkv/cmake/host_manager  /home/mono/workspace/eloqkv/cmake/install/bin/
+  cp /home/mono/workspace/eloqkv/log_service/bld/launch_sv  /home/mono/workspace/eloqkv/cmake/install/bin/
+
+case "$kv_store_type" in
+  ELOQDSS_*)
+      echo "build dss_server"
+      cd /home/mono/workspace/eloqkv/store_handler/eloq_data_store_service
+      cmake -B bld -DCMAKE_BUILD_TYPE=$build_type -DWITH_DATA_STORE=$kv_store_type && cmake --build bld -j8
+      cp /home/mono/workspace/eloqkv/store_handler/eloq_data_store_service/bld/dss_server  /home/mono/workspace/eloqkv/cmake/install/bin/
+      ;;
+esac
+
+  cd /home/mono/workspace/eloqkv
+
+}
+
 function run_eloq_ttl_tests() {
   #TestsWithMem TestsWithKV TestsWithLog
   local test_case=$1
@@ -1333,7 +1404,6 @@ function start_dss_server() {
     wait_dss_until_ready
     echo "dss_server is started, pid: $dss_server_pid"
 }
-
 function run_eloqkv_cluster_tests() {
   local build_type=$1
   local kv_store_type=$2
@@ -1478,8 +1548,1248 @@ function run_eloqkv_cluster_tests() {
 
     wait_until_finished
 
+    echo "starting log service"
+    local log_service_ip_port="127.0.0.1:9000"
+
+    rm -rf /tmp/log_data
+    /home/mono/workspace/eloqkv/log_service/bld/launch_sv \
+      -conf=$log_service_ip_port \
+      -node_id=0 \
+      -storage_path="/tmp/log_data" \
+      --logtostderr=true \
+      >/tmp/redis_log_service.log 2>&1 \
+      &
+
+    local log_service_pid=$!
+    echo "log_service is started, pid: $log_service_pid"
+    # wait for log service to be ready
+    sleep 10
+
+    rm -rf /tmp/redis_server_data*
+    /home/mono/workspace/apache-cassandra-4.0.6/bin/cqlsh $CASS_HOST -e "DROP KEYSPACE IF EXISTS $keyspace_name;"
+
+    echo "bootstrap before start cluster to avoid contention"
+    /home/mono/workspace/eloqkv/cmake/eloqkv \
+      --port=6379 \
+      --core_number=2 \
+      --enable_wal=true \
+      --enable_data_store=true \
+      --eloq_data_path="/tmp/redis_server_data_0" \
+      --event_dispatcher_num=1 \
+      --auto_redirect=true \
+      --maxclients=1000000 \
+      --checkpoint_interval=36000 \
+      --ip_port_list=127.0.0.1:6379,127.0.0.1:7379,127.0.0.1:8379 \
+      --txlog_service_list=$log_service_ip_port \
+      --txlog_group_replica_num=3 \
+      --cass_hosts=$CASS_HOST \
+      --cass_port=9042 \
+      --cass_user=cassandra \
+      --cass_password=cassandra \
+      --cass_keyspace=$keyspace_name \
+      --cass_keyspace_class=SimpleStrategy \
+      --cass_keyspace_replication=1 \
+      --logtostderr=true \
+      --bootstrap \
+      --enable_io_uring=${enable_io_uring} \
+      >/tmp/redis_server_multi_node_bootstrap.log 2>&1 \
+      &
+
+    echo "bootstrap is started, pid: $!"
+    # wait for bootstrap to finish
+    sleep 20
+
+    echo "starting redis servers"
+    local ports=(6379 7379 8379)
+    local redis_pids=()
+    local index=0
+
+    for port in "${ports[@]}"; do
+      echo "redirecting output to /tmp/ to prevent ci pipeline crash"
+      /home/mono/workspace/eloqkv/cmake/eloqkv \
+        --port=$port \
+        --core_number=2 \
+        --enable_wal=true \
+        --enable_data_store=true \
+        --eloq_data_path="/tmp/redis_server_data_$index" \
+        --event_dispatcher_num=1 \
+        --auto_redirect=true \
+        --maxclients=1000000 \
+        --checkpoint_interval=36000 \
+        --ip_port_list=127.0.0.1:6379,127.0.0.1:7379,127.0.0.1:8379 \
+        --txlog_service_list=$log_service_ip_port \
+        --txlog_group_replica_num=3 \
+        --cass_hosts=$CASS_HOST \
+        --cass_port=9042 \
+        --cass_user=cassandra \
+        --cass_password=cassandra \
+        --cass_keyspace=$keyspace_name \
+        --cass_keyspace_class=SimpleStrategy \
+        --cass_keyspace_replication=1 \
+        --enable_io_uring=${enable_io_uring} \
+        --logtostderr=true \
+        >/tmp/redis_server_multi_node_$index.log 2>&1 \
+        &
+      redis_pids+=($!)
+      echo "redis_server $index is started, pid: $!"
+      index=$((index + 1))
+    done
+
+    # Wait for Redis server to be ready
+    wait_until_ready
+    echo "Redis server is ready!"
+
+    run_tcl_tests all $build_type true
+
+    # TODO(ZX) log replay test for cluster
+    echo "Running log replay test for Debug build: "
+
+    local python_test_file="/home/mono/workspace/eloqkv/tests/unit/mono/log_replay_test/log_replay_test.py"
+    python3 $python_test_file --load > load.log 2>&1
+
+    # wait for load to finish
+    sleep 10
+
+    # kill redis servers
+    for pid in "${redis_pids[@]}"; do
+      if [[ -n $pid && -e /proc/$pid ]]; then
+        kill -9 $pid
+      fi
+    done
+
+    # wait for kill to finish
+    wait_until_finished
+
+    # run redis instances again on different ports
+    redis_pids=()
+    local index=0
+    for port in "${ports[@]}"; do
+      /home/mono/workspace/eloqkv/cmake/eloqkv \
+        --port=$port \
+        --core_number=2 \
+        --enable_wal=true \
+        --enable_data_store=true \
+        --eloq_data_path="redis_server_data_$index" \
+        --event_dispatcher_num=1 \
+        --auto_redirect=true \
+        --maxclients=1000000 \
+        --checkpoint_interval=36000 \
+        --ip_port_list=127.0.0.1:6379,127.0.0.1:7379,127.0.0.1:8379 \
+        --txlog_service_list=127.0.0.1:9000 \
+        --txlog_group_replica_num=3 \
+        --cass_hosts=$CASS_HOST \
+        --cass_port=9042 \
+        --cass_user=cassandra \
+        --cass_password=cassandra \
+        --cass_keyspace=$keyspace_name \
+        --cass_keyspace_class=SimpleStrategy \
+        --cass_keyspace_replication=1 \
+        --enable_io_uring=${enable_io_uring} \
+        --logtostderr=true \
+        >/tmp/redis_server_multi_node_no_wal_$index.log 2>&1 \
+        &
+      redis_pids+=($!)
+      index=$((index + 1))
+    done
+
+    # Wait for Redis server to be ready
+    wait_until_ready
+    echo "Redis server is ready!"
+
+    python3 $python_test_file --verify
+
+    # wait for verify to finish
+    sleep 10
+
+    file1="database_snapshot_before_replay.json"  # First JSON file
+    file2="database_snapshot_after_replay.json"  # Second JSON file
+
+    if [[ -z "$file1" || -z "$file2" ]]; then
+        echo "ERROR: database_snapshot_before_replay.json or database_snapshot_after_replay.json not generated"
+        exit 1
+    fi
+
+    # Sort JSON content and compare using diff
+    if diff <(jq -S . "$file1") <(jq -S . "$file2") &> /dev/null; then
+        echo "PASS: The JSON files are identical."
+    else
+        echo "FAIL: The JSON files are different."
+        exit 1
+    fi
+
+    # kill redis servers
+    for pid in "${redis_pids[@]}"; do
+      if [[ -n $pid && -e /proc/$pid ]]; then
+        kill $pid
+      fi
+    done
+
+    kill $log_service_pid
+    wait_until_finished
     # drop cassandra keyspace
     /home/mono/workspace/apache-cassandra-4.0.6/bin/cqlsh $CASS_HOST -e "DROP KEYSPACE IF EXISTS $keyspace_name;"
+
+  elif [[ $kv_store_type = "ROCKSDB" ]]; then
+    echo "bootstrap before start cluster to avoid contention"
+    /home/mono/workspace/eloqkv/cmake/eloqkv \
+      --port=6379 \
+      --core_number=2 \
+      --enable_wal=false \
+      --enable_data_store=false \
+      --eloq_data_path="/tmp/redis_server_data_0" \
+      --event_dispatcher_num=1 \
+      --auto_redirect=true \
+      --maxclients=1000000 \
+      --checkpoint_interval=36000 \
+      --ip_port_list=127.0.0.1:6379,127.0.0.1:7379,127.0.0.1:8379 \
+      --txlog_service_list=$log_service_ip_port \
+      --txlog_group_replica_num=3 \
+      --logtostderr=true \
+      --bootstrap \
+      --enable_io_uring=${enable_io_uring} \
+      >/tmp/redis_server_multi_node_bootstrap.log 2>&1 \
+      &
+
+    echo "bootstrap is started, pid: $!"
+    # wait for bootstrap to finish
+    sleep 20
+
+
+    # pure memory mode does not need log service
+
+    echo "starting redis servers"
+    local ports=(6379 7379 8379)
+    local redis_pids=()
+    local index=0
+
+    for port in "${ports[@]}"; do
+      echo "redirecting output to /tmp/ to prevent ci pipeline crash"
+      /home/mono/workspace/eloqkv/cmake/eloqkv \
+        --port=$port \
+        --core_number=2 \
+        --enable_wal=false \
+        --enable_data_store=false \
+        --eloq_data_path="/tmp/redis_server_data_$index" \
+        --rocksdb_storage_path="/tmp/rocksdb_data_$index" \
+        --event_dispatcher_num=1 \
+        --auto_redirect=true \
+        --maxclients=1000000 \
+        --checkpoint_interval=36000 \
+        --ip_port_list=127.0.0.1:6379,127.0.0.1:7379,127.0.0.1:8379 \
+        --txlog_service_list=$log_service_ip_port \
+        --txlog_group_replica_num=3 \
+        --enable_io_uring=${enable_io_uring} \
+        --logtostderr=true \
+        >/tmp/redis_server_multi_node_$index.log 2>&1 \
+        &
+      redis_pids+=($!)
+      echo "redis_server $index is started, pid: $!"
+      index=$((index + 1))
+    done
+
+    # Wait for Redis server to be ready
+    wait_until_ready
+    echo "Redis server is ready!"
+
+    run_tcl_tests all $build_type true
+
+    # kill redis servers
+    for pid in "${redis_pids[@]}"; do
+      if [[ -n $pid && -e /proc/$pid ]]; then
+        kill $pid
+      fi
+    done
+
+    wait_until_finished
+
+  elif [[ $kv_store_type = "DYNAMODB" ]]; then
+
+    # pure memory mode does not need log service
+
+    rm -rf /tmp/redis_server_data*
+    echo "starting redis servers"
+    local ports=(6379 7379 8379)
+    local redis_pids=()
+    local index=0
+
+    for port in "${ports[@]}"; do
+      echo "redirecting output to /tmp/ to prevent ci pipeline crash"
+      /home/mono/workspace/eloqkv/cmake/eloqkv \
+        --port=$port \
+        --core_number=2 \
+        --enable_wal=false \
+        --enable_data_store=false \
+        --eloq_data_path="/tmp/redis_server_data_$index" \
+        --event_dispatcher_num=1 \
+        --auto_redirect=true \
+        --maxclients=1000000 \
+        --checkpoint_interval=36000 \
+        --ip_port_list=127.0.0.1:6379,127.0.0.1:7379,127.0.0.1:8379 \
+        --txlog_service_list=$log_service_ip_port \
+        --txlog_group_replica_num=3 \
+        --enable_io_uring=${enable_io_uring} \
+        --logtostderr=true \
+        >/tmp/redis_server_multi_node_pure_mem_$index.log 2>&1 \
+        &
+      redis_pids+=($!)
+      index=$((index + 1))
+    done
+    echo "redis_servers are started, pids: ${redis_pids[@]}"
+
+    # Wait for Redis server to be ready
+    wait_until_ready
+    echo "Redis server is ready!"
+
+    run_tcl_tests all $build_type true
+
+    # kill redis servers
+    for pid in "${redis_pids[@]}"; do
+      if [[ -n $pid && -e /proc/$pid ]]; then
+        kill $pid
+      fi
+    done
+
+    wait_until_finished
+
+
+    # generate dynamo keyspace name.
+    local timestamp=$(($(date +%s%N)/1000000))
+    local keyspace_name="redis_test_${timestamp}"
+    echo "dynamo keyspace name is, ${keyspace_name}"
+    rm -rf /tmp/redis_server_data*
+
+    local dynamodb_endpoint=${DYNAMO_ENDPOINT}
+    local dynamodb_region=${AWS_DEFAULT_REGION}
+    local aws_access_key_id=${AWS_ACCESS_KEY_ID}
+    local aws_secret_key=${AWS_SECRET_ACCESS_KEY}
+
+    echo "bootstrap before start cluster to avoid contention"
+    /home/mono/workspace/eloqkv/cmake/eloqkv \
+      --port=6379 \
+      --core_number=2 \
+      --enable_wal=false \
+      --enable_data_store=true \
+      --eloq_data_path="/tmp/redis_server_data_0" \
+      --event_dispatcher_num=1 \
+      --auto_redirect=true \
+      --maxclients=1000000 \
+      --checkpoint_interval=10 \
+      --ip_port_list=127.0.0.1:6379,127.0.0.1:7379,127.0.0.1:8379 \
+      --dynamodb_endpoint=$dynamodb_endpoint \
+      --dynamodb_region=$dynamodb_region \
+      --aws_access_key_id=$aws_access_key_id \
+      --aws_secret_key=$aws_secret_key \
+      --dynamodb_keyspace=$keyspace_name \
+      --logtostderr=true \
+      --bootstrap \
+      --enable_io_uring=${enable_io_uring} \
+      >/tmp/redis_server_multi_node_bootstrap_with_kv.log 2>&1
+
+
+    echo "bootstrap is started, pid: $!"
+    # wait for bootstrap to finish
+    sleep 20
+
+
+    local index=0
+    redis_pids=()
+    for port in "${ports[@]}"; do
+      /home/mono/workspace/eloqkv/cmake/eloqkv \
+        --port=$port \
+        --core_number=2 \
+        --enable_wal=false \
+        --enable_data_store=true \
+        --eloq_data_path="/tmp/redis_server_data_$index" \
+        --dynamodb_endpoint=$dynamodb_endpoint \
+        --dynamodb_region=$dynamodb_region \
+        --aws_access_key_id=$aws_access_key_id \
+        --aws_secret_key=$aws_secret_key \
+        --dynamodb_keyspace=$keyspace_name \
+        --checkpoint_interval=10 \
+        --logtostderr=true \
+        --maxclients=1000000 \
+        --enable_io_uring=${enable_io_uring} \
+        --logtostderr=true \
+        >/tmp/redis_server_multi_node_with_kv_$index.log 2>&1 \
+        &
+      redis_pids+=($!)
+      index=$((index + 1))
+    done
+    echo "redis_servers are started, pids: ${redis_pids[@]}"
+
+    # Wait for Redis server to be ready
+    wait_until_ready
+    echo "Redis server is ready!"
+
+    # wait for redis servers to be ready
+    run_tcl_tests all $build_type true
+
+    # kill redis servers
+    for pid in "${redis_pids[@]}"; do
+      if [[ -n $pid && -e /proc/$pid ]]; then
+        kill $pid
+      fi
+    done
+
+    wait_until_finished
+
+    echo "starting log service"
+    local log_service_ip_port="127.0.0.1:9000"
+
+    rm -rf /tmp/log_data
+    /home/mono/workspace/eloqkv/log_service/bld/launch_sv \
+      -conf=$log_service_ip_port \
+      -node_id=0 \
+      -storage_path="/tmp/log_data" \
+      --logtostderr=true \
+      >/tmp/redis_log_service.log 2>&1 \
+      &
+
+    local log_service_pid=$!
+    echo "log_service is started, pid: $log_service_pid"
+    # wait for log service to be ready
+    sleep 10
+
+    rm -rf /tmp/redis_server_data*
+    # TODO: drop keyspace
+    local timestamp=$(($(date +%s%N)/1000000))
+    local keyspace_name="redis_test_${timestamp}"
+    echo "dynamo keyspace name is, ${keyspace_name}"
+
+    echo "bootstrap before start cluster to avoid contention"
+    /home/mono/workspace/eloqkv/cmake/eloqkv \
+      --port=6379 \
+      --core_number=2 \
+      --enable_wal=true \
+      --enable_data_store=true \
+      --eloq_data_path="/tmp/redis_server_data_0" \
+      --event_dispatcher_num=1 \
+      --auto_redirect=true \
+      --maxclients=1000000 \
+      --checkpoint_interval=10 \
+      --ip_port_list=127.0.0.1:6379,127.0.0.1:7379,127.0.0.1:8379 \
+      --txlog_service_list=$log_service_ip_port \
+      --txlog_group_replica_num=3 \
+      --dynamodb_endpoint=$dynamodb_endpoint \
+      --dynamodb_region=$dynamodb_region \
+      --aws_access_key_id=$aws_access_key_id \
+      --aws_secret_key=$aws_secret_key \
+      --dynamodb_keyspace=$keyspace_name \
+      --logtostderr=true \
+      --bootstrap \
+      --enable_io_uring=${enable_io_uring} \
+      >/tmp/redis_server_multi_node_bootstrap_with_wal.log 2>&1
+
+
+    echo "bootstrap is started, pid: $!"
+    # wait for bootstrap to finish
+    sleep 20
+
+    echo "starting redis servers"
+    local ports=(6379 7379 8379)
+    local redis_pids=()
+    local index=0
+
+    for port in "${ports[@]}"; do
+      echo "redirecting output to /tmp/ to prevent ci pipeline crash"
+      /home/mono/workspace/eloqkv/cmake/eloqkv \
+        --port=$port \
+        --core_number=2 \
+        --enable_wal=true \
+        --enable_data_store=true \
+        --eloq_data_path="/tmp/redis_server_data_$index" \
+        --event_dispatcher_num=1 \
+        --auto_redirect=true \
+        --maxclients=1000000 \
+        --checkpoint_interval=10 \
+        --ip_port_list=127.0.0.1:6379,127.0.0.1:7379,127.0.0.1:8379 \
+        --txlog_service_list=$log_service_ip_port \
+        --txlog_group_replica_num=3 \
+        --dynamodb_endpoint=$dynamodb_endpoint \
+        --dynamodb_region=$dynamodb_region \
+        --aws_access_key_id=$aws_access_key_id \
+        --aws_secret_key=$aws_secret_key \
+        --dynamodb_keyspace=$keyspace_name \
+        --logtostderr=true \
+        --enable_io_uring=${enable_io_uring} \
+        >/tmp/redis_server_multi_node_$index.log 2>&1 \
+        &
+      redis_pids+=($!)
+      echo "redis_server $index is started, pid: $!"
+      index=$((index + 1))
+    done
+
+    # Wait for Redis server to be ready
+    wait_until_ready
+    echo "Redis server is ready!"
+
+    run_tcl_tests all $build_type true
+
+    # TODO(ZX) log replay test for cluster
+    echo "Running log replay test for Debug build: "
+
+    local python_test_file="/home/mono/workspace/eloqkv/tests/unit/mono/log_replay_test/log_replay_test.py"
+    python3 $python_test_file --load > load.log 2>&1
+
+    # wait for load to finish
+    sleep 10
+
+    # kill redis servers
+    for pid in "${redis_pids[@]}"; do
+      if [[ -n $pid && -e /proc/$pid ]]; then
+        kill -9 $pid
+      fi
+    done
+
+    # wait for kill to finish
+    wait_until_finished
+
+    # run redis instances again on different ports
+    redis_pids=()
+    local index=0
+    for port in "${ports[@]}"; do
+      /home/mono/workspace/eloqkv/cmake/eloqkv \
+        --port=$port \
+        --core_number=2 \
+        --enable_wal=true \
+        --enable_data_store=true \
+        --eloq_data_path="redis_server_data_$index" \
+        --event_dispatcher_num=1 \
+        --auto_redirect=true \
+        --maxclients=1000000 \
+        --checkpoint_interval=10 \
+        --ip_port_list=127.0.0.1:6379,127.0.0.1:7379,127.0.0.1:8379 \
+        --txlog_service_list=$log_service_ip_port \
+        --txlog_group_replica_num=3 \
+        --dynamodb_endpoint=$dynamodb_endpoint \
+        --dynamodb_region=$dynamodb_region \
+        --aws_access_key_id=$aws_access_key_id \
+        --aws_secret_key=$aws_secret_key \
+        --dynamodb_keyspace=$keyspace_name \
+        --logtostderr=true \
+        --enable_io_uring=${enable_io_uring} \
+        >/tmp/redis_server_multi_node_with_wal_$index.log 2>&1 \
+        &
+      redis_pids+=($!)
+      index=$((index + 1))
+    done
+
+    # Wait for Redis server to be ready
+    wait_until_ready
+    echo "Redis server is ready!"
+
+    python3 $python_test_file --verify
+
+    # wait for verify to finish
+    sleep 10
+
+    file1="database_snapshot_before_replay.json"  # First JSON file
+    file2="database_snapshot_after_replay.json"  # Second JSON file
+
+    if [[ -z "$file1" || -z "$file2" ]]; then
+        echo "ERROR: database_snapshot_before_replay.json or database_snapshot_after_replay.json not generated"
+        exit 1
+    fi
+
+    # Sort JSON content and compare using diff
+    if diff <(jq -S . "$file1") <(jq -S . "$file2") &> /dev/null; then
+        echo "PASS: The JSON files are identical."
+    else
+        echo "FAIL: The JSON files are different."
+        exit 1
+    fi
+
+    # kill redis servers
+    for pid in "${redis_pids[@]}"; do
+      if [[ -n $pid && -e /proc/$pid ]]; then
+        kill $pid
+      fi
+    done
+
+    kill $log_service_pid
+    wait_until_finished
+    # drop dynamodb keyspace
+
+
+  elif [[ $kv_store_type = "ELOQDSS_ROCKSDB_CLOUD_S3" ]]; then
+    echo "run_eloqkv_cluster_tests for ELOQDSS_ROCKSDB_CLOUD_S3"
+
+    stop_and_clean_dss_server $kv_store_type
+    start_dss_server "127.0.0.1" "9100" $kv_store_type
+    local dss_server_ip_port="127.0.0.1:9100"
+
+    # pure memory mode does not need log service
+
+    rm -rf /tmp/redis_server_data*
+    echo "starting redis servers"
+    local ports=(6379 7379 8379)
+    local redis_pids=()
+    local index=0
+
+    for port in "${ports[@]}"; do
+      echo "redirecting output to /tmp/ to prevent ci pipeline crash"
+      /home/mono/workspace/eloqkv/cmake/eloqkv \
+        --port=$port \
+        --core_number=2 \
+        --enable_wal=false \
+        --enable_data_store=false \
+        --eloq_data_path="/tmp/redis_server_data_$index" \
+        --event_dispatcher_num=1 \
+        --auto_redirect=true \
+        --maxclients=1000000 \
+        --checkpoint_interval=36000 \
+        --ip_port_list=127.0.0.1:6379,127.0.0.1:7379,127.0.0.1:8379 \
+        --txlog_service_list=$log_service_ip_port \
+        --txlog_group_replica_num=3 \
+        --eloq_dss_peer_node=$dss_server_ip_port \
+        --logtostderr=true \
+        >/tmp/redis_server_multi_node_$index.log 2>&1 \
+        &
+      redis_pids+=($!)
+      index=$((index + 1))
+    done
+    echo "redis_servers are started, pids: ${redis_pids[@]}"
+
+    # Wait for Redis server to be ready
+    wait_until_ready
+    echo "Redis server is ready!"
+
+    run_tcl_tests all $build_type true
+
+    # kill redis servers
+    for pid in "${redis_pids[@]}"; do
+      if [[ -n $pid && -e /proc/$pid ]]; then
+        kill $pid
+      fi
+    done
+
+    wait_until_finished
+
+    # clean dss_server data and restart it.
+    stop_and_clean_dss_server $kv_store_type
+    start_dss_server "127.0.0.1" "9100" $kv_store_type
+    rm -rf /tmp/redis_server_data*
+
+    echo "bootstrap before start cluster to avoid contention"
+    /home/mono/workspace/eloqkv/cmake/eloqkv \
+      --port=6379 \
+      --core_number=2 \
+      --enable_wal=false \
+      --enable_data_store=true \
+      --eloq_data_path="/tmp/redis_server_data_0" \
+      --event_dispatcher_num=1 \
+      --auto_redirect=true \
+      --maxclients=1000000 \
+      --checkpoint_interval=36000 \
+      --ip_port_list=127.0.0.1:6379,127.0.0.1:7379,127.0.0.1:8379 \
+      --eloq_dss_peer_node=$dss_server_ip_port \
+      --logtostderr=true \
+      --bootstrap \
+      >/tmp/redis_server_multi_node_bootstrap.log 2>&1 \
+      &
+
+    echo "bootstrap is started, pid: $!"
+    # wait for bootstrap to finish
+    sleep 20
+
+
+    redis_pids=()
+    local index=0
+    for port in "${ports[@]}"; do
+      /home/mono/workspace/eloqkv/cmake/eloqkv \
+        --port=$port \
+        --core_number=2 \
+        --enable_wal=false \
+        --enable_data_store=true \
+        --eloq_data_path="/tmp/redis_server_data_$index" \
+        --eloq_dss_peer_node=$dss_server_ip_port \
+        --maxclients=1000000 \
+        --logtostderr=true \
+        >/tmp/redis_server_multi_node_$index.log 2>&1 \
+        &
+      redis_pids+=($!)
+      index=$((index + 1))
+    done
+    echo "redis_servers are started, pids: ${redis_pids[@]}"
+
+    # Wait for Redis server to be ready
+    wait_until_ready
+    echo "Redis server is ready!"
+
+    # wait for redis servers to be ready
+    run_tcl_tests all $build_type true
+
+    # kill redis servers
+    for pid in "${redis_pids[@]}"; do
+      if [[ -n $pid && -e /proc/$pid ]]; then
+        kill $pid
+      fi
+    done
+
+    wait_until_finished
+
+    echo "starting log service"
+    local log_service_ip_port="127.0.0.1:9000"
+
+    rm -rf /tmp/log_data
+    /home/mono/workspace/eloqkv/log_service/bld/launch_sv \
+      -conf=$log_service_ip_port \
+      -node_id=0 \
+      -storage_path="/tmp/log_data" \
+      --logtostderr=true \
+      >/tmp/redis_log_service.log 2>&1 \
+      &
+
+    local log_service_pid=$!
+    echo "log_service is started, pid: $log_service_pid"
+    # wait for log service to be ready
+    sleep 10
+
+    # clean dss_server data and restart it.
+    stop_and_clean_dss_server $kv_store_type
+    start_dss_server "127.0.0.1" "9100" $kv_store_type
+    rm -rf /tmp/redis_server_data*
+
+    echo "bootstrap before start cluster to avoid contention"
+    /home/mono/workspace/eloqkv/cmake/eloqkv \
+      --port=6379 \
+      --core_number=2 \
+      --enable_wal=true \
+      --enable_data_store=true \
+      --eloq_data_path="/tmp/redis_server_data_0" \
+      --event_dispatcher_num=1 \
+      --auto_redirect=true \
+      --maxclients=1000000 \
+      --checkpoint_interval=36000 \
+      --ip_port_list=127.0.0.1:6379,127.0.0.1:7379,127.0.0.1:8379 \
+      --txlog_service_list=$log_service_ip_port \
+      --txlog_group_replica_num=3 \
+      --eloq_dss_peer_node=$dss_server_ip_port \
+      --logtostderr=true \
+      --bootstrap \
+      >/tmp/redis_server_multi_node_bootstrap.log 2>&1 \
+      &
+
+    echo "bootstrap is started, pid: $!"
+    # wait for bootstrap to finish
+    sleep 20
+
+    echo "starting redis servers"
+    local ports=(6379 7379 8379)
+    local redis_pids=()
+    local index=0
+
+    for port in "${ports[@]}"; do
+      echo "redirecting output to /tmp/ to prevent ci pipeline crash"
+      /home/mono/workspace/eloqkv/cmake/eloqkv \
+        --port=$port \
+        --core_number=2 \
+        --enable_wal=true \
+        --enable_data_store=true \
+        --eloq_data_path="/tmp/redis_server_data_$index" \
+        --event_dispatcher_num=1 \
+        --auto_redirect=true \
+        --maxclients=1000000 \
+        --checkpoint_interval=36000 \
+        --ip_port_list=127.0.0.1:6379,127.0.0.1:7379,127.0.0.1:8379 \
+        --txlog_service_list=$log_service_ip_port \
+        --txlog_group_replica_num=3 \
+        --eloq_dss_peer_node=$dss_server_ip_port \
+        --logtostderr=true \
+        >/tmp/redis_server_multi_node_$index.log 2>&1 \
+        &
+      redis_pids+=($!)
+      echo "redis_server $index is started, pid: $!"
+      index=$((index + 1))
+    done
+
+    # Wait for Redis server to be ready
+    wait_until_ready
+    echo "Redis server is ready!"
+
+    run_tcl_tests all $build_type true
+
+    # TODO(ZX) log replay test for cluster
+    echo "Running log replay test for Debug build: "
+
+    local python_test_file="/home/mono/workspace/eloqkv/tests/unit/mono/log_replay_test/log_replay_test.py"
+    python3 $python_test_file --load > load.log 2>&1
+
+    # wait for load to finish
+    sleep 10
+
+    # kill redis servers
+    for pid in "${redis_pids[@]}"; do
+      if [[ -n $pid && -e /proc/$pid ]]; then
+        kill -9 $pid
+      fi
+    done
+
+    # wait for kill to finish
+    wait_until_finished
+
+    # run redis instances again on different ports
+    redis_pids=()
+    local index=0
+    for port in "${ports[@]}"; do
+      /home/mono/workspace/eloqkv/cmake/eloqkv \
+        --port=$port \
+        --core_number=2 \
+        --enable_wal=true \
+        --enable_data_store=true \
+        --eloq_data_path="redis_server_data_$index" \
+        --event_dispatcher_num=1 \
+        --auto_redirect=true \
+        --maxclients=1000000 \
+        --checkpoint_interval=36000 \
+        --ip_port_list=127.0.0.1:6379,127.0.0.1:7379,127.0.0.1:8379 \
+        --txlog_service_list=127.0.0.1:9000 \
+        --txlog_group_replica_num=3 \
+        --eloq_dss_peer_node=$dss_server_ip_port \
+        --logtostderr=true \
+        >/tmp/redis_server_multi_node_no_wal_$index.log 2>&1 \
+        &
+      redis_pids+=($!)
+      index=$((index + 1))
+    done
+
+    # Wait for Redis server to be ready
+    wait_until_ready
+    echo "Redis server is ready!"
+
+    python3 $python_test_file --verify
+
+    # wait for verify to finish
+    sleep 10
+
+    file1="database_snapshot_before_replay.json"  # First JSON file
+    file2="database_snapshot_after_replay.json"  # Second JSON file
+
+    if [[ -z "$file1" || -z "$file2" ]]; then
+        echo "ERROR: database_snapshot_before_replay.json or database_snapshot_after_replay.json not generated"
+        exit 1
+    fi
+
+    # Sort JSON content and compare using diff
+    if diff <(jq -S . "$file1") <(jq -S . "$file2") &> /dev/null; then
+        echo "PASS: The JSON files are identical."
+    else
+        echo "FAIL: The JSON files are different."
+        exit 1
+    fi
+
+    # kill redis servers
+    for pid in "${redis_pids[@]}"; do
+      if [[ -n $pid && -e /proc/$pid ]]; then
+        kill $pid
+      fi
+    done
+
+    kill $log_service_pid
+    wait_until_finished
+
+    # stop dss_server and clean bucket in minio
+    stop_and_clean_dss_server $kv_store_type
+
+  elif [[ $kv_store_type = "ELOQDSS_ELOQSTORE" ]]; then
+    echo "eloqkv cluster test with dss_eloqstore." > /tmp/redis_cluster_with_eloqstore.log
+
+    local node_memory_limit_mb=8192
+    local dss_peer_node="127.0.0.1:9100"
+    local ports=(6379 7379 8379)
+    local eloqkv_bin_path="/home/mono/workspace/eloqkv/cmake/eloqkv"
+
+    #
+    # pure memory mode does not need log service
+    #
+    rm -rf /tmp/redis_server_data_0/*
+    rm -rf /tmp/redis_server_data_1/*
+    rm -rf /tmp/redis_server_data_2/*
+    echo "starting redis servers with nowal, nostore, pure memory." >> /tmp/redis_cluster_with_eloqstore.log
+    local redis_pids=()
+    local index=0
+
+    for port in "${ports[@]}"; do
+      echo "redirecting output to /tmp/ to prevent ci pipeline crash for $index node." >> /tmp/redis_cluster_with_eloqstore.log
+      ${eloqkv_bin_path} \
+        --port=$port \
+        --core_number=2 \
+        --enable_wal=false \
+        --enable_data_store=false \
+        --log_dir="/tmp/redis_server_logs_$index" \
+        --eloq_data_path="/tmp/redis_server_data_$index" \
+        --node_memory_limit_mb=${node_memory_limit_mb} \
+        --event_dispatcher_num=1 \
+        --auto_redirect=true \
+        --maxclients=1000000 \
+        --logtostderr=true \
+        --checkpoint_interval=36000 \
+        --ip_port_list=127.0.0.1:6379,127.0.0.1:7379,127.0.0.1:8379 \
+        --txlog_group_replica_num=3 \
+        >/tmp/redis_server_multi_node_nowal_nostore_$index.log 2>&1 \
+        &
+      redis_pids+=($!)
+      index=$((index + 1))
+    done
+    echo "redis_servers with nowal, nostore, 36000 ckpt interval are started, pids: $redis_pids"  >> /tmp/redis_cluster_with_eloqstore.log
+
+    # Wait for Redis server to be ready
+    wait_until_ready
+    echo "Redis server is ready!" >> /tmp/redis_cluster_with_eloqstore.log
+
+    run_tcl_tests all $build_type true
+
+    # kill redis servers
+    for pid in "${redis_pids[@]}"; do
+      if [[ -n $pid && -e /proc/$pid ]]; then
+        kill $pid
+      fi
+    done
+
+    wait_until_finished
+    echo "finished redis_servers with nowal, nostore, pure memory."  >> /tmp/redis_cluster_with_eloqstore.log
+    echo "" >> /tmp/redis_cluster_with_eloqstore.log
+
+    #
+    # Test small ckpt interval
+    #
+    start_dss_server "127.0.0.1" "9100" $kv_store_type
+    echo "Data store server is ready!"  >> /tmp/redis_cluster_with_eloqstore.log
+
+    rm -rf /tmp/redis_server_data_0/*
+    rm -rf /tmp/redis_server_data_1/*
+    rm -rf /tmp/redis_server_data_2/*
+    echo "bootstrap before start cluster to avoid contention" >> /tmp/redis_cluster_with_eloqstore.log
+    ${eloqkv_bin_path} \
+      --port=6379 \
+      --core_number=2 \
+      --enable_wal=false \
+      --enable_data_store=true \
+      --log_dir="/tmp/redis_server_logs_0" \
+      --eloq_data_path="/tmp/redis_server_data_0" \
+      --node_memory_limit_mb=${node_memory_limit_mb} \
+      --event_dispatcher_num=1 \
+      --auto_redirect=true \
+      --maxclients=1000000 \
+      --checkpoint_interval=36000 \
+      --ip_port_list=127.0.0.1:6379,127.0.0.1:7379,127.0.0.1:8379 \
+      --eloq_dss_peer_node=${dss_peer_node} \
+      --bootstrap \
+      >/tmp/redis_server_multi_node_bootstrap.log 2>&1 \
+      &
+
+    echo "bootstrap is started, pid: $!"
+    echo "bootstrap nowal, withstore is started, pid: $!"  >> /tmp/redis_cluster_with_eloqstore.log
+    # wait for bootstrap to finish
+    sleep 20
+
+    echo "starting redis servers nowal, withstore, small ckpt interval." >> /tmp/redis_cluster_with_eloqstore.log
+    local redis_pids=()
+    local index=0
+
+    for port in "${ports[@]}"; do
+      echo "redirecting output to /tmp/ to prevent ci pipeline crash for $index node." >> /tmp/redis_cluster_with_eloqstore.log
+      ${eloqkv_bin_path} \
+        --port=$port \
+        --core_number=2 \
+        --enable_wal=false \
+        --enable_data_store=true \
+        --log_dir="/tmp/redis_server_logs_$index" \
+        --eloq_data_path="/tmp/redis_server_data_$index" \
+        --node_memory_limit_mb=${node_memory_limit_mb} \
+        --event_dispatcher_num=1 \
+        --auto_redirect=true \
+        --maxclients=1000000 \
+        --logtostderr=true \
+        --checkpoint_interval=1 \
+	      --kickout_data_for_test=true \
+        --ip_port_list=127.0.0.1:6379,127.0.0.1:7379,127.0.0.1:8379 \
+        --txlog_group_replica_num=3 \
+        --eloq_dss_peer_node=${dss_peer_node} \
+        >/tmp/redis_server_multi_node_nowal_withstore_smallckptinterval_$index.log 2>&1 \
+        &
+      redis_pids+=($!)
+      index=$((index + 1))
+    done
+    echo "redis_servers with nowal, withstore, small ckpt interval are started, pids: $redis_pids" >> /tmp/redis_cluster_with_eloqstore.log
+
+    # Wait for Redis server to be ready
+    wait_until_ready
+    echo "Redis server is ready!"  >> /tmp/redis_cluster_with_eloqstore.log
+
+    run_tcl_tests all $build_type true true
+
+    # kill redis servers
+    for pid in "${redis_pids[@]}"; do
+      if [[ -n $pid && -e /proc/$pid ]]; then
+        kill $pid
+      fi
+    done
+
+    wait_until_finished
+
+    echo "stop data store server." >> /tmp/redis_cluster_with_eloqstore.log
+    # kill data store server
+    stop_and_clean_dss_server $kv_store_type
+    echo "finished redis_servers with nowal, withstore, small ckpt interval."  >> /tmp/redis_cluster_with_eloqstore.log
+    echo ""  >> /tmp/redis_cluster_with_eloqstore.log
+
+    #
+    # Test default ckpt interval
+    #
+    start_dss_server "127.0.0.1" "9100" $kv_store_type
+    echo "Data store server is ready!"  >> /tmp/redis_cluster_with_eloqstore.log
+
+    rm -rf /tmp/redis_server_data_0/*
+    rm -rf /tmp/redis_server_data_1/*
+    rm -rf /tmp/redis_server_data_2/*
+    echo "bootstrap before start cluster to avoid contention" >> /tmp/redis_cluster_with_eloqstore.log
+    ${eloqkv_bin_path} \
+      --port=6379 \
+      --core_number=2 \
+      --enable_wal=false \
+      --enable_data_store=true \
+      --log_dir="/tmp/redis_server_logs_0" \
+      --eloq_data_path="/tmp/redis_server_data_0" \
+      --node_memory_limit_mb=${node_memory_limit_mb} \
+      --event_dispatcher_num=1 \
+      --auto_redirect=true \
+      --maxclients=1000000 \
+      --checkpoint_interval=36000 \
+      --ip_port_list=127.0.0.1:6379,127.0.0.1:7379,127.0.0.1:8379 \
+      --eloq_dss_peer_node=${dss_peer_node} \
+      --bootstrap \
+      >/tmp/redis_server_multi_node_bootstrap.log 2>&1 \
+      &
+
+    echo "bootstrap is started, pid: $!"
+    echo "bootstrap nowal, withstore is started, pid: $!"  >> /tmp/redis_cluster_with_eloqstore.log
+    # wait for bootstrap to finish
+    sleep 20
+
+    redis_pids=()
+    local index=0
+    for port in "${ports[@]}"; do
+      echo "redirecting output to /tmp/ to prevent ci pipeline crash for $index node." >> /tmp/redis_cluster_with_eloqstore.log
+      ${eloqkv_bin_path} \
+        --port=$port \
+        --core_number=2 \
+        --enable_wal=false \
+        --enable_data_store=true \
+        --log_dir="/tmp/redis_server_logs_$index" \
+        --eloq_data_path="/tmp/redis_server_data_$index" \
+        --node_memory_limit_mb=${node_memory_limit_mb} \
+        --ip_port_list=127.0.0.1:6379,127.0.0.1:7379,127.0.0.1:8379 \
+        --txlog_group_replica_num=3 \
+        --eloq_dss_peer_node=${dss_peer_node} \
+        --maxclients=1000000 \
+        --logtostderr=true \
+        >/tmp/redis_server_multi_node_nowal_withstore_defaultckptinterval_$index.log 2>&1 \
+        &
+      redis_pids+=($!)
+      index=$((index + 1))
+    done
+    echo "redis_servers nowal, withstore, default ckpt interval are started, pids: $redis_pids"  >> /tmp/redis_cluster_with_eloqstore.log
+
+    # Wait for Redis server to be ready
+    wait_until_ready
+    echo "Redis server is ready!"  >> /tmp/redis_cluster_with_eloqstore.log
+
+    # wait for redis servers to be ready
+    run_tcl_tests all $build_type true
+
+    # kill redis servers
+    for pid in "${redis_pids[@]}"; do
+      if [[ -n $pid && -e /proc/$pid ]]; then
+        kill $pid
+      fi
+    done
+
+    wait_until_finished
+
+    echo "stop data store server." >> /tmp/redis_cluster_with_eloqstore.log
+    # kill data store server
+    stop_and_clean_dss_server $kv_store_type
+    echo "finished redis_servers nowal, withstore, default ckpt interval." >> /tmp/redis_cluster_with_eloqstore.log
+    echo ""  >> /tmp/redis_cluster_with_eloqstore.log
+
+    #
+    # Test log replay
+    #
+    echo "starting log service" >> /tmp/redis_cluster_with_eloqstore.log
+    local log_service_ip_port="127.0.0.1:9000"
+
+    rm -rf /tmp/log_data
+    ${eloqkv_base_path}/log_service/bld/launch_sv \
+      -conf=$log_service_ip_port \
+      -node_id=0 \
+      -storage_path="/tmp/log_data" \
+      >/tmp/redis_log_service.log 2>&1 \
+      &
+
+    local log_service_pid=$!
+    echo "log_service is started, pid: $log_service_pid"
+    echo "log_service is started, pid: $log_service_pid" >> /tmp/redis_cluster_with_eloqstore.log
+    # wait for log service to be ready
+    sleep 10
+
+    start_dss_server "127.0.0.1" "9100" $kv_store_type
+    echo "Data store server is ready!"  >> /tmp/redis_cluster_with_eloqstore.log
+
+    rm -rf /tmp/redis_server_data_0/*
+    rm -rf /tmp/redis_server_data_1/*
+    rm -rf /tmp/redis_server_data_2/*
+    echo "bootstrap before start cluster to avoid contention" >> /tmp/redis_cluster_with_eloqstore.log
+    ${eloqkv_bin_path} \
+      --port=6379 \
+      --core_number=2 \
+      --enable_wal=true \
+      --enable_data_store=true \
+      --log_dir="/tmp/redis_server_logs_0" \
+      --eloq_data_path="/tmp/redis_server_data_0" \
+      --node_memory_limit_mb=${node_memory_limit_mb} \
+      --event_dispatcher_num=1 \
+      --auto_redirect=true \
+      --maxclients=1000000 \
+      --checkpoint_interval=36000 \
+      --ip_port_list=127.0.0.1:6379,127.0.0.1:7379,127.0.0.1:8379 \
+      --txlog_service_list=$log_service_ip_port \
+      --txlog_group_replica_num=3 \
+      --eloq_dss_peer_node=${dss_peer_node} \
+      --bootstrap \
+      >/tmp/redis_server_multi_node_withwal_withstore_bootstrap.log 2>&1 \
+      &
+
+    echo "bootstrap is started, pid: $!"
+    echo "bootstrap is started, pid: $!" >> /tmp/redis_cluster_with_eloqstore.log
+    # wait for bootstrap to finish
+    sleep 20
+
+    echo "starting redis servers before log replay" >> /tmp/redis_cluster_with_eloqstore.log
+    local redis_pids=()
+    local index=0
+
+    for port in "${ports[@]}"; do
+      echo "redirecting output to /tmp/ to prevent ci pipeline crash for $index node." >> /tmp/redis_cluster_with_eloqstore.log
+      ${eloqkv_bin_path} \
+        --port=$port \
+        --core_number=2 \
+        --enable_wal=true \
+        --enable_data_store=true \
+        --log_dir="/tmp/redis_server_logs_$index" \
+        --eloq_data_path="/tmp/redis_server_data_$index" \
+        --node_memory_limit_mb=${node_memory_limit_mb} \
+        --event_dispatcher_num=1 \
+        --auto_redirect=true \
+        --maxclients=1000000 \
+        --logtostderr=true \
+        --checkpoint_interval=36000 \
+        --ip_port_list=127.0.0.1:6379,127.0.0.1:7379,127.0.0.1:8379 \
+        --txlog_service_list=$log_service_ip_port \
+        --txlog_group_replica_num=3 \
+        --eloq_dss_peer_node=${dss_peer_node} \
+        >/tmp/redis_server_multi_node_withwal_withstore_beforelogreplay_$index.log 2>&1 \
+        &
+      redis_pids+=($!)
+      index=$((index + 1))
+    done
+    echo "redis_servers with wal, with datastore before log replay are started, pids: $redis_pids" >> /tmp/redis_cluster_with_eloqstore.log
+
+    # Wait for Redis server to be ready
+    wait_until_ready
+    echo "Redis server is ready!" >> /tmp/redis_cluster_with_eloqstore.log
+
+    run_tcl_tests all $build_type true
+
+    echo "Running log replay test for Debug build: " >> /tmp/redis_cluster_with_eloqstore.log
+
+    local python_test_file="${eloqkv_base_path}/tests/unit/mono/log_replay_test/log_replay_test.py"
+    python3 $python_test_file --load > /tmp/load.log 2>&1
+
+    # wait for load to finish
+    sleep 10
+
+    # kill redis servers
+    for pid in "${redis_pids[@]}"; do
+      if [[ -n $pid && -e /proc/$pid ]]; then
+        kill -9 $pid
+      fi
+    done
+
+    # wait for kill to finish
+    wait_until_finished
+    echo "finished redis_servers nowal, withstore before log replay." >> /tmp/redis_cluster_with_eloqstore.log
+    echo ""  >> /tmp/redis_cluster_with_eloqstore.log
+
+    # run redis instances again on different ports
+    echo "starting redis servers after log replay" >> /tmp/redis_cluster_with_eloqstore.log
+    redis_pids=()
+    local index=0
+    for port in "${ports[@]}"; do
+      echo "redirecting output to /tmp/ to prevent ci pipeline crash for $index node." >> /tmp/redis_cluster_with_eloqstore.log
+      ${eloqkv_bin_path} \
+        --port=$port \
+        --core_number=2 \
+        --enable_wal=true \
+        --enable_data_store=true \
+        --log_dir="/tmp/redis_server_logs_$index" \
+        --eloq_data_path="redis_server_data_$index" \
+        --node_memory_limit_mb=${node_memory_limit_mb} \
+        --event_dispatcher_num=1 \
+        --auto_redirect=true \
+        --maxclients=1000000 \
+        --logtostderr=true \
+        --checkpoint_interval=36000 \
+        --ip_port_list=127.0.0.1:6379,127.0.0.1:7379,127.0.0.1:8379 \
+        --txlog_service_list=$log_service_ip_port \
+        --txlog_group_replica_num=3 \
+        --eloq_dss_peer_node=${dss_peer_node} \
+        >/tmp/redis_server_multi_node_withwal_withstore_afterlogreplay_$index.log 2>&1 \
+        &
+      redis_pids+=($!)
+      index=$((index + 1))
+    done
+    echo "redis_servers with wal, with datastore after log replay are started, pids: $redis_pids" >> /tmp/redis_cluster_with_eloqstore.log
+
+    # Wait for Redis server to be ready
+    wait_until_ready
+    echo "Redis server is ready!" >> /tmp/redis_cluster_with_eloqstore.log
+
+    python3 $python_test_file --verify
+
+    # wait for verify to finish
+    sleep 10
+
+    file1="database_snapshot_before_replay.json"  # First JSON file
+    file2="database_snapshot_after_replay.json"  # Second JSON file
+
+    if [[ -z "$file1" || -z "$file2" ]]; then
+        echo "ERROR: database_snapshot_before_replay.json or database_snapshot_after_replay.json not generated"
+        exit 1
+    fi
+
+    # Sort JSON content and compare using diff
+    if diff <(jq -S . "$file1") <(jq -S . "$file2") &> /dev/null; then
+        echo "PASS: The JSON files are identical."
+    else
+        echo "FAIL: The JSON files are different."
+        exit 1
+    fi
+
+    # kill redis servers
+    for pid in "${redis_pids[@]}"; do
+      if [[ -n $pid && -e /proc/$pid ]]; then
+        kill $pid
+      fi
+    done
+
+    kill $log_service_pid
+    wait_until_finished
+
+    echo "stop data store server." >> /tmp/redis_cluster_with_eloqstore.log
+    # kill data store server
+    stop_and_clean_dss_server $kv_store_type
+    echo "finished redis_servers nowal, withstore after log replay." >> /tmp/redis_cluster_with_eloqstore.log
 
   fi
 }
