@@ -165,6 +165,7 @@ cd install
 <a href='https://www.eloqdata.com'>
 <img src="images/eloqkv_architecture2.png" alt="EloqKV Arch" width=600></img>
 </a>
+</div>
 
 EloqKV is a decoupled, distributed database built on [Data Substrate](https://www.eloqdata.com/blog/2024/08/11/data-substrate), the innovative new database foundation developed by EloqData.
 
@@ -186,6 +187,7 @@ In cache scenarios, EloqKV significantly outperforms Redis and achieves performa
 <a href='https://www.eloqdata.com'>
 <img src="images/eloqkvperf1.png" alt="EloqKV" width=500></img>
 </a>
+</div>
 
 ### Persistent Transactional Mode
 
@@ -198,10 +200,9 @@ Unlike KVRocks, which lacks true transactional support, EloqKV offers **real, ro
 <a href='https://www.eloqdata.com'>
 <img src="images/eloqkvperf4.png" alt="EloqKV" width=500></img>
 </a>
+</div>
   
 ---
-
-Let me know if you'd like charts or comparative tables added.
 
 ## License
 
@@ -211,13 +212,14 @@ EloqKV is under under a dual license. You may choose to use it under the terms o
 
 See the [LICENSE](./LICENSE) file for details.
 
+---
+
 ## See Also
 
 - [EloqKV Doc](https://www.eloqdata.com/eloqkv/introduction)
 - [Watch: EloqKV at ApacheCon](https://www.youtube.com/watch?v=33gotnJh7rc)
 - [Watch: EloqKV at Monster Scale Cummit](https://www.youtube.com/watch?v=XSuwjiNt0N4)
   
-
-**Star This Repo ⭐** to Support Our Journey — Every Star Helps Us Reach More Developers!  
 [![GitHub Stars](https://img.shields.io/github/stars/eloqdata/eloqkv?style=social)](https://github.com/eloqdata/eloqkv/stargazers)
+**Star This Repo ⭐** to Support Our Journey — Every Star Helps Us Reach More Developers!  
 
