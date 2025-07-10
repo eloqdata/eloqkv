@@ -124,7 +124,7 @@ Follow the [instruction guide](https://www.eloqdata.com/eloqkv/install-from-bina
 
 <div align="center">
 <a href='https://www.eloqdata.com'>
-<img src="images/eloqkv_architecture2.png" alt="EloqKV Arch" width=600></img>
+<img src="images/eloqkv_architecture.png" alt="EloqKV Arch" width=600></img>
 </a>
 </div>
 
@@ -146,7 +146,7 @@ In cache scenarios, EloqKV significantly outperforms Redis and achieves performa
 
 <div align="center">
 <a href='https://www.eloqdata.com'>
-<img src="images/eloqkvperf1.png" alt="EloqKV" width=500></img>
+<img src="images/eloqkvcacheperf.png" alt="EloqKV" width=500></img>
 </a>
 </div>
 
@@ -159,7 +159,7 @@ Unlike KVRocks, which lacks true transactional support, EloqKV offers **real, ro
 
 <div align="center">
 <a href='https://www.eloqdata.com'>
-<img src="images/eloqkvperf4.png" alt="EloqKV" width=500></img>
+<img src="images/eloqkvwalperf.png" alt="EloqKV" width=500></img>
 </a>
 </div>
   
