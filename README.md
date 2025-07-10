@@ -1,3 +1,6 @@
+
+<img src="images/eloqkv_github_logo.png" alt="EloqKV" width="50%">
+
 # EloqKV  
 **Redis-Compatible, Database-Powered — ACID Transactions, Tiered Storage & SQL-Style Syntax, Built for Real Workloads.**  
 
