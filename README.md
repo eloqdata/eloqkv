@@ -15,7 +15,7 @@
 </div>
 
 # EloqKV  
-EloqKV is the most **Cost-Effective Redis-compatible** database designed for developers who need **ACID transactions, tiered storage, and SQL-style syntax** — all while keeping Redis' simplicity.
+EloqKV is the most **Cost-Effective, Redis-compatible** database designed for developers who need **ACID transactions, tiered storage, and SQL-style syntax** — all while keeping Redis' simplicity.
 
 - [Key Features](#key-features)
 - [Quick Start](#quick-start)
