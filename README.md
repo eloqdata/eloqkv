@@ -103,14 +103,11 @@ OK
 172.20.0.10:6379> get hello
 "world"
 ```  
----
 
 ### Run with EloqCtl
 EloqCtl is the cluster management tool for EloqKV.
 
 To deploy an EloqKV cluster in production, download [EloqCtl](https://www.eloqdata.com/downloadeloqctl) and follow the [deployment guide](https://www.eloqdata.com/eloqsql/cluster-deployment).
-
----
 
 ### Run with Tarball
 Download the EloqKV tarball from the [EloqData website](https://www.eloqdata.com/download/eloqkv).
@@ -217,6 +214,7 @@ See the [LICENSE](./LICENSE) file for details.
 ## See Also
 
 - [EloqKV Doc](https://www.eloqdata.com/eloqkv/introduction)
+- [Try EloqCloud for EloqKV](https://cloud.eloqdata.com)
 - [Watch: EloqKV at ApacheCon](https://www.youtube.com/watch?v=33gotnJh7rc)
 - [Watch: EloqKV at Monster Scale Cummit](https://www.youtube.com/watch?v=XSuwjiNt0N4)
   
