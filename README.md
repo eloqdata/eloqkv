@@ -1,5 +1,5 @@
 
-<img src="images/eloqkv_github_logo.png" alt="EloqKV" width="80%">
+<img src="images/eloqkv_github_logo.png" alt="EloqKV" width="100%">
 
 # EloqKV  
 **Redis-Compatible, Database-Powered — ACID Transactions, Tiered Storage & SQL-Style Syntax, Built for Real Workloads.**  
