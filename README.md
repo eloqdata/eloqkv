@@ -15,32 +15,39 @@
 </div>
 
 # EloqKV  
-EloqKV is the most **Cost-Effective, Redis-compatible** database designed for developers who need **ACID transactions, tiered storage, and SQL-style syntax** — all while keeping Redis' simplicity.
+EloqKV is the most **Cost-Effective, Redis-compatible** database designed for developers who need **ACID transactions, tiered storage, and Session-style syntax** — all while keeping Redis' simplicity.
 
 - [Key Features](#key-features)
 - [Quick Start](#quick-start)
-- [Build From Source](#build-from-source)
 - [Architecture](#architecture)
 - [Benchmark](#benchmark)
+- [Build From Source](#build-from-source)
 - [License](#license)
 - [See Also](#see-also)
 
 
 **Why Choose EloqKV Over Redis?**  
-| Feature                      | Redis                      | EloqKV                               |
-| ---------------------------- | -------------------------- | ------------------------------------ |
-| **Transactions**             | `MULTI/EXEC` (No Rollback) | `BEGIN/COMMIT/ROLLBACK` (ACID)       |
-| **Distributed Transactions** | `CROSSSLOT` Error          | ACID distributed transactions        |
-| **Data Durability**          | AOF/RDB snapshots          | WAL + Tiered Storage                 |
-| **Scalability**              | Single-threaded            | Multi-threaded (1.6million QPS/node) |
-| **Cold Data**                | Memory-only                | Auto-tiering to disk                 |
+| Feature                      | Redis                        | EloqKV                               |
+| ---------------------------- | ---------------------------  | ------------------------------------ |
+| **Performance**              | Single-threaded              | Multi-threaded (1.6million QPS/node) |
+| **Transactions**             | `MULTI/EXEC` (No Rollback)   | `BEGIN/COMMIT/ROLLBACK` (ACID)       |
+| **Distributed Transactions** | `CROSSSLOT` Error            | ACID distributed transactions        |
+| **Data Durability**          | AOF/RDB snapshots            | Replicated WAL + Tiered Storage      |
+| **Cold Data**                | Memory-only                  | Auto-tiering to disk                 |
+| **Client Transparency**      | Cluster needs specific client| Single Client                        |
+
 
 ---
 
-## Key Features  
+## Key Features
 
-### 🛠️ **ACID Transactions with SQL-Style Syntax**
-Besides the standard Redis transaction syntax (MULTI/EXEC), we also support SQL-style interactive transactions.
+### ⚡ **High Performance** 
+- **Multi-threaded**: Built with thread-per-core execution and message-passing architecture to fully utilize modern CPUs.
+- **Single Node**: Up to **1.6M QPS**, comparable to purpose-built cache systems like DragonflyDB (benchmarked on AWS c6g.8xlarge).
+- **Native Distributed**: No Sharding. Scale horizontally with distributed transactions so that you can still use it as a single node EloqKv. 
+
+### 🛠️ **ACID Transactions with Session-Style Syntax**
+Besides the standard Redis transaction syntax (MULTI/EXEC), we also support Session-style interactive transactions.
 
 ```redis  
 -- Transfer funds between accounts atomically  
@@ -51,7 +58,8 @@ BEGIN
 COMMIT  
 -- Rollback on failure  
 ```  
-*No more Lua scripts or `MULTI` limitations — write transactions like a SQL database.*  
+- No more Lua scripts or `MULTI` limitations — write transactions like a SQL database.
+
 ### 🌐 **Distributed ACID Transactions** 
 **Cross-node strong consistency without `hashtag` constraints**  
 ```redis  
@@ -61,7 +69,6 @@ BEGIN
   HSET order:2000:status "paid"      -- node B  
 COMMIT  
 ```
-
 -   **No  `CROSSSLOT`  Errors**：Enables atomic operations across multiple nodes, unlike Redis Cluster which blocks cross-slot transactions.
     
 ### 🗃️ **Tiered Storage**  
@@ -69,15 +76,11 @@ COMMIT
 - **Cold Data**: Automatically offloaded to disk.  
 *Save 70% on memory costs compared to Redis.*  
 
-### ⚡ **Vertical & Horizontal Scaling**  
-- Single node: Up to **1.6M QPS** (benchmarked on AWS c6g.8xlarge).  
-- Distributed: Scale horizontally with distributed transactions so that you can still use it as a single node EloqKv.  
-
 ### 🔄 **Redis API Compatibility**  
 ```bash  
 redis-cli -h eloqkv-server SET key "value"  # Works out of the box!  
 ```  
-*Zero code changes needed. Check out our [supported Redis commands](https://www.eloqdata.com/eloqkv/kvstore_compatibility).*  
+- Zero code changes needed. Check out our [supported Redis commands](https://www.eloqdata.com/eloqkv/kvstore_compatibility). 
 
 
 ---
@@ -113,45 +116,6 @@ To deploy an EloqKV cluster in production, download [EloqCtl](https://www.eloqda
 Download the EloqKV tarball from the [EloqData website](https://www.eloqdata.com/download/eloqkv).
 
 Follow the [instruction guide](https://www.eloqdata.com/eloqkv/install-from-binary) to set up and run EloqKV on your local machine.
-
----
-
-## Build from Source  
-
-### 1. Install Dependencies:
-We recommend using our Docker image with pre-installed dependencies for a quick build and run of EloqKV.
-
-```bash
-docker pull eloqdata/eloq-build-ubuntu2404:latest
-```
-
-Or, you can manually run the following script to install dependencies on your local machine.
-
-```bash
-bash scripts/install_dependency_ubuntu2404.sh
-```
-
-### 2. Initialize Submodules
-Fetch the Transaction Service and its dependencies:
-
-```
-git submodule update --init --recursive
-```
-
-### 3. Build EloqKV
-```bash
-mkdir build
-cd build
-cmake -DCMAKE_INSTALL_PREFIX=./install -DWITH_KV_STORE=ROCKSDB ..
-make -j
-make install
-```
-
-### 4. Run EloqKV
-```bash
-cd install
-./bin/eloqkv --port=6389
-```
 
 ---
 
@@ -199,6 +163,45 @@ Unlike KVRocks, which lacks true transactional support, EloqKV offers **real, ro
 </a>
 </div>
   
+---
+
+## Build from Source  
+
+### 1. Install Dependencies:
+We recommend using our Docker image with pre-installed dependencies for a quick build and run of EloqKV.
+
+```bash
+docker pull eloqdata/eloq-build-ubuntu2404:latest
+```
+
+Or, you can manually run the following script to install dependencies on your local machine.
+
+```bash
+bash scripts/install_dependency_ubuntu2404.sh
+```
+
+### 2. Initialize Submodules
+Fetch the Transaction Service and its dependencies:
+
+```
+git submodule update --init --recursive
+```
+
+### 3. Build EloqKV
+```bash
+mkdir build
+cd build
+cmake -DCMAKE_INSTALL_PREFIX=./install -DWITH_KV_STORE=ROCKSDB ..
+make -j
+make install
+```
+
+### 4. Run EloqKV
+```bash
+cd install
+./bin/eloqkv --port=6389
+```
+
 ---
 
 ## License
