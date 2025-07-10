@@ -29,7 +29,7 @@ EloqKV is the most **Cost-Effective, Redis-compatible** database designed for de
 **Why Choose EloqKV Over Redis?**  
 | Feature                      | Redis                        | EloqKV                               |
 | ---------------------------- | ---------------------------  | ------------------------------------ |
-| **Performance**              | Single-threaded              | Multi-threaded (1.6million QPS/node) |
+| **High Performance**              | Single-threaded              | Multi-threaded (1.6million QPS/node) |
 | **Transactions**             | `MULTI/EXEC` (No Rollback)   | `BEGIN/COMMIT/ROLLBACK` (ACID)       |
 | **Distributed Transactions** | `CROSSSLOT` Error            | ACID distributed transactions        |
 | **Data Durability**          | AOF/RDB snapshots            | Replicated WAL + Tiered Storage      |
@@ -216,7 +216,7 @@ See the [LICENSE](./LICENSE) file for details.
 
 ## See Also
 
-- [EloqKV Doc](https://www.eloqdata.com/eloqkv/introduction)
+- [EloqKV Documentation](https://www.eloqdata.com/eloqkv/introduction)
 - [Try EloqCloud for EloqKV](https://cloud.eloqdata.com)
 - [Watch: EloqKV at ApacheCon](https://www.youtube.com/watch?v=33gotnJh7rc)
 - [Watch: EloqKV at Monster Scale Cummit](https://www.youtube.com/watch?v=XSuwjiNt0N4)
