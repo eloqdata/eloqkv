@@ -82,7 +82,7 @@ kv_store_types=("ELOQDSS_ROCKSDB_CLOUD_S3" "ROCKSDB")
 for bt in "${build_types[@]}"; do
   for kst in "${kv_store_types[@]}"; do
     rm -rf /home/mono/workspace/eloqkv/eloq_data
-    run_build $bt $kst
+    run_build_ent $bt $kst
 
     source my_env/bin/activate
     run_eloq_test $bt $kst
