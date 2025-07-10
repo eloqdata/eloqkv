@@ -2,6 +2,15 @@
 <a href='https://www.eloqdata.com'>
 <img src="images/eloqkv_github_logo.jpg" alt="EloqKV" height=100></img>
 </a>
+---
+
+[![License](https://img.shields.io/badge/License-GPL-blue.svg)](https://github.com/eloqdata/eloqkv/blob/readme/LICENSE)
+[![Language](https://img.shields.io/badge/language-C++-orange)](https://isocpp.org/)
+  <a href="https://discord.gg/5YBX9Uw5u7">
+    <img alt="EloqKV" src="https://img.shields.io/badge/discord-blue.svg?logo=discord&logoColor=white">
+  </a>
+</div>
+
 # EloqKV  
 **Redis-Compatible, Database-Powered — ACID Transactions, Tiered Storage & SQL-Style Syntax, Built for Real Workloads.**  
 
