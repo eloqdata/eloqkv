@@ -5,14 +5,14 @@ resource_types:
       repository: teliaoss/github-pr-resource
 
 resources:
-- name: eloqkv_pr
-  type: pull-request
-  check_every: 3m
-  source:
-    repository: eloqdata/eloqkv
-    base_branch: "main"
-    access_token: ((git-token))
-    ignore_drafts: true
+  - name: eloqkv_pr
+    type: pull-request
+    check_every: 3m
+    source:
+      repository: eloqdata/eloqkv
+      base_branch: "main"
+      access_token: ((git-token))
+      ignore_drafts: true
 
   - name: logservice_src
     type: git

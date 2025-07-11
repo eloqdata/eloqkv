@@ -13,5 +13,5 @@ jobs:
         source: '.'
         exclude: './third_party ./external ./redis ./include/redis ./lua ./fpconv'
         extensions: 'h,cpp'
-        clangFormatVersion: 14
+        clangFormatVersion: 18
         style: file
