@@ -4,7 +4,6 @@ image_resource:
 inputs:
   - name: eloq_metrics_src
   - name: txservice_src
-  - name: logservice_src
   - name: redis_src
   - name: eloq_test_src
 run:

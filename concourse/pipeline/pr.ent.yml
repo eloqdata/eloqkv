@@ -38,13 +38,13 @@ resources:
       uri: git@github.com:eloqdata/raft_host_manager.git
       private_key: ((git-key))
 
-  - name: mono_ubuntu_2004
+  - name: mono_ubuntu_2404
     type: registry-image
     source:
-      repository: monographdb/monograph-dev-ci-ubuntu2004
+      repository: eloqdata/eloq-build-ubuntu2404
       tag: latest
-      username: monographdb
-      password: Mono_cz158#
+      username: eloqdata
+      password: ((docker-secret-key))
 
 jobs:
   - name: compile-test
@@ -61,9 +61,9 @@ jobs:
             - get: raft_host_manager_src
             - get: eloq_test_src
               trigger: true
-            - get: mono_ubuntu_2004
+            - get: mono_ubuntu_2404
       - task: compile-test-task
-        image: mono_ubuntu_2004
+        image: mono_ubuntu_2404
         file: eloqkv_pr/concourse/tasks/pr.ent.yml
         vars:
           cass-host: ((cassandra-host))

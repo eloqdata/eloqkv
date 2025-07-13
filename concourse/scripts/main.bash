@@ -42,7 +42,7 @@ cd eloqkv
 git submodule sync
 git submodule update --init --recursive
 
-ln -s $WORKSPACE/logservice_src log_service
+ln -s open_log_service log_service
 
 cd /home/mono/workspace/eloqkv/tx_service
 
@@ -83,6 +83,7 @@ for bt in "${build_types[@]}"; do
     run_build $bt $kst
 
     source my_env/bin/activate
+    run_eloq_test $bt $kst
     run_eloqkv_tests $bt $kst
     run_eloqkv_cluster_tests $bt $kst
     deactivate
