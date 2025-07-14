@@ -42,7 +42,7 @@ cd eloqkv
 git submodule sync
 git submodule update --init --recursive
 
-ln -s $WORKSPACE/logservice_src log_service
+ln -s $WORKSPACE/logservice_src eloq_log_service
 
 cd /home/mono/workspace/eloqkv/tx_service
 

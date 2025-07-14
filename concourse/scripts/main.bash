@@ -42,8 +42,6 @@ cd eloqkv
 git submodule sync
 git submodule update --init --recursive
 
-ln -s open_log_service log_service
-
 cd /home/mono/workspace/eloqkv/tx_service
 
 git checkout main

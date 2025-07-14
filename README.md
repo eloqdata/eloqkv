@@ -191,11 +191,9 @@ bash scripts/install_dependency_ubuntu2404.sh
 ```
 
 ### 2. Initialize Submodules
-Fetch submodules and create a symbolic link from `open_log_service` to `log_service`:
 
 ```
 git submodule update --init --recursive
-ln -s open_log_service log_service
 ```
 
 ### 3. Build EloqKV

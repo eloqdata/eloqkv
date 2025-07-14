@@ -74,7 +74,7 @@
 
 #include "INIReader.h"
 #if (WITH_LOG_SERVICE)
-#include "log_service/include/log_utils.h"
+#include "log_utils.h"
 #include "log_service_metrics.h"
 #endif
 

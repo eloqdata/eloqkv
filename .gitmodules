@@ -13,6 +13,6 @@
 [submodule "store_handler"]
 	path = store_handler
 	url = https://github.com/eloqdata/store_handler.git
-[submodule "open_log_service"]
-	path = open_log_service
+[submodule "log_service"]
+	path = log_service
 	url = https://github.com/eloqdata/log_service.git
