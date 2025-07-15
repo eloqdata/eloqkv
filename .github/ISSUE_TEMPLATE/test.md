@@ -1,5 +1,5 @@
 ---
-name: ✨ Test
+name: 🔍 Test
 about: performance test or product test
 labels: test
 ---
