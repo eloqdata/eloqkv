@@ -468,7 +468,7 @@ bool RedisServiceImpl::Init(brpc::Server &brpc_server)
 
     if (skip_kv_ && enable_cache_replacement_)
     {
-        LOG(ERROR) << "When set enable_cache_replacement, should also set "
+        LOG(WARNING) << "When set enable_cache_replacement, should also set "
                       "enable_data_store, reset to false";
         enable_cache_replacement_ = false;
     }
