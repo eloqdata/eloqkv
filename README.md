@@ -228,7 +228,7 @@ See the [LICENSE](./LICENSE) file for details.
 - [EloqKV Documentation](https://www.eloqdata.com/eloqkv/introduction)
 - [Try EloqCloud for EloqKV](https://cloud.eloqdata.com)
 - [Watch: EloqKV at ApacheCon](https://www.youtube.com/watch?v=33gotnJh7rc)
-- [Watch: EloqKV at Monster Scale Cummit](https://www.youtube.com/watch?v=XSuwjiNt0N4)
+- [Watch: EloqKV at Monster Scale Summit](https://www.youtube.com/watch?v=XSuwjiNt0N4)
   
 [![GitHub Stars](https://img.shields.io/github/stars/eloqdata/eloqkv?style=social)](https://github.com/eloqdata/eloqkv/stargazers)
 **Star This Repo ⭐** to Support Our Journey — Every Star Helps Us Reach More Developers!  
