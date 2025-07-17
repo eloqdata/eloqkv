@@ -54,9 +54,7 @@
 #include <aws/core/Aws.h>
 #endif
 
-#if defined(DATA_STORE_TYPE_ROCKSDB) ||                                        \
-    defined(DATA_STORE_TYPE_ROCKSDB_CLOUD_S3) ||                               \
-    defined(DATA_STORE_TYPE_ROCKSDB_CLOUD_GCS)
+#if defined(DATA_STORE_TYPE_ROCKSDB)
 #include "store_handler/rocksdb_handler.h"
 #endif
 
@@ -551,9 +549,6 @@ private:
     std::unique_ptr<EloqDS::DynamoHandler> store_hd_;
 #elif defined(DATA_STORE_TYPE_ROCKSDB)
     std::unique_ptr<RocksDBHandlerImpl> store_hd_;
-#elif defined(DATA_STORE_TYPE_ROCKSDB_CLOUD_S3) ||                             \
-    defined(DATA_STORE_TYPE_ROCKSDB_CLOUD_GCS)
-    std::unique_ptr<RocksDBCloudHandlerImpl> store_hd_;
 #elif ELOQDS
     std::unique_ptr<EloqDS::DataStoreServiceClient> store_hd_;
     std::unique_ptr<EloqDS::DataStoreService> data_store_service_;

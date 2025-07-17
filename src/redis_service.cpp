@@ -150,7 +150,6 @@ DEFINE_string(dynamodb_region,
 DECLARE_string(aws_access_key_id);
 DECLARE_string(aws_secret_key);
 #elif defined(DATA_STORE_TYPE_DYNAMODB) ||                                     \
-    defined(DATA_STORE_TYPE_ROCKSDB_CLOUD_S3) ||                               \
     (defined(USE_ROCKSDB_LOG_STATE) && defined(WITH_ROCKSDB_CLOUD))
 DEFINE_string(aws_access_key_id, "", "AWS SDK access key id");
 DEFINE_string(aws_secret_key, "", "AWS SDK secret key");
@@ -780,7 +779,6 @@ bool RedisServiceImpl::Init(brpc::Server &brpc_server)
     log_path.append("/log_service");
 
 #if defined(DATA_STORE_TYPE_DYNAMODB) ||                                       \
-    defined(DATA_STORE_TYPE_ROCKSDB_CLOUD_S3) ||                               \
     defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB_CLOUD_S3) ||                       \
     (defined(USE_ROCKSDB_LOG_STATE) && defined(WITH_ROCKSDB_CLOUD))
     aws_options_.loggingOptions.logLevel = Aws::Utils::Logging::LogLevel::Info;
@@ -1043,22 +1041,6 @@ bool RedisServiceImpl::Init(brpc::Server &brpc_server)
         EloqShare::RocksDBConfig rocksdb_config(config_reader, eloq_data_path);
 
         store_hd_ = std::make_unique<EloqKV::RocksDBHandlerImpl>(
-            rocksdb_config,
-            (FLAGS_bootstrap || is_single_node),
-            enable_cache_replacement_);
-
-#elif defined(DATA_STORE_TYPE_ROCKSDB_CLOUD_S3) ||                             \
-    defined(DATA_STORE_TYPE_ROCKSDB_CLOUD_GCS)
-
-        bool is_single_node =
-            (standby_ip_port_list.empty() && voter_ip_port_list.empty() &&
-             ip_port_list.find(',') == ip_port_list.npos);
-
-        EloqShare::RocksDBConfig rocksdb_config(config_reader, eloq_data_path);
-        EloqShare::RocksDBCloudConfig rocksdb_cloud_config(config_reader);
-
-        store_hd_ = std::make_unique<EloqKV::RocksDBCloudHandlerImpl>(
-            rocksdb_cloud_config,
             rocksdb_config,
             (FLAGS_bootstrap || is_single_node),
             enable_cache_replacement_);
@@ -2119,7 +2101,6 @@ void RedisServiceImpl::Stop()
 #endif
 
 #if defined(DATA_STORE_TYPE_DYNAMODB) ||                                       \
-    defined(DATA_STORE_TYPE_ROCKSDB_CLOUD_S3) ||                               \
     defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB_CLOUD_S3) ||                       \
     (defined(USE_ROCKSDB_LOG_STATE) && defined(WITH_ROCKSDB_CLOUD))
     Aws::ShutdownAPI(aws_options_);
