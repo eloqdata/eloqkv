@@ -74,8 +74,8 @@
 
 #include "INIReader.h"
 #if (WITH_LOG_SERVICE)
-#include "log_utils.h"
 #include "log_service_metrics.h"
+#include "log_utils.h"
 #endif
 
 #if (defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB_CLOUD_S3) ||                      \

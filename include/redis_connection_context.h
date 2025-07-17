@@ -44,7 +44,7 @@ class PubSubManager;
 class RedisConnectionContext : public brpc::ConnectionContext
 {
 public:
-    RedisConnectionContext() : output(&arena){};
+    RedisConnectionContext() : output(&arena) {};
     explicit RedisConnectionContext(brpc::Socket *sock, PubSubManager *mgr)
         : socket(sock),
           connect_time_us(

@@ -142,8 +142,8 @@ public:
 
     const std::unordered_map<
         uint16_t,
-        std::pair<txservice::TableName, txservice::SecondaryKeySchema>>
-        *GetIndexes() const override
+        std::pair<txservice::TableName, txservice::SecondaryKeySchema>> *
+    GetIndexes() const override
     {
         assert(false);
         return nullptr;
