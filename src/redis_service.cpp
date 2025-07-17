@@ -1751,7 +1751,7 @@ bool RedisServiceImpl::InitTxLogService(
     std::vector<std::string> &txlog_ips,
     std::vector<uint16_t> &txlog_ports)
 {
-    size_t txlog_rocksdb_scan_threads =
+    [[ maybe_unused ]] size_t txlog_rocksdb_scan_threads =
         !CheckCommandLineFlagIsDefault("txlog_rocksdb_scan_threads")
             ? FLAGS_txlog_rocksdb_scan_threads
             : config_reader.GetInteger("local",
@@ -1781,21 +1781,21 @@ bool RedisServiceImpl::InitTxLogService(
                   "txlog_rocksdb_target_file_size_base",
                   FLAGS_txlog_rocksdb_target_file_size_base));
 
-    size_t logserver_snapshot_interval =
+    [[ maybe_unused ]] size_t logserver_snapshot_interval =
         !CheckCommandLineFlagIsDefault("logserver_snapshot_interval")
             ? FLAGS_logserver_snapshot_interval
             : config_reader.GetInteger("local",
                                        "logserver_snapshot_interval",
                                        FLAGS_logserver_snapshot_interval);
 
-    bool enable_txlog_request_checkpoint =
+    [[ maybe_unused ]] bool enable_txlog_request_checkpoint =
         !CheckCommandLineFlagIsDefault("enable_txlog_request_checkpoint")
             ? FLAGS_enable_txlog_request_checkpoint
             : config_reader.GetBoolean("local",
                                        "enable_txlog_request_checkpoint",
                                        FLAGS_enable_txlog_request_checkpoint);
 
-    size_t check_replay_log_size_interval_sec =
+    [[ maybe_unused ]] size_t check_replay_log_size_interval_sec =
         !CheckCommandLineFlagIsDefault("check_replay_log_size_interval_sec")
             ? FLAGS_check_replay_log_size_interval_sec
             : config_reader.GetInteger(
@@ -1803,7 +1803,7 @@ bool RedisServiceImpl::InitTxLogService(
                   "check_replay_log_size_interval_sec",
                   FLAGS_check_replay_log_size_interval_sec);
 
-    size_t notify_checkpointer_threshold_size_val =
+    [[ maybe_unused ]] size_t notify_checkpointer_threshold_size_val =
         !CheckCommandLineFlagIsDefault("notify_checkpointer_threshold_size")
             ? txlog::parse_size(FLAGS_notify_checkpointer_threshold_size)
             : txlog::parse_size(config_reader.GetString(
