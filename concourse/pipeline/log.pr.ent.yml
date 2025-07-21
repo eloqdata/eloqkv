@@ -62,6 +62,10 @@ jobs:
             - get: raft_host_manager_src
             - get: eloq_test_src
             - get: mono_ubuntu_2004
+      - put: logservice_pr
+        params:
+          path: logservice_pr
+          status: pending
       - task: compile-test-task
         image: mono_ubuntu_2004
         file: redis_src/concourse/tasks/log.pr.ent.yml
@@ -71,3 +75,12 @@ jobs:
           minio-endpoint: ((minio-endpoint))
           minio-secret-key: ((minio-secret-key))
         privileged: true
+        on_failure:
+          put: logservice_pr
+          params:
+            path: logservice_pr
+            status: failure
+      - put: logservice_pr
+        params:
+          path: logservice_pr
+          status: success
