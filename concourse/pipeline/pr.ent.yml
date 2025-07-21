@@ -13,6 +13,8 @@ resources:
       base_branch: "main"
       access_token: ((git-token))
       ignore_drafts: true
+      fetch_merge: true
+      disable_forks: false
 
   - name: logservice_src
     type: git
@@ -56,11 +58,10 @@ jobs:
           steps:
             - get: eloqkv_pr
               trigger: true
+              version: every
             - get: logservice_src
-              trigger: true
             - get: raft_host_manager_src
             - get: eloq_test_src
-              trigger: true
             - get: mono_ubuntu_2004
       - task: compile-test-task
         image: mono_ubuntu_2004

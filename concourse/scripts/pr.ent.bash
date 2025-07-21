@@ -37,14 +37,12 @@ if [ ! -d "/var/crash" ]; then sudo mkdir -p /var/crash; fi
 sudo chmod 777 /var/crash
 
 cd $WORKSPACE/eloqkv_pr
-pr_branch_name=$(cat .git/resource/metadata.json | jq -r '.[] | select(.name=="head_name") | .value')
 sudo chown -R mono /home/mono/workspace
 cd /home/mono/workspace
 ln -s $WORKSPACE/eloqkv_pr eloqkv
 ln -s $WORKSPACE/eloq_test_src eloq_test
 
 cd eloqkv
-git config remote.origin.fetch "+refs/heads/${pr_branch_name}:refs/remotes/origin/${pr_branch_name}"
 git submodule sync
 git submodule update --init --recursive
 
