@@ -36,7 +36,6 @@ echo '/tmp/core.%t.%e.%p' | sudo tee /proc/sys/kernel/core_pattern
 if [ ! -d "/var/crash" ]; then sudo mkdir -p /var/crash; fi
 sudo chmod 777 /var/crash
 
-cd $WORKSPACE/eloqkv_pr
 sudo chown -R mono /home/mono/workspace
 cd /home/mono/workspace
 ln -s $WORKSPACE/eloqkv_pr eloqkv
@@ -49,6 +48,8 @@ git submodule update --init --recursive
 ln -s $WORKSPACE/logservice_src eloq_log_service
 
 cd /home/mono/workspace/eloqkv/tx_service
+
+git checkout main
 ln -s $WORKSPACE/raft_host_manager_src raft_host_manager
 
 cd /home/mono/workspace/eloqkv
