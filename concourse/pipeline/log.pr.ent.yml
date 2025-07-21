@@ -1,0 +1,72 @@
+resource_types:
+  - name: pull-request
+    type: docker-image
+    source:
+      repository: teliaoss/github-pr-resource
+
+resources:
+  - name: logservice_pr
+    type: pull-request
+    check_every: 3m
+    source:
+      repository: eloqdata/eloq_log_service
+      base_branch: "main"
+      access_token: ((git-token))
+      ignore_drafts: true
+      disable_forks: false
+
+  - name: redis_src
+    type: git
+    check_every: 3m
+    source:
+      branch: main
+      uri: git@github.com:eloqdata/eloqkv.git
+      private_key: ((git-key))
+
+  - name: eloq_test_src
+    type: git
+    check_every: 3m
+    source:
+      branch: main
+      uri: git@github.com:eloqdata/eloq-test.git
+      private_key: ((git-key))
+
+  - name: raft_host_manager_src
+    type: git
+    check_every: 3m
+    source:
+      branch: main
+      uri: git@github.com:eloqdata/raft_host_manager.git
+      private_key: ((git-key))
+
+  - name: mono_ubuntu_2004
+    type: registry-image
+    source:
+      repository: monographdb/monograph-dev-ci-ubuntu2004
+      tag: latest
+      username: monographdb
+      password: ((docker-secret-key))
+
+jobs:
+  - name: compile-test
+    build_log_retention:
+      builds: 500
+    serial: true
+    plan:
+      - in_parallel:
+          steps:
+            - get: logservice_pr
+              trigger: true
+              version: every
+            - get: redis_src
+            - get: raft_host_manager_src
+            - get: eloq_test_src
+            - get: mono_ubuntu_2004
+      - task: compile-test-task
+        image: mono_ubuntu_2004
+        file: redis_src/concourse/tasks/logpr.ent.yml
+        vars:
+          minio-access-key: ((minio-access-key))
+          minio-endpoint: ((minio-endpoint))
+          minio-secret-key: ((minio-secret-key))
+        privileged: true
