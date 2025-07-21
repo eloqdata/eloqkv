@@ -66,6 +66,7 @@ jobs:
         image: mono_ubuntu_2004
         file: redis_src/concourse/tasks/log.pr.ent.yml
         vars:
+          cass-host: ((cassandra-host))
           minio-access-key: ((minio-access-key))
           minio-endpoint: ((minio-endpoint))
           minio-secret-key: ((minio-secret-key))
