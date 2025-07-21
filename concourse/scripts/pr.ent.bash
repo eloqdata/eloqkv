@@ -38,7 +38,7 @@ sudo chmod 777 /var/crash
 
 sudo chown -R mono /home/mono/workspace
 cd /home/mono/workspace
-ln -s $WORKSPACE/eloqkv_pr eloqkv
+ln -s $WORKSPACE/redis_pr eloqkv
 ln -s $WORKSPACE/eloq_test_src eloq_test
 
 cd eloqkv
