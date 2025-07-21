@@ -69,4 +69,4 @@ compile_commands*
 *.log
 
 eloq_data
-
+eloq_log_service
