@@ -2,9 +2,8 @@ platform: linux
 image_resource:
   type: registry-image
 inputs:
+  - name: eloqkv_src
   - name: logservice_src
-  - name: redis_src
-  - name: eloq_test_src
   - name: raft_host_manager_src
 outputs:
   - name: the-output
@@ -21,4 +20,4 @@ params:
 run:
   path: /bin/bash
   args:
-    - redis_src/concourse/scripts/build_tarball.bash
+    - eloqkv_src/concourse/scripts/build_tarball.bash
