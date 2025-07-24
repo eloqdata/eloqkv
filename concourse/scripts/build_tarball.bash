@@ -137,7 +137,7 @@ cd $ELOQKV_SRC
 mkdir build && cd build
 cmake .. -DCMAKE_BUILD_TYPE=$BUILD_TYPE -DWITH_DATA_STORE=$KV_TYPE $CMAKE_ARGS \
     -DWITH_LOG_SERVICE=ON -DDISABLE_CKPT_REPORT=ON -DDISABLE_CODE_LINE_IN_LOG=ON \
-    -DWITH_ASAN=$ASAN
+    -DWITH_ASAN=$ASAN -DOPEN_LOG_SERVICE=OFF
 cmake --build . --config ${BUILD_TYPE} -j${NCORE}
 copy_libraries eloqkv ${DEST_DIR}/lib
 mv eloqkv ${DEST_DIR}/bin/
