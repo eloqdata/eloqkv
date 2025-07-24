@@ -5,10 +5,9 @@ export WORKSPACE=$PWD
 export AWS_PAGER=""
 sudo chown -R mono $PWD
 cd $HOME
-ln -s ${WORKSPACE}/redis_src redis
 ln -s ${WORKSPACE}/eloqkv_src eloqkv
 cd eloqkv
-ln -s $WORKSPACE/logservice_src log_service
+ln -s $WORKSPACE/logservice_src eloq_log_service
 pushd tx_service
 ln -s $WORKSPACE/raft_host_manager_src raft_host_manager
 popd
@@ -42,7 +41,6 @@ if [[ "$OS_ID" == rhel* ]]; then
         sudo dnf install rsync -y
         INSTALL_PSQL="sudo dnf install -y postgresql"
         # detected dubious ownership
-        git config --global --add safe.directory ${WORKSPACE}/redis_src
         git config --global --add safe.directory ${WORKSPACE}/eloqkv_src
         git config --global --add safe.directory ${WORKSPACE}/logservice_src
         git config --global --add safe.directory ${WORKSPACE}/raft_host_manager_src
@@ -185,7 +183,7 @@ build_upload_log_srv() {
     fi
     local log_tarball=$1
     local build_for_cloud=$2
-    log_sv_src=${ELOQKV_SRC}/log_service
+    log_sv_src=${ELOQKV_SRC}/eloq_log_service
     cd ${log_sv_src}
     mkdir -p LogService/bin
     mkdir build && cd build
