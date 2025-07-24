@@ -132,25 +132,6 @@ EOF
 # Write the license content to LICENSE.txt in the destination directory
 echo "$LICENSE_CONTENT" >"${DEST_DIR}/LICENSE.txt"
 
-# build redis-cli
-cd ${HOME}/redis
-CLIENT_TAG=$(git tag --points-at HEAD | awk 'NR==1{print}')
-if [ -n "${CLIENT_TAG}" ]; then
-    CLIENT_S3_FILE="client/eloqkv-cli-${CLIENT_TAG}-${OS_ID}-${ARCH}"
-    CLIENT_EXIST=true
-    aws s3api head-object --bucket ${S3_BUCKET} --key eloqkv/${CLIENT_S3_FILE} || CLIENT_EXIST=false
-    if [ "${CLIENT_EXIST}" = true ]; then
-        aws s3 cp ${S3_PREFIX}/${CLIENT_S3_FILE} src/redis-cli
-        chmod +x src/redis-cli
-    else
-        make redis-cli
-        aws s3 cp src/redis-cli ${S3_PREFIX}/${CLIENT_S3_FILE}
-    fi
-else
-    make redis-cli
-fi
-mv src/redis-cli ${DEST_DIR}/bin/eloqkv-cli
-
 # build eloqkv
 cd $ELOQKV_SRC
 mkdir build && cd build
@@ -240,9 +221,6 @@ if [ "${BUILD_LOG_SRV}" = true ]; then
     fi
     build_upload_log_srv "${LOG_TARBALL}" false
     build_upload_log_srv "${LOG_TARBALL}" true
-    # if [[ ${OS_ID} == "ubuntu20" ]] && [[ ${ARCH} == "amd64" ]] && [[ ${OUT_NAME} != "devel" ]]; then
-    #     build_upload_log_srv "${LOG_TARBALL}" true
-    # fi
 
     if [ -n "${CLOUDFRONT_DIST}" ]; then
         aws cloudfront create-invalidation --distribution-id ${CLOUDFRONT_DIST} --paths "/eloqkv/logservice/${LOG_TARBALL}"
