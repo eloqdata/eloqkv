@@ -1,0 +1,24 @@
+platform: linux
+image_resource:
+  type: registry-image
+inputs:
+  - name: logservice_src
+  - name: redis_src
+  - name: eloq_test_src
+  - name: raft_host_manager_src
+outputs:
+  - name: the-output
+params:
+  KV_TYPE: "ROCKSDB"
+  ROCKS_FS: ""
+  CMAKE_ARGS: ""
+  TAGGED: ""
+  BUILD_TYPE: "Debug"
+  ASAN: "ON"
+  NCORE: 6
+  BUILD_LOG_SRV: true
+  OUT_NAME: debug
+run:
+  path: /bin/bash
+  args:
+    - redis_src/concourse/scripts/build_tarball.bash

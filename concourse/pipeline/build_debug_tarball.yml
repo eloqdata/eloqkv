@@ -1,0 +1,74 @@
+resources:
+- name: redis_src
+  type: git
+  source:
+    branch: main
+    uri: git@github.com:eloqdata/eloqkv.git
+    private_key: ((git-key))
+
+- name: image_ubuntu2204_main
+  type: registry-image
+  source:
+    password: Mono_cz158#
+    repository: monographdb/monograph-dev-ci-ubuntu2204
+    username: monographdb
+
+- name: logservice_src_main
+  type: git
+  source:
+    branch: main
+    private_key: ((git-key))
+    uri: git@github.com:eloqdata/eloq_log_service.git
+
+- name: raft_host_manager_src_main
+  type: git
+  source:
+    branch: main
+    private_key: ((git-key))
+    uri: git@github.com:eloqdata/raft_host_manager.git
+
+jobs:
+- name: ubuntu2204-main
+  plan:
+  - in_parallel:
+      limit: 2
+      steps:
+      - get: redis_src
+        resource: eloqkv_src_main
+      - get: logservice_src
+        resource: logservice_src_main
+      - get: raft_host_manager_src
+        resource: raft_host_manager_src_main
+      - get: image_ubuntu2204
+        resource: image_ubuntu2204_main
+
+  - task: build-rocksdb-cloud-s3-type
+    file: redis_src/concourse/tasks/build_debug_tarball.yml
+    image: image_ubuntu2204
+    params:
+      ASAN: "ON"
+      AWS_ACCESS_KEY_ID: ((aws-access-key-id))
+      AWS_DEFAULT_REGION: ((aws-default-region))
+      AWS_SECRET_ACCESS_KEY: ((aws-secret-access-key))
+      BUILD_LOG_SRV: "true"
+      BUILD_TYPE: Debug
+      KV_TYPE: ELOQDSS_ROCKSDB_CLOUD_S3
+      OUT_NAME: debug
+      CLOUDFRONT_DIST: ((cloudfront-dist))
+
+  - task: build-rocksdb-type
+    file: redis_src/concourse/tasks/build_debug_tarball.yml
+    image: image_ubuntu2204
+    params:
+      ASAN: "ON"
+      AWS_ACCESS_KEY_ID: ((aws-access-key-id))
+      AWS_DEFAULT_REGION: ((aws-default-region))
+      AWS_SECRET_ACCESS_KEY: ((aws-secret-access-key))
+      BUILD_LOG_SRV: "true"
+      BUILD_TYPE: Debug
+      KV_TYPE: ROCKSDB
+      OUT_NAME: debug
+      CLOUDFRONT_DIST: ((cloudfront-dist))
+
+  serial: true
+
