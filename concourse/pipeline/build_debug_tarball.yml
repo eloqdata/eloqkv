@@ -1,5 +1,5 @@
 resources:
-- name: redis_src
+- name: eloqkv_src_main
   type: git
   source:
     branch: main
@@ -33,7 +33,7 @@ jobs:
   - in_parallel:
       limit: 2
       steps:
-      - get: redis_src
+      - get: eloqkv_src
         resource: eloqkv_src_main
       - get: logservice_src
         resource: logservice_src_main
@@ -43,7 +43,7 @@ jobs:
         resource: image_ubuntu2204_main
 
   - task: build-rocksdb-cloud-s3-type
-    file: redis_src/concourse/tasks/build_debug_tarball.yml
+    file: eloqkv_src/concourse/tasks/build_debug_tarball.yml
     image: image_ubuntu2204
     params:
       ASAN: "ON"
@@ -57,7 +57,7 @@ jobs:
       CLOUDFRONT_DIST: ((cloudfront-dist))
 
   - task: build-rocksdb-type
-    file: redis_src/concourse/tasks/build_debug_tarball.yml
+    file: eloqkv_src/concourse/tasks/build_debug_tarball.yml
     image: image_ubuntu2204
     params:
       ASAN: "ON"
