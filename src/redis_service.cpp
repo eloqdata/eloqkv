@@ -587,7 +587,7 @@ bool RedisServiceImpl::Init(brpc::Server &brpc_server)
     GFLAGS_NAMESPACE::SetCommandLineOption("use_pthread_event_dispatcher",
                                            "true");
     GFLAGS_NAMESPACE::SetCommandLineOption(
-        "max_body_size", std::to_string(EloqKV::MAX_OBJECT_SIZE * 2).c_str());
+        "max_body_size", "536870912");
 
     FLAGS_auto_redirect =
         !CheckCommandLineFlagIsDefault("auto_redirect")

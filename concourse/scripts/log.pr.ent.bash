@@ -51,7 +51,6 @@ git submodule update --init --recursive
 
 cd /home/mono/workspace/eloqkv/tx_service
 
-git checkout main
 ln -s $WORKSPACE/raft_host_manager_src raft_host_manager
 
 cd /home/mono/workspace/eloqkv
