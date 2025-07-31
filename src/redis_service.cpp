@@ -19,8 +19,6 @@
  *    <http://www.gnu.org/licenses/>.
  *
  */
-#include "redis_service.h"
-
 #include <absl/types/span.h>
 #include <bthread/mutex.h>
 #include <bthread/task_group.h>
@@ -42,6 +40,7 @@
 #include "eloq_metrics/include/metrics.h"
 #include "error_messages.h"
 #include "kv_store.h"
+#include "redis_service.h"
 #include "sharder.h"
 #include "tx_key.h"
 #if defined(DATA_STORE_TYPE_DYNAMODB) ||                                       \
@@ -257,6 +256,10 @@ DEFINE_string(txlog_rocksdb_cloud_bucket_name,
 DEFINE_string(txlog_rocksdb_cloud_bucket_prefix,
               "txlog-",
               "Cloud storage bucket prefix");
+DEFINE_string(txlog_rocksdb_cloud_object_path,
+              "eloqkv_txlog",
+              "Cloud storage object path, if not set, will use bucket name and "
+              "prefix");
 DEFINE_uint32(
     txlog_rocksdb_cloud_ready_timeout,
     10,
@@ -1835,6 +1838,12 @@ bool RedisServiceImpl::InitTxLogService(
             : config_reader.GetString("local",
                                       "txlog_rocksdb_cloud_bucket_prefix",
                                       FLAGS_txlog_rocksdb_cloud_bucket_prefix);
+    txlog_rocksdb_cloud_config.object_path_ =
+        !CheckCommandLineFlagIsDefault("txlog_rocksdb_cloud_object_path")
+            ? FLAGS_txlog_rocksdb_cloud_object_path
+            : config_reader.GetString("local",
+                                      "txlog_rocksdb_cloud_object_path",
+                                      FLAGS_txlog_rocksdb_cloud_object_path);
     txlog_rocksdb_cloud_config.region_ =
         !CheckCommandLineFlagIsDefault("txlog_rocksdb_cloud_region")
             ? FLAGS_txlog_rocksdb_cloud_region
@@ -2485,7 +2494,7 @@ void RedisServiceImpl::RedisClusterSlots(std::vector<SlotInfo> &info)
                 }
             }
         }  // end-if
-    }  // end-for
+    }      // end-for
 
     if (info.size() > 1)
     {
