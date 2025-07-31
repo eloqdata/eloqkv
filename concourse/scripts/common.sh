@@ -842,6 +842,7 @@ function run_eloqkv_tests() {
     local rocksdb_cloud_aws_access_key_id=${ROCKSDB_CLOUD_AWS_ACCESS_KEY_ID}
     local rocksdb_cloud_aws_secret_access_key=${ROCKSDB_CLOUD_AWS_SECRET_ACCESS_KEY}
     local rocksdb_cloud_bucket_name=${ROCKSDB_CLOUD_BUCKET_NAME}
+    local rocksdb_cloud_object_path=${ROCKSDB_CLOUD_OBJECT_PATH}
 
     /home/mono/workspace/eloqkv/cmake/eloqkv \
       --port=6379 \
@@ -852,6 +853,7 @@ function run_eloqkv_tests() {
       --aws_access_key_id="${rocksdb_cloud_aws_access_key_id}" \
       --aws_secret_key="${rocksdb_cloud_aws_secret_access_key}" \
       --rocksdb_cloud_bucket_name=${rocksdb_cloud_bucket_name} \
+      --rocksdb_cloud_object_path=${rocksdb_cloud_object_path} \
       --enable_io_uring=${enable_io_uring} \
       --bootstrap=true &
 
@@ -870,6 +872,7 @@ function run_eloqkv_tests() {
       --aws_access_key_id="${rocksdb_cloud_aws_access_key_id}" \
       --aws_secret_key="${rocksdb_cloud_aws_secret_access_key}" \
       --rocksdb_cloud_bucket_name=${rocksdb_cloud_bucket_name} \
+      --rocksdb_cloud_object_path=${rocksdb_cloud_object_path} \
       --maxclients=1000000 \
       --checkpoint_interval=36000 \
       --enable_io_uring=${enable_io_uring} \
@@ -913,6 +916,7 @@ function run_eloqkv_tests() {
       --aws_access_key_id="${rocksdb_cloud_aws_access_key_id}" \
       --aws_secret_key="${rocksdb_cloud_aws_secret_access_key}" \
       --rocksdb_cloud_bucket_name=${rocksdb_cloud_bucket_name} \
+      --rocksdb_cloud_object_path=${rocksdb_cloud_object_path} \
       --maxclients=1000000 \
       --checkpoint_interval=36000 \
       --enable_io_uring=${enable_io_uring} \
@@ -977,6 +981,7 @@ function run_eloqkv_tests() {
         --aws_access_key_id="${rocksdb_cloud_aws_access_key_id}" \
         --aws_secret_key="${rocksdb_cloud_aws_secret_access_key}" \
         --rocksdb_cloud_bucket_name=${rocksdb_cloud_bucket_name} \
+        --rocksdb_cloud_object_path=${rocksdb_cloud_object_path} \
         --maxclients=1000000 \
         --checkpoint_interval=10 \
         --enable_io_uring=${enable_io_uring} \
@@ -1010,6 +1015,7 @@ function run_eloqkv_tests() {
         --aws_access_key_id="${rocksdb_cloud_aws_access_key_id}" \
         --aws_secret_key="${rocksdb_cloud_aws_secret_access_key}" \
         --rocksdb_cloud_bucket_name=${rocksdb_cloud_bucket_name} \
+        --rocksdb_cloud_object_path=${rocksdb_cloud_object_path} \
         --maxclients=1000000 \
         --checkpoint_interval=10 \
         --enable_io_uring=${enable_io_uring} \
@@ -1378,10 +1384,12 @@ function start_dss_server() {
         local rocksdb_cloud_aws_access_key_id=${ROCKSDB_CLOUD_AWS_ACCESS_KEY_ID}
         local rocksdb_cloud_aws_secret_access_key=${ROCKSDB_CLOUD_AWS_SECRET_ACCESS_KEY}
         local rocksdb_cloud_bucket_name=${ROCKSDB_CLOUD_BUCKET_NAME}
+	local rocksdb_cloud_object_path=${ROCKSDB_CLOUD_OBJECT_PATH}
         dss_server_configs="--rocksdb_cloud_s3_endpoint_url=${rocksdb_cloud_s3_endpoint_url} \
                             --aws_access_key_id=${rocksdb_cloud_aws_access_key_id} \
                             --aws_secret_key=${rocksdb_cloud_aws_secret_access_key} \
-                            --rocksdb_cloud_bucket_name=${rocksdb_cloud_bucket_name} "
+                            --rocksdb_cloud_bucket_name=${rocksdb_cloud_bucket_name} \
+                            --rocksdb_cloud_object_path=${rocksdb_cloud_object_path}"
     elif [[ $kv_store_type = "ELOQDSS_ELOQSTORE" ]]; then
         local eloq_store_worker_num=2
         local eloq_store_data_path="${dss_data_path}/eloq_store"
@@ -2930,23 +2938,27 @@ function run_eloq_test(){
     local rocksdb_cloud_aws_access_key_id=${ROCKSDB_CLOUD_AWS_ACCESS_KEY_ID}
     local rocksdb_cloud_aws_secret_access_key=${ROCKSDB_CLOUD_AWS_SECRET_ACCESS_KEY}
     local rocksdb_cloud_bucket_name=${ROCKSDB_CLOUD_BUCKET_NAME}
+    local rocksdb_cloud_object_path=${ROCKSDB_CLOUD_OBJECT_PATH}
 
     echo "rocksdb_cloud_s3_endpoint_url: ${rocksdb_cloud_s3_endpoint_url}"
     sed -i "s/rocksdb_cloud_s3_endpoint_url.*=.\+/rocksdb_cloud_s3_endpoint_url=${rocksdb_cloud_s3_endpoint_url_escape}/g" ./storage.cnf
     sed -i "s/aws_access_key_id.*=.\+/aws_access_key_id=${rocksdb_cloud_aws_access_key_id}/g" ./storage.cnf
     sed -i "s/aws_secret_key.*=.\+/aws_secret_key=${rocksdb_cloud_aws_secret_access_key}/g" ./storage.cnf
     sed -i "s/rocksdb_cloud_bucket_name.*=.\+/rocksdb_cloud_bucket_name=${rocksdb_cloud_bucket_name}/g" ./storage.cnf
+    sed -i "s/rocksdb_cloud_object_path.*=.\+/rocksdb_cloud_objet_path=${rocksdb_cloud_object_path}/g" ./storage.cnf
 
     sed -i "s/rocksdb_cloud_s3_endpoint_url.*=.\+/rocksdb_cloud_s3_endpoint_url=${rocksdb_cloud_s3_endpoint_url_escape}/g"  ./bootstrap_cnf/*_rocksdb_cloud_s3.cnf
     sed -i "s/aws_access_key_id.*=.\+/aws_access_key_id=${rocksdb_cloud_aws_access_key_id}/g"  ./bootstrap_cnf/*_rocksdb_cloud_s3.cnf
     sed -i "s/aws_secret_key.*=.\+/aws_secret_key=${rocksdb_cloud_aws_secret_access_key}/g"  ./bootstrap_cnf/*_rocksdb_cloud_s3.cnf
     sed -i "s/rocksdb_cloud_bucket_name.*=.\+/rocksdb_cloud_bucket_name=${rocksdb_cloud_bucket_name}/g"  ./bootstrap_cnf/*_rocksdb_cloud_s3.cnf
+    sed -i "s/rocksdb_cloud_object_path.*=.\+/rocksdb_cloud_object_path=${rocksdb_cloud_object_path}/g"  ./bootstrap_cnf/*_rocksdb_cloud_s3.cnf
 
 
     sed -i "s/rocksdb_cloud_s3_endpoint_url.*=.\+/rocksdb_cloud_s3_endpoint_url=${rocksdb_cloud_s3_endpoint_url_escape}/g"  ./bootstrap_cnf/eloqdss_server.cnf
     sed -i "s/aws_access_key_id.*=.\+/aws_access_key_id=${rocksdb_cloud_aws_access_key_id}/g"  ./bootstrap_cnf/eloqdss_server.cnf
     sed -i "s/aws_secret_key.*=.\+/aws_secret_key=${rocksdb_cloud_aws_secret_access_key}/g"  ./bootstrap_cnf/eloqdss_server.cnf
     sed -i "s/rocksdb_cloud_bucket_name.*=.\+/rocksdb_cloud_bucket_name=${rocksdb_cloud_bucket_name}/g"  ./bootstrap_cnf/eloqdss_server.cnf
+    sed -i "s/rocksdb_cloud_object_path.*=.\+/rocksdb_cloud_object_path=${rocksdb_cloud_object_path}/g"  ./bootstrap_cnf/eloqdss_server.cnf
 
     # run cluster scale tests.
     # python3 redis_test/single_test/cluster_scale_test.py --dbtype redis --storage eloqdss-rocksdb-cloud-s3 --install_path ${eloqkv_install_path}
