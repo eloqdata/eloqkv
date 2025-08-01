@@ -74,7 +74,7 @@ bool RedisHashSetObject::Execute(SAddCommand &cmd) const
         return false;
     }
 
-    return true;
+    return result.ret_ > 0;
 }
 
 void RedisHashSetObject::Execute(SMembersCommand &cmd) const
