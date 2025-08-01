@@ -2717,7 +2717,6 @@ struct BlockLPopCommand : public ListCommand
     }
 
     txservice::BlockOperation op_type_;
-    bool is_discard{false};  // True: It has discarded, False: NOT discard
     bool is_left_;    // True: pop from left aside; False: pop from right aside
     uint32_t count_;  // The max number of elements to pop
 };
@@ -2807,7 +2806,7 @@ public:
 
     uint32_t NumOfFinishBlockCommands() const override
     {
-        return (curr_step_ == 1 && !is_forward_) ? 1 : 0;
+        return (curr_step_ == 1 && !has_forwarded_) ? 1 : 0;
     }
 
     bool IsBlockCommand() override
@@ -2821,7 +2820,7 @@ public:
     std::unique_ptr<LMovePushCommand> dest_cmd_;
     std::unique_ptr<BlockDiscardCommand> discard_cmd_;
     uint64_t ts_expired_;
-    bool is_forward_{false};  // Called ForwardResult or not
+    bool has_forwarded_{false};  // Called ForwardResult or not
 };
 
 struct BLMPopCommand : public RedisMultiObjectCommand
@@ -2869,7 +2868,6 @@ public:
 
     bool IsExpired() const override
     {
-        assert(NumOfFinishBlockCommands() > 0);
         if (curr_step_ != vct_key_.size())
         {
             return false;
@@ -2880,7 +2878,7 @@ public:
 
     uint32_t NumOfFinishBlockCommands() const override
     {
-        return (curr_step_ == vct_key_.size() && !is_forward_) ? 1 : 0;
+        return (curr_step_ == vct_key_.size() && !has_forwarded_) ? 1 : 0;
     }
 
     bool IsBlockCommand() override
@@ -2892,8 +2890,8 @@ public:
     std::vector<BlockLPopCommand> vct_cmd_;
     std::unique_ptr<BlockDiscardCommand> discard_cmd_;
     uint64_t ts_expired_;
-    int pos_cmd_{-1};         // The position of command that pop elements
-    bool is_forward_{false};  // Called ForwardResult or not
+    int pos_cmd_{-1};            // The position of command that pop elements
+    bool has_forwarded_{false};  // Called ForwardResult or not
     bool is_mpop_{false};
 };
 
