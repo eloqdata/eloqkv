@@ -95,7 +95,6 @@ cd ${build_file_path}
 
 clone_repo_with_branch git@github.com:eloqdata/eloqkv.git ${redis_branch_name} eloqkv
 git submodule update --init --recursive
-git clone https://github.com/eloqdata/cpp-driver.git cass
 redis_file_path=${PWD}
 
 clone_repo_with_branch git@github.com:eloqdata/tx_service.git ${tx_service_branch_name} tx_service

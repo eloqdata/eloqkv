@@ -51,9 +51,9 @@ option(ABSL_PROPAGATE_CXX_STD "ABSL PROPAGATE CXX STD" ON)
 option(WITH_ASAN "Enable memory sanitize" OFF)
 message(NOTICE "WITH ASAN: ${WITH_ASAN}")
 
-# KV data store backend for redis server, Cassandra, DynamoDB, RocksDB Cloud
+# KV data store backend for redis server, Rocksdb, DynamoDB, RocksDB Cloud
 set(WITH_DATA_STORE "ROCKSDB" CACHE STRING "The KV data store for Monograph Redis")
-set_property(CACHE WITH_DATA_STORE PROPERTY STRINGS "CASSANDRA" "DYNAMODB" "ROCKSDB" "ROCKSDB_CLOUD_S3" "ROCKSDB_CLOUD_GCS" "ELOQDSS_ROCKSDB_CLOUD_S3" "ELOQDSS_ROCKSDB_CLOUD_GCS" "ELOQDSS_ROCKSDB""ELOQDSS_ELOQSTORE")
+set_property(CACHE WITH_DATA_STORE PROPERTY STRINGS "DYNAMODB" "ROCKSDB" "ROCKSDB_CLOUD_S3" "ROCKSDB_CLOUD_GCS" "ELOQDSS_ROCKSDB_CLOUD_S3" "ELOQDSS_ROCKSDB_CLOUD_GCS" "ELOQDSS_ROCKSDB""ELOQDSS_ELOQSTORE")
 message(NOTICE "With DATA_STORE: ${WITH_DATA_STORE}")
 
 option(USE_ONE_ELOQDSS_PARTITION_ENABLED "Whether use one partition for kv store" OFF)
@@ -64,9 +64,7 @@ if(USE_ONE_ELOQDSS_PARTITION_ENABLED)
 endif()
 
 # Add compile flags for KV stores
-if(WITH_DATA_STORE STREQUAL "CASSANDRA")
-    add_compile_definitions(DATA_STORE_TYPE_CASSANDRA)
-elseif(WITH_DATA_STORE STREQUAL "DYNAMODB")
+if(WITH_DATA_STORE STREQUAL "DYNAMODB")
     add_compile_definitions(DATA_STORE_TYPE_DYNAMODB)
 elseif(WITH_DATA_STORE STREQUAL "ROCKSDB")
     add_compile_definitions(DATA_STORE_TYPE_ROCKSDB)
@@ -383,13 +381,7 @@ if((WITH_DATA_STORE STREQUAL "ROCKSDB_CLOUD_S3") OR(WITH_DATA_STORE STREQUAL "RO
     set(ROCKSDB_LIBRARIES ${ROCKSDB_LIBRARIES} ${ROCKSDB_CLOUD_LIB})
 endif()
 
-if(WITH_DATA_STORE STREQUAL "CASSANDRA")
-    # cass handler
-    SET(RESMONOGRAPH_LIBRARY
-        ${RESMONOGRAPH_LIBRARY}
-        cassandra_static
-    )
-elseif(WITH_DATA_STORE STREQUAL "DYNAMODB")
+if(WITH_DATA_STORE STREQUAL "DYNAMODB")
     SET(RESMONOGRAPH_LIBRARY ${RESMONOGRAPH_LIBRARY} ${AWSSDK_LINK_LIBRARIES})
 elseif(WITH_DATA_STORE STREQUAL "ROCKSDB")
     SET(RESMONOGRAPH_LIBRARY ${RESMONOGRAPH_LIBRARY} ${ROCKSDB_LIBRARIES})
@@ -454,9 +446,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
         "-Wl,-U,_ProfilerStop")
 endif()
 
-if(WITH_DATA_STORE STREQUAL "CASSANDRA")
-    INCLUDE(build_cass_driver.cmake)
-elseif(WITH_DATA_STORE STREQUAL "ELOQDSS_ELOQSTORE")
+if(WITH_DATA_STORE STREQUAL "ELOQDSS_ELOQSTORE")
     option(WITH_TXSERVICE "Whether compile eloqstore with txservice" ON)
     set(ELOQSTORE_PARENT_DIR ${CMAKE_CURRENT_SOURCE_DIR}/store_handler/eloq_data_store_service CACHE PATH "EloqStore parent directory")
     INCLUDE(${CMAKE_CURRENT_SOURCE_DIR}/store_handler/eloq_data_store_service/build_eloq_store.cmake)
@@ -523,14 +513,7 @@ endif()
 SET(CRCSPEED_SOURCES crcspeed/crcspeed.c crcspeed/crc16speed.c crcspeed/crc64speed.c)
 SET(RESMONOGRAPH_SOURCES ${RESMONOGRAPH_SOURCES} ${CRCSPEED_SOURCES})
 
-if(WITH_DATA_STORE STREQUAL "CASSANDRA")
-    # cass handler
-    SET(RESMONOGRAPH_SOURCES
-        ${RESMONOGRAPH_SOURCES}
-        store_handler/cass_handler.cpp
-        store_handler/cass_scanner.cpp
-    )
-elseif(WITH_DATA_STORE STREQUAL "DYNAMODB")
+if(WITH_DATA_STORE STREQUAL "DYNAMODB")
     SET(RESMONOGRAPH_SOURCES ${RESMONOGRAPH_SOURCES}
         store_handler/dynamo_handler.cpp
         store_handler/dynamo_scanner.cpp

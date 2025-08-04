@@ -275,7 +275,7 @@ function run_eloq_ttl_tests() {
 
   local timestamp=$(($(date +%s%N) / 1000000))
   local keyspace_name="redis_test_${timestamp}"
-  echo "cassandra keyspace name is, ${keyspace_name}"
+  echo "keyspace name is, ${keyspace_name}"
 
   cd /home/$current_user/workspace/eloqkv
   local exe_path="/home/$current_user/workspace/eloqkv/cmake/eloqkv"
