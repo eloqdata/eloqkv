@@ -77,7 +77,7 @@ function run_tcl_tests()
     no_evicted=""
   fi
 
-  local eloqkv_base_path="/home/"$current_user"/workspace/eloqkv"
+  local eloqkv_base_path="/home/$current_user/workspace/eloqkv"
 
   cd ${eloqkv_base_path}
 
@@ -130,7 +130,7 @@ function cleanup_minio_bucket()
   bucket_name=$1
   #prefix="eloqkv-"
   bucket_full_name="eloqkv-${bucket_name}"
-  SCRIPT_DIR="/home/"$current_user"/workspace/eloqkv/concourse/scripts"
+  SCRIPT_DIR="/home/$current_user/workspace/eloqkv/concourse/scripts"
   echo "Clean up bucket ${bucket_name}"
   python3 ${SCRIPT_DIR}/cleanup_minio_bucket.py \
                --minio_endpoint ${ROCKSDB_CLOUD_S3_ENDPOINT} \
@@ -144,10 +144,10 @@ function run_build() {
   local kv_store_type=$2
 
   # compile eloqkv
-  cd /home/"$current_user"/workspace/eloqkv
+  cd /home/$current_user/workspace/eloqkv
   cmake \
-    -S /home/"$current_user"/workspace/eloqkv \
-    -B /home/"$current_user"/workspace/eloqkv/cmake \
+    -S /home/$current_user/workspace/eloqkv \
+    -B /home/$current_user/workspace/eloqkv/cmake \
     -DCMAKE_BUILD_TYPE=$build_type \
     -DWITH_DATA_STORE=$kv_store_type \
     -DBUILD_WITH_TESTS=ON \
@@ -161,7 +161,7 @@ function run_build() {
   run_cmake_build() {
     local target=$1
     echo "redirecting output to /tmp/compile_info.log to prevent ci pipeline crash"
-    cmake --build /home/"$current_user"/workspace/eloqkv/cmake --target "$target" -j 8 > "$log_file" 2>&1
+    cmake --build /home/$current_user/workspace/eloqkv/cmake --target "$target" -j 8 > "$log_file" 2>&1
     local exit_status=$?
 
     if [ $exit_status -ne 0 ]; then
@@ -185,25 +185,25 @@ function run_build() {
   set -e
 
   # compile log service to setup redis cluster later
-  cd /home/"$current_user"/workspace/eloqkv/log_service
+  cd /home/$current_user/workspace/eloqkv/log_service
   cmake -B bld -DCMAKE_BUILD_TYPE=$build_type && cmake --build bld -j 8
 
   set +e
-  mkdir -p "/home/"$current_user"/workspace/eloqkv/cmake/install/bin"
+  mkdir -p "/home/$current_user/workspace/eloqkv/cmake/install/bin"
   set -e
-  cp /home/"$current_user"/workspace/eloqkv/cmake/eloqkv  /home/"$current_user"/workspace/eloqkv/cmake/install/bin/
-  cp /home/"$current_user"/workspace/eloqkv/log_service/bld/launch_sv  /home/"$current_user"/workspace/eloqkv/cmake/install/bin/
+  cp /home/$current_user/workspace/eloqkv/cmake/eloqkv  /home/$current_user/workspace/eloqkv/cmake/install/bin/
+  cp /home/$current_user/workspace/eloqkv/log_service/bld/launch_sv  /home/$current_user/workspace/eloqkv/cmake/install/bin/
 
 case "$kv_store_type" in
   ELOQDSS_*)
       echo "build dss_server"
-      cd /home/"$current_user"/workspace/eloqkv/store_handler/eloq_data_store_service
+      cd /home/$current_user/workspace/eloqkv/store_handler/eloq_data_store_service
       cmake -B bld -DCMAKE_BUILD_TYPE=$build_type -DWITH_DATA_STORE=$kv_store_type && cmake --build bld -j8
-      cp /home/"$current_user"/workspace/eloqkv/store_handler/eloq_data_store_service/bld/dss_server  /home/"$current_user"/workspace/eloqkv/cmake/install/bin/
+      cp /home/$current_user/workspace/eloqkv/store_handler/eloq_data_store_service/bld/dss_server  /home/$current_user/workspace/eloqkv/cmake/install/bin/
       ;;
 esac
 
-  cd /home/"$current_user"/workspace/eloqkv
+  cd /home/$current_user/workspace/eloqkv
 
 }
 
@@ -212,10 +212,10 @@ function run_build_ent() {
   local kv_store_type=$2
 
   # compile eloqkv
-  cd /home/"$current_user"/workspace/eloqkv
+  cd /home/$current_user/workspace/eloqkv
   cmake \
-    -S /home/"$current_user"/workspace/eloqkv \
-    -B /home/"$current_user"/workspace/eloqkv/cmake \
+    -S /home/$current_user/workspace/eloqkv \
+    -B /home/$current_user/workspace/eloqkv/cmake \
     -DCMAKE_BUILD_TYPE=$build_type \
     -DWITH_DATA_STORE=$kv_store_type \
     -DBUILD_WITH_TESTS=ON \
@@ -231,7 +231,7 @@ function run_build_ent() {
   run_cmake_build() {
     local target=$1
     echo "redirecting output to /tmp/compile_info.log to prevent ci pipeline crash"
-    cmake --build /home/"$current_user"/workspace/eloqkv/cmake --target "$target" -j 8 > "$log_file" 2>&1
+    cmake --build /home/$current_user/workspace/eloqkv/cmake --target "$target" -j 8 > "$log_file" 2>&1
     local exit_status=$?
 
     if [ $exit_status -ne 0 ]; then
@@ -255,26 +255,26 @@ function run_build_ent() {
   set -e
 
   # compile log service to setup redis cluster later
-  cd /home/"$current_user"/workspace/eloqkv/eloq_log_service
+  cd /home/$current_user/workspace/eloqkv/eloq_log_service
   cmake -B bld -DCMAKE_BUILD_TYPE=$build_type && cmake --build bld -j 8
 
   set +e
-  mkdir -p "/home/"$current_user"/workspace/eloqkv/cmake/install/bin"
+  mkdir -p "/home/$current_user/workspace/eloqkv/cmake/install/bin"
   set -e
-  cp /home/"$current_user"/workspace/eloqkv/cmake/eloqkv  /home/"$current_user"/workspace/eloqkv/cmake/install/bin/
-  cp /home/"$current_user"/workspace/eloqkv/cmake/host_manager  /home/"$current_user"/workspace/eloqkv/cmake/install/bin/
-  cp /home/"$current_user"/workspace/eloqkv/eloq_log_service/bld/launch_sv  /home/"$current_user"/workspace/eloqkv/cmake/install/bin/
+  cp /home/$current_user/workspace/eloqkv/cmake/eloqkv  /home/$current_user/workspace/eloqkv/cmake/install/bin/
+  cp /home/$current_user/workspace/eloqkv/cmake/host_manager  /home/$current_user/workspace/eloqkv/cmake/install/bin/
+  cp /home/$current_user/workspace/eloqkv/eloq_log_service/bld/launch_sv  /home/$current_user/workspace/eloqkv/cmake/install/bin/
 
 case "$kv_store_type" in
   ELOQDSS_*)
       echo "build dss_server"
-      cd /home/"$current_user"/workspace/eloqkv/store_handler/eloq_data_store_service
+      cd /home/$current_user/workspace/eloqkv/store_handler/eloq_data_store_service
       cmake -B bld -DCMAKE_BUILD_TYPE=$build_type -DWITH_DATA_STORE=$kv_store_type && cmake --build bld -j8
-      cp /home/"$current_user"/workspace/eloqkv/store_handler/eloq_data_store_service/bld/dss_server  /home/"$current_user"/workspace/eloqkv/cmake/install/bin/
+      cp /home/$current_user/workspace/eloqkv/store_handler/eloq_data_store_service/bld/dss_server  /home/$current_user/workspace/eloqkv/cmake/install/bin/
       ;;
 esac
 
-  cd /home/"$current_user"/workspace/eloqkv
+  cd /home/$current_user/workspace/eloqkv
 
 }
 
@@ -289,17 +289,17 @@ function run_eloq_ttl_tests() {
   local keyspace_name="redis_test_${timestamp}"
   echo "cassandra keyspace name is, ${keyspace_name}"
 
-  cd /home/"$current_user"/workspace/eloqkv
-  local exe_path="/home/"$current_user"/workspace/eloqkv/cmake/eloqkv"
-  local python_test_file="/home/"$current_user"/workspace/eloq_test/redis_test/single_test/test_ttl_eloqkv.py"
-  python3 $python_test_file $exe_path ${test_case} --enable_wal=${enable_wal} --enable_data_store=${enable_data_store} --kv_type=${kv_type} --cass_host=${CASS_HOST} --cass_keyspace=${keyspace_name} --cass_bin="/home/"$current_user"/workspace/apache-cassandra-4.0.6/bin/"
+  cd /home/$current_user/workspace/eloqkv
+  local exe_path="/home/$current_user/workspace/eloqkv/cmake/eloqkv"
+  local python_test_file="/home/$current_user/workspace/eloq_test/redis_test/single_test/test_ttl_eloqkv.py"
+  python3 $python_test_file $exe_path ${test_case} --enable_wal=${enable_wal} --enable_data_store=${enable_data_store} --kv_type=${kv_type} --cass_host=${CASS_HOST} --cass_keyspace=${keyspace_name} --cass_bin="/home/$current_user/workspace/apache-cassandra-4.0.6/bin/"
 
 }
 
 function run_eloqkv_tests() {
   local build_type=$1
   local kv_store_type=$2
-  local eloqkv_base_path="/home/"$current_user"/workspace/eloqkv"
+  local eloqkv_base_path="/home/$current_user/workspace/eloqkv"
 
   cd ${eloqkv_base_path}
 
@@ -308,11 +308,11 @@ function run_eloqkv_tests() {
     local timestamp=$(($(date +%s%N) / 1000000))
     local keyspace_name="redis_test_${timestamp}"
     echo "cassandra keyspace name is, ${keyspace_name}"
-    /home/"$current_user"/workspace/apache-cassandra-4.0.6/bin/cqlsh $CASS_HOST -e "DROP KEYSPACE IF EXISTS $keyspace_name;"
+    /home/$current_user/workspace/apache-cassandra-4.0.6/bin/cqlsh $CASS_HOST -e "DROP KEYSPACE IF EXISTS $keyspace_name;"
 
     # run redis
     echo "redirecting output to /tmp/ to prevent ci pipeline crash"
-    /home/"$current_user"/workspace/eloqkv/cmake/eloqkv \
+    /home/$current_user/workspace/eloqkv/cmake/eloqkv \
       --port=6379 \
       --core_number=2 \
       --enable_wal=true \
@@ -353,7 +353,7 @@ function run_eloqkv_tests() {
 
     # run redis
     echo "redirecting output to /tmp/ to prevent ci pipeline crash"
-    /home/"$current_user"/workspace/eloqkv/cmake/eloqkv \
+    /home/$current_user/workspace/eloqkv/cmake/eloqkv \
       --port=6379 \
       --core_number=2 \
       --enable_wal=true \
@@ -402,7 +402,7 @@ function run_eloqkv_tests() {
     # wait for kill to finish
     wait_until_finished
 
-    cd /home/"$current_user"/workspace/eloqkv
+    cd /home/$current_user/workspace/eloqkv
     if [ -d "./cc_ng" ]; then
       rm -rf ./cc_ng
     fi
@@ -415,7 +415,7 @@ function run_eloqkv_tests() {
 
     # run redis with wal disabled.
     echo "redirecting output to /tmp/ to prevent ci pipeline crash"
-    /home/"$current_user"/workspace/eloqkv/cmake/eloqkv \
+    /home/$current_user/workspace/eloqkv/cmake/eloqkv \
         --port=6379 \
         --core_number=2 \
         --enable_wal=false \
@@ -445,11 +445,11 @@ function run_eloqkv_tests() {
     wait_until_finished
 
     # drop cassandra keyspace
-    /home/"$current_user"/workspace/apache-cassandra-4.0.6/bin/cqlsh $CASS_HOST -e "DROP KEYSPACE IF EXISTS $keyspace_name;"
+    /home/$current_user/workspace/apache-cassandra-4.0.6/bin/cqlsh $CASS_HOST -e "DROP KEYSPACE IF EXISTS $keyspace_name;"
 
     # run redis with wal and data store disabled.
     echo "redirecting output to /tmp/ to prevent ci pipeline crash"
-    /home/"$current_user"/workspace/eloqkv/cmake/eloqkv \
+    /home/$current_user/workspace/eloqkv/cmake/eloqkv \
         --port=6379 \
         --core_number=2 \
         --enable_wal=false \
@@ -478,7 +478,7 @@ function run_eloqkv_tests() {
 
     echo "bootstrap rocksdb"
 
-    /home/"$current_user"/workspace/eloqkv/cmake/eloqkv \
+    /home/$current_user/workspace/eloqkv/cmake/eloqkv \
       --port=6379 \
       --core_number=2 \
       --enable_wal=true \
@@ -492,7 +492,7 @@ function run_eloqkv_tests() {
 
     # run redis
     echo "redirecting output to /tmp/ to prevent ci pipeline crash"
-    /home/"$current_user"/workspace/eloqkv/cmake/eloqkv \
+    /home/$current_user/workspace/eloqkv/cmake/eloqkv \
       --port=6379 \
       --core_number=2 \
       --enable_wal=true \
@@ -531,7 +531,7 @@ function run_eloqkv_tests() {
 
     # run redis
     echo "redirecting output to /tmp/ to prevent ci pipeline crash"
-    /home/"$current_user"/workspace/eloqkv/cmake/eloqkv \
+    /home/$current_user/workspace/eloqkv/cmake/eloqkv \
       --port=6379 \
       --core_number=2 \
       --enable_wal=true \
@@ -578,7 +578,7 @@ function run_eloqkv_tests() {
     # wait for kill to finish
     wait_until_finished
 
-    cd /home/"$current_user"/workspace/eloqkv
+    cd /home/$current_user/workspace/eloqkv
     if [ -d "./cc_ng" ]; then
       rm -rf ./cc_ng
     fi
@@ -591,7 +591,7 @@ function run_eloqkv_tests() {
 
     # run redis with wal disabled.
     echo "redirecting output to /tmp/ to prevent ci pipeline crash"
-    /home/"$current_user"/workspace/eloqkv/cmake/eloqkv \
+    /home/$current_user/workspace/eloqkv/cmake/eloqkv \
         --port=6379 \
         --core_number=2 \
         --enable_wal=false \
@@ -620,7 +620,7 @@ function run_eloqkv_tests() {
 
     # run redis with wal and data store disabled.
     echo "redirecting output to /tmp/ to prevent ci pipeline crash"
-    /home/"$current_user"/workspace/eloqkv/cmake/eloqkv \
+    /home/$current_user/workspace/eloqkv/cmake/eloqkv \
         --port=6379 \
         --core_number=2 \
         --enable_wal=false \
@@ -662,7 +662,7 @@ function run_eloqkv_tests() {
 
     # run redis
     echo "redirecting output to /tmp/ to prevent ci pipeline crash"
-    /home/"$current_user"/workspace/eloqkv/cmake/eloqkv \
+    /home/$current_user/workspace/eloqkv/cmake/eloqkv \
       --port=6379 \
       --core_number=2 \
       --enable_wal=true \
@@ -690,7 +690,7 @@ function run_eloqkv_tests() {
     # log replay test
     echo "Running log replay test for $build_type build: "
 
-    local python_test_file="/home/"$current_user"/workspace/eloqkv/tests/unit/mono/log_replay_test/log_replay_test.py"
+    local python_test_file="/home/$current_user/workspace/eloqkv/tests/unit/mono/log_replay_test/log_replay_test.py"
     python3 $python_test_file --load > /tmp/load.log 2>&1
 
     # wait for load to finish
@@ -706,7 +706,7 @@ function run_eloqkv_tests() {
 
     # run redis
     echo "redirecting output to /tmp/ to prevent ci pipeline crash"
-    /home/"$current_user"/workspace/eloqkv/cmake/eloqkv \
+    /home/$current_user/workspace/eloqkv/cmake/eloqkv \
       --port=6379 \
       --core_number=2 \
       --enable_wal=true \
@@ -758,7 +758,7 @@ function run_eloqkv_tests() {
     # wait for kill to finish
     wait_until_finished
 
-    cd /home/"$current_user"/workspace/eloqkv
+    cd /home/$current_user/workspace/eloqkv
     if [ -d "./cc_ng" ]; then
       rm -rf ./cc_ng
     fi
@@ -771,7 +771,7 @@ function run_eloqkv_tests() {
 
     # run redis with wal disabled.
     echo "redirecting output to /tmp/ to prevent ci pipeline crash"
-    /home/"$current_user"/workspace/eloqkv/cmake/eloqkv \
+    /home/$current_user/workspace/eloqkv/cmake/eloqkv \
         --port=6379 \
         --core_number=2 \
         --enable_wal=false \
@@ -807,7 +807,7 @@ function run_eloqkv_tests() {
 
     # run redis with wal and data store disabled.
     echo "redirecting output to /tmp/ to prevent ci pipeline crash"
-    /home/"$current_user"/workspace/eloqkv/cmake/eloqkv \
+    /home/$current_user/workspace/eloqkv/cmake/eloqkv \
         --port=6379 \
         --core_number=2 \
         --enable_wal=false \
@@ -843,7 +843,7 @@ function run_eloqkv_tests() {
     local rocksdb_cloud_aws_secret_access_key=${ROCKSDB_CLOUD_AWS_SECRET_ACCESS_KEY}
     local rocksdb_cloud_bucket_name=${ROCKSDB_CLOUD_BUCKET_NAME}
 
-    /home/"$current_user"/workspace/eloqkv/cmake/eloqkv \
+    /home/$current_user/workspace/eloqkv/cmake/eloqkv \
       --port=6379 \
       --core_number=2 \
       --enable_wal=true \
@@ -861,7 +861,7 @@ function run_eloqkv_tests() {
 
     # run redis
     echo "redirecting output to /tmp/ to prevent ci pipeline crash"
-    /home/"$current_user"/workspace/eloqkv/cmake/eloqkv \
+    /home/$current_user/workspace/eloqkv/cmake/eloqkv \
       --port=6379 \
       --core_number=2 \
       --enable_wal=true \
@@ -888,7 +888,7 @@ function run_eloqkv_tests() {
     # log replay test
     echo "Running log replay test for $build_type build: "
 
-    local python_test_file="/home/"$current_user"/workspace/eloqkv/tests/unit/mono/log_replay_test/log_replay_test.py"
+    local python_test_file="/home/$current_user/workspace/eloqkv/tests/unit/mono/log_replay_test/log_replay_test.py"
     python3 $python_test_file --load > /tmp/load.log 2>&1
 
     # wait for load to finish
@@ -904,7 +904,7 @@ function run_eloqkv_tests() {
 
     # run redis
     echo "redirecting output to /tmp/ to prevent ci pipeline crash"
-    /home/"$current_user"/workspace/eloqkv/cmake/eloqkv \
+    /home/$current_user/workspace/eloqkv/cmake/eloqkv \
       --port=6379 \
       --core_number=2 \
       --enable_wal=true \
@@ -955,7 +955,7 @@ function run_eloqkv_tests() {
     # wait for kill to finish
     wait_until_finished
 
-    cd /home/"$current_user"/workspace/eloqkv
+    cd /home/$current_user/workspace/eloqkv
     if [ -d "./cc_ng" ]; then
       rm -rf ./cc_ng
     fi
@@ -968,7 +968,7 @@ function run_eloqkv_tests() {
 
     # run redis with wal disabled.
     echo "redirecting output to /tmp/ to prevent ci pipeline crash"
-    /home/"$current_user"/workspace/eloqkv/cmake/eloqkv \
+    /home/$current_user/workspace/eloqkv/cmake/eloqkv \
         --port=6379 \
         --core_number=2 \
         --enable_wal=false \
@@ -1001,7 +1001,7 @@ function run_eloqkv_tests() {
 
     # run redis with wal and data store disabled.
     echo "redirecting output to /tmp/ to prevent ci pipeline crash"
-    /home/"$current_user"/workspace/eloqkv/cmake/eloqkv \
+    /home/$current_user/workspace/eloqkv/cmake/eloqkv \
         --port=6379 \
         --core_number=2 \
         --enable_wal=false \
