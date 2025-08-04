@@ -30,7 +30,7 @@ resources:
 - name: image_centos7_main
   type: registry-image
   source:
-    password: Mono_cz158#
+    password: ((docker-secret-key))
     repository: monographdb/monograph-dev-ci-centos7
     username: monographdb
 
