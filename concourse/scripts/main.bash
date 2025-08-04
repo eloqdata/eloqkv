@@ -28,13 +28,14 @@ cd $WORKSPACE
 whoami
 pwd
 ls
-sudo chown -R mono $PWD
+current_user=$(whoami)
+sudo chown -R $current_user $PWD
 
 ulimit -c unlimited
 echo '/tmp/core.%t.%e.%p' | sudo tee /proc/sys/kernel/core_pattern
 
-sudo chown -R mono /home/mono/workspace
-cd /home/mono/workspace
+sudo chown -R $current_user /home/$current_user/workspace
+cd /home/$current_user/workspace
 ln -s $WORKSPACE/redis_src eloqkv
 ln -s $WORKSPACE/eloq_test_src eloq_test
 
@@ -42,11 +43,11 @@ cd eloqkv
 git submodule sync
 git submodule update --init --recursive
 
-cd /home/mono/workspace/eloqkv/tx_service
+cd /home/$current_user/workspace/eloqkv/tx_service
 
 git checkout main
 
-cd /home/mono/workspace/eloqkv
+cd /home/$current_user/workspace/eloqkv
 
 cmake_version=$(cmake --version 2>&1)
 if [[ $? -eq 0 ]]; then
@@ -61,13 +62,13 @@ sudo apt install python3.8-venv -y
 # todo: move these code to docker-image
 sudo apt install openssh-server -y
 sudo service ssh start
-cat /home/mono/.ssh/id_rsa.pub >> /home/mono/.ssh/authorized_keys
+cat /home/$current_user/.ssh/id_rsa.pub >> /home/$current_user/.ssh/authorized_keys
 # disable ask when do ssh
 sudo sed -i "s/#\s*StrictHostKeyChecking ask/    StrictHostKeyChecking no/g" /etc/ssh/ssh_config
 
 python3 -m venv my_env
 source my_env/bin/activate
-pip install -r /home/mono/workspace/eloqkv/tests/unit/mono/log_replay_test/requirements.txt
+pip install -r /home/$current_user/workspace/eloqkv/tests/unit/mono/log_replay_test/requirements.txt
 deactivate
 
 build_types=("Debug")
@@ -77,7 +78,7 @@ kv_store_types=("ROCKSDB")
 
 for bt in "${build_types[@]}"; do
   for kst in "${kv_store_types[@]}"; do
-    rm -rf /home/mono/workspace/eloqkv/eloq_data
+    rm -rf /home/$current_user/workspace/eloqkv/eloq_data
     run_build $bt $kst
 
     source my_env/bin/activate
@@ -90,10 +91,10 @@ for bt in "${build_types[@]}"; do
 done
 
 # # test ttl
-# cd /home/mono/workspace/eloqkv
+# cd /home/$current_user/workspace/eloqkv
 # source my_env/bin/activate
-# pip install -r /home/mono/workspace/eloq_test/py_requirements.txt
-# rm -rf /home/mono/workspace/eloqkv/eloq_data
+# pip install -r /home/$current_user/workspace/eloq_test/py_requirements.txt
+# rm -rf /home/$current_user/workspace/eloqkv/eloq_data
 # run_build "Debug" "ROCKSDB"
 # #                       testcase enable_wal enable_data_store
 # run_eloq_ttl_tests TestsWithMem true true rocksdb

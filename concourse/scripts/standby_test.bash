@@ -161,7 +161,7 @@ function run_eloqkv_standby_tests() {
     kill $redis_pid_8379
   fi
 
-  cd /home/mono/workspace/eloqkv
+  cd /home/$current_user/workspace/eloqkv
   if [ -d "./cc_ng" ]; then
     rm -rf ./cc_ng
   fi

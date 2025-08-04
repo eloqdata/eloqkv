@@ -171,7 +171,7 @@ start_server {tags {"pubsub network"}} {
         $rd1 close
     }
 
-# Expected 'subscribe' to be equal to 'unknown' (context: type source line 838 file /home/mono/workspace/eloqkv/tests/support/util.tcl cmd {assert_equal $type [lindex $msg 0]} proc ::consume_subscribe_messages level 2)
+# Expected 'subscribe' to be equal to 'unknown' (context: type source line 838 file /home/eloq/workspace/eloqkv/tests/support/util.tcl cmd {assert_equal $type [lindex $msg 0]} proc ::consume_subscribe_messages level 2)
 # 'CLIENT REPLY OFF' unsupported
     # test "PubSub messages with CLIENT REPLY OFF" {
     #    set rd [redis_deferring_client]
