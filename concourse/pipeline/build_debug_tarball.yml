@@ -9,7 +9,7 @@ resources:
 - name: image_ubuntu2204_main
   type: registry-image
   source:
-    password: Mono_cz158#
+    password: ((docker-secret-key))
     repository: monographdb/monograph-dev-ci-ubuntu2204
     username: monographdb
 

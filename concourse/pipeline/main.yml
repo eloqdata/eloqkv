@@ -34,7 +34,7 @@ resources:
   - name: mono_ubuntu_2004
     type: registry-image
     source:
-      repository: monographdb/monograph-dev-ci-ubuntu2004
+      repository: eloqdata/monograph-dev-ci-ubuntu2404
       tag: latest
       username: monographdb
       password: ((docker-secret-key))
@@ -55,9 +55,9 @@ jobs:
               trigger: true
             - get: eloq_test_src
               trigger: true
-            - get: mono_ubuntu_2004
+            - get: eloq_ubuntu_2404
       - task: compile-test-task
-        image: mono_ubuntu_2004
+        image: eloq_ubuntu_2404
         file: redis_src/concourse/tasks/main.yml
         vars:
           cass-host: ((cassandra-host))
