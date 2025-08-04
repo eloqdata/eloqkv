@@ -31,7 +31,7 @@ resources:
       uri: git@github.com:eloqdata/eloq-metrics.git
       private_key: ((git-key))
 
-  - name: mono_ubuntu_2004
+  - name: eloq_ubuntu_2404
     type: registry-image
     source:
       repository: eloqdata/monograph-dev-ci-ubuntu2404
