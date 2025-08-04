@@ -64,7 +64,6 @@ sudo apt install python3.12-venv -y
 # todo: move these code to docker-image
 sudo apt install openssh-server -y
 sudo service ssh start
-cat /home/$current_user/.ssh/id_rsa.pub >> /home/$current_user/.ssh/authorized_keys
 # disable ask when do ssh
 sudo sed -i "s/#\s*StrictHostKeyChecking ask/    StrictHostKeyChecking no/g" /etc/ssh/ssh_config
 
