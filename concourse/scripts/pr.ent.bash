@@ -69,7 +69,10 @@ else
 fi
 
 sudo apt-get update
-sudo apt install python3.12-venv -y
+sudo apt install software-properties-common -y
+sudo add-apt-repository ppa:deadsnakes/ppa -y
+sudo apt update
+sudo apt install python3.8 python3.8-venv python3.8-dev -y
 
 # todo: move these code to docker-image
 sudo apt install openssh-server -y
@@ -77,7 +80,7 @@ sudo service ssh start
 # disable ask when do ssh
 sudo sed -i "s/#\s*StrictHostKeyChecking ask/    StrictHostKeyChecking no/g" /etc/ssh/ssh_config
 
-python3 -m venv my_env
+python3.8 -m venv my_env
 source my_env/bin/activate
 pip install -r /home/$current_user/workspace/eloqkv/tests/unit/mono/log_replay_test/requirements.txt
 deactivate
