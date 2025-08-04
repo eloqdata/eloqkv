@@ -57,7 +57,7 @@ else
 fi
 
 sudo apt-get update
-sudo apt install python3.8-venv -y
+sudo apt install python3.12-venv -y
 
 # todo: move these code to docker-image
 sudo apt install openssh-server -y
