@@ -231,19 +231,20 @@ function run_build_ent() {
   # Function to run cmake build and check for errors
   run_cmake_build() {
     local target=$1
-    echo "redirecting output to /tmp/compile_info.log to prevent ci pipeline crash"
-    cmake --build /home/$current_user/workspace/eloqkv/cmake --target "$target" -j 8 > "$log_file" 2>&1
-    local exit_status=$?
-
-    if [ $exit_status -ne 0 ]; then
-      echo "CMake build for target '$target' failed. Printing the last 100 lines of the log:"
-      tail -n 500 "$log_file"
-      exit $exit_status
-    else
-      echo "CMake build for target '$target' completed successfully."
-      # Optionally, remove the log file if the build succeeded
-      rm "$log_file"
-    fi
+    cmake --build /home/$current_user/workspace/eloqkv/cmake --target "$target" -j 8
+    #    echo "redirecting output to /tmp/compile_info.log to prevent ci pipeline crash"
+    #    cmake --build /home/$current_user/workspace/eloqkv/cmake --target "$target" -j 8 > "$log_file" 2>&1
+    #    local exit_status=$?
+    #
+    #    if [ $exit_status -ne 0 ]; then
+    #      echo "CMake build for target '$target' failed. Printing the last 100 lines of the log:"
+    #      tail -n 500 "$log_file"
+    #      exit $exit_status
+    #    else
+    #      echo "CMake build for target '$target' completed successfully."
+    #      # Optionally, remove the log file if the build succeeded
+    #      rm "$log_file"
+    #    fi
   }
 
   # Run builds for the specified targets
