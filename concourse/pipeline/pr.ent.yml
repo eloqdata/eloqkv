@@ -23,6 +23,8 @@ resources:
       branch: main
       uri: git@github.com:eloqdata/eloq_log_service.git
       private_key: ((git-key))
+      fetch_tags: true
+      fetch_all: true
       params:
         refspecs:
           - "+refs/heads/*:refs/remotes/origin/*"
@@ -42,6 +44,8 @@ resources:
       branch: main
       uri: git@github.com:eloqdata/raft_host_manager.git
       private_key: ((git-key))
+      fetch_tags: true
+      fetch_all: true
       params:
         refspecs:
           - "+refs/heads/*:refs/remotes/origin/*"
