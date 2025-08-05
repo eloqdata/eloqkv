@@ -75,6 +75,7 @@ jobs:
           minio-access-key: ((minio-access-key))
           minio-endpoint: ((minio-endpoint))
           minio-secret-key: ((minio-secret-key))
+          git_ssh_key: ((git-key))
         privileged: true
         on_failure:
           put: redis_pr

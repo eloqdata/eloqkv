@@ -10,9 +10,15 @@ ls
 export WORKSPACE=$PWD
 export CASS_HOST=$CASS_HOST
 
-MINIO_ENDPOINT=${2:?usage: $0 cass_host minio_endpoint minio_access_key minio_secret_key}
-MINIO_ACCESS_KEY=${3:?usage: $0 cass_host minio_endpoint minio_access_key minio_secret_key}
-MINIO_SECRET_KEY=${4:?usage: $0 cass_host minio_endpoint minio_access_key minio_secret_key}
+MINIO_ENDPOINT=${2:?usage: $0 cass_host minio_endpoint minio_access_key minio_secret_key git_ssh_key}
+MINIO_ACCESS_KEY=${3:?usage: $0 cass_host minio_endpoint minio_access_key minio_secret_key git_ssh_key}
+MINIO_SECRET_KEY=${4:?usage: $0 cass_host minio_endpoint minio_access_key minio_secret_key git_ssh_key}
+GIT_SSH_KEY=${5:?usage: $0 cass_host minio_endpoint minio_access_key minio_secret_key git_ssh_key}
+
+mkdir -p ~/.ssh
+echo "$GIT_SSH_KEY" > ~/.ssh/id_rsa
+chmod 600 ~/.ssh/id_rsa
+ssh-keyscan github.com >> ~/.ssh/known_hosts
 
 MINIO_ENDPOINT_ESCAPE=$(sed 's/\//\\\//g' <<< $MINIO_ENDPOINT)
 export ROCKSDB_CLOUD_S3_ENDPOINT=${MINIO_ENDPOINT}
@@ -50,7 +56,6 @@ pr_branch_name=$(cat .git/resource/metadata.json | jq -r '.[] | select(.name=="h
 ln -s $WORKSPACE/logservice_src eloq_log_service
 cd eloq_log_service
 if [ -n "$pr_branch_name" ] && git ls-remote --exit-code --heads origin "$pr_branch_name" > /dev/null; then
-  git fetch origin '+refs/heads/*:refs/remotes/origin/*'
   git checkout -b ${pr_branch_name} origin/${pr_branch_name}
   git submodule update --init --recursive
 fi
@@ -58,6 +63,12 @@ fi
 cd /home/$current_user/workspace/eloqkv/tx_service
 
 ln -s $WORKSPACE/raft_host_manager_src raft_host_manager
+cd raft_host_manager
+if [ -n "$pr_branch_name" ] && git ls-remote --exit-code --heads origin "$pr_branch_name" > /dev/null; then
+  git checkout -b ${pr_branch_name} origin/${pr_branch_name}
+  git submodule update --init --recursive
+fi
+cd ..
 
 cd /home/$current_user/workspace/eloqkv
 
