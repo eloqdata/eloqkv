@@ -6338,6 +6338,22 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
                                    redis_table_schema.RecordSchema(),
                                    redis_table_schema.GetKVCatalogInfo(),
                                    true);
+
+        if (storage_scanner == nullptr)
+        {
+            // The output must have been set if it's not nullptr and
+            // error occurs.
+            if (output != nullptr)
+            {
+                output->OnError(TxErrorMessage(TxErrorCode::DATA_STORE_ERROR));
+            }
+
+            if (auto_commit)
+            {
+                AbortTx(txm);
+            }
+            return false;
+        }
     }
 #endif
 
