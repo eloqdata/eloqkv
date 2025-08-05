@@ -40,6 +40,7 @@
 
 #if (defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB_CLOUD_S3) ||                      \
      defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB_CLOUD_GCS) ||                     \
+     defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB) ||                               \
      defined(DATA_STORE_TYPE_ELOQDSS_ELOQSTORE))
 #define ELOQDS 1
 #endif

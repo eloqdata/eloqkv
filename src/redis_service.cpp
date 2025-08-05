@@ -51,6 +51,8 @@
 #if defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB_CLOUD_S3) ||                       \
     defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB_CLOUD_GCS)
 #include "eloq_data_store_service/rocksdb_cloud_data_store_factory.h"
+#elif defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB)
+#include "eloq_data_store_service/rocksdb_data_store_factory.h"
 #elif defined(DATA_STORE_TYPE_ELOQDSS_ELOQSTORE)
 #include "eloq_data_store_service/eloq_store_data_store_factory.h"
 #endif
@@ -79,6 +81,7 @@
 
 #if (defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB_CLOUD_S3) ||                      \
      defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB_CLOUD_GCS) ||                     \
+     defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB) ||                               \
      defined(DATA_STORE_TYPE_ELOQDSS_ELOQSTORE))
 #define ELOQDS 1
 #endif
@@ -589,8 +592,7 @@ bool RedisServiceImpl::Init(brpc::Server &brpc_server)
                                            "true");
     GFLAGS_NAMESPACE::SetCommandLineOption("use_pthread_event_dispatcher",
                                            "true");
-    GFLAGS_NAMESPACE::SetCommandLineOption(
-        "max_body_size", "536870912");
+    GFLAGS_NAMESPACE::SetCommandLineOption("max_body_size", "536870912");
 
     FLAGS_auto_redirect =
         !CheckCommandLineFlagIsDefault("auto_redirect")
@@ -1131,6 +1133,11 @@ bool RedisServiceImpl::Init(brpc::Server &brpc_server)
                 rocksdb_cloud_config,
                 enable_cache_replacement_);
 
+#elif defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB)
+        EloqDS::RocksDBConfig rocksdb_config(config_reader, eloq_dss_data_path);
+        auto ds_factory = std::make_unique<EloqDS::RocksDBDataStoreFactory>(
+            rocksdb_config, enable_cache_replacement_);
+
 #elif defined(DATA_STORE_TYPE_ELOQDSS_ELOQSTORE)
         EloqDS::EloqStoreConfig eloq_store_config;
         eloq_store_config.worker_count_ =
@@ -1182,6 +1189,14 @@ bool RedisServiceImpl::Init(brpc::Server &brpc_server)
             // TODO(lzx): move setup datastore to data_store_service
             auto ds = std::make_unique<EloqDS::RocksDBCloudDataStore>(
                 rocksdb_cloud_config,
+                rocksdb_config,
+                (FLAGS_bootstrap || is_single_node),
+                enable_cache_replacement_,
+                shard_id,
+                data_store_service_.get());
+#elif defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB)
+            // TODO(lzx): move setup datastore to data_store_service
+            auto ds = std::make_unique<EloqDS::RocksDBDataStore>(
                 rocksdb_config,
                 (FLAGS_bootstrap || is_single_node),
                 enable_cache_replacement_,

@@ -53,7 +53,7 @@ message(NOTICE "WITH ASAN: ${WITH_ASAN}")
 
 # KV data store backend for redis server, Cassandra, DynamoDB, RocksDB Cloud
 set(WITH_DATA_STORE "ROCKSDB" CACHE STRING "The KV data store for Monograph Redis")
-set_property(CACHE WITH_DATA_STORE PROPERTY STRINGS "CASSANDRA" "DYNAMODB" "ROCKSDB" "ROCKSDB_CLOUD_S3" "ROCKSDB_CLOUD_GCS" "ELOQDSS_ROCKSDB_CLOUD_S3" "ELOQDSS_ROCKSDB_CLOUD_GCS" "ELOQDSS_ELOQSTORE")
+set_property(CACHE WITH_DATA_STORE PROPERTY STRINGS "CASSANDRA" "DYNAMODB" "ROCKSDB" "ROCKSDB_CLOUD_S3" "ROCKSDB_CLOUD_GCS" "ELOQDSS_ROCKSDB_CLOUD_S3" "ELOQDSS_ROCKSDB_CLOUD_GCS" "ELOQDSS_ROCKSDB""ELOQDSS_ELOQSTORE")
 message(NOTICE "With DATA_STORE: ${WITH_DATA_STORE}")
 
 option(USE_ONE_ELOQDSS_PARTITION_ENABLED "Whether use one partition for kv store" OFF)
@@ -76,6 +76,8 @@ elseif(WITH_DATA_STORE STREQUAL "ELOQDSS_ROCKSDB_CLOUD_S3")
 elseif(WITH_DATA_STORE STREQUAL "ELOQDSS_ROCKSDB_CLOUD_GCS")
     add_compile_definitions(DATA_STORE_TYPE_ELOQDSS_ROCKSDB_CLOUD_GCS)
     add_compile_definitions(ROCKSDB_CLOUD_FS_TYPE=2)
+elseif(WITH_DATA_STORE STREQUAL "ELOQDSS_ROCKSDB")
+    add_compile_definitions(DATA_STORE_TYPE_ELOQDSS_ROCKSDB)
 elseif(WITH_DATA_STORE STREQUAL "ELOQDSS_ELOQSTORE")
     add_compile_definitions(DATA_STORE_TYPE_ELOQDSS_ELOQSTORE)
 endif()
@@ -235,7 +237,7 @@ if(WITH_DATA_STORE STREQUAL "DYNAMODB")
 endif()
 
 # Add RocksDB deps
-if(WITH_DATA_STORE STREQUAL "ROCKSDB")
+if((WITH_DATA_STORE STREQUAL "ROCKSDB") OR (WITH_DATA_STORE STREQUAL "ELOQDSS_ROCKSDB"))
     find_path(ROCKSDB_INCLUDE_PATH NAMES rocksdb/db.h)
 
     if(NOT ROCKSDB_INCLUDE_PATH)
@@ -413,6 +415,7 @@ set(DYNAMIC_LIB
 
 if((WITH_DATA_STORE STREQUAL "ELOQDSS_ROCKSDB_CLOUD_S3") OR
     (WITH_DATA_STORE STREQUAL "ELOQDSS_ROCKSDB_CLOUD_GCS") OR
+    (WITH_DATA_STORE STREQUAL "ELOQDSS_ROCKSDB") OR
     (WITH_DATA_STORE STREQUAL "ELOQDSS_ELOQSTORE"))
     set(DS_PROTO_DIR ${CMAKE_CURRENT_SOURCE_DIR}/store_handler/eloq_data_store_service)
     message(NOTICE "data store service proto dir: ${DS_PROTO_DIR}")
@@ -551,7 +554,23 @@ elseif((WITH_DATA_STORE STREQUAL "ELOQDSS_ROCKSDB_CLOUD_S3") OR
         store_handler/eloq_data_store_service/data_store_service.cpp
         store_handler/eloq_data_store_service/data_store_fault_inject.cpp
         store_handler/eloq_data_store_service/data_store_service_config.cpp
+        store_handler/eloq_data_store_service/rocksdb_data_store_common.cpp
         store_handler/eloq_data_store_service/rocksdb_cloud_data_store.cpp
+        store_handler/eloq_data_store_service/ds_request.pb.cc
+        store_handler/eloq_data_store_service/rocksdb_config.cpp
+    )
+elseif(WITH_DATA_STORE STREQUAL "ELOQDSS_ROCKSDB")
+    SET(RESMONOGRAPH_SOURCES ${RESMONOGRAPH_SOURCES}
+        store_handler/data_store_service_client.cpp
+        store_handler/data_store_service_client_closure.cpp
+        store_handler/data_store_service_scanner.cpp
+        store_handler/store_util.cpp
+        store_handler/eloq_data_store_service/thread_worker_pool.cpp
+        store_handler/eloq_data_store_service/data_store_service.cpp
+        store_handler/eloq_data_store_service/data_store_fault_inject.cpp
+        store_handler/eloq_data_store_service/data_store_service_config.cpp
+        store_handler/eloq_data_store_service/rocksdb_data_store_common.cpp
+        store_handler/eloq_data_store_service/rocksdb_data_store.cpp
         store_handler/eloq_data_store_service/ds_request.pb.cc
         store_handler/eloq_data_store_service/rocksdb_config.cpp
     )
