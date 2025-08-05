@@ -23,6 +23,9 @@ resources:
       branch: main
       uri: git@github.com:eloqdata/eloq_log_service.git
       private_key: ((git-key))
+      params:
+        refspecs:
+          - "+refs/heads/*:refs/remotes/origin/*"
 
   - name: eloq_test_src
     type: git
@@ -39,6 +42,10 @@ resources:
       branch: main
       uri: git@github.com:eloqdata/raft_host_manager.git
       private_key: ((git-key))
+      params:
+        refspecs:
+          - "+refs/heads/*:refs/remotes/origin/*"
+
 
   - name: eloq_ubuntu_2404
     type: registry-image
