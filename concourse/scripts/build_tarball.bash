@@ -3,7 +3,8 @@ set -exo pipefail
 
 export WORKSPACE=$PWD
 export AWS_PAGER=""
-sudo chown -R mono $PWD
+current_user=$(whoami)
+sudo chown -R $current_user $PWD
 cd $HOME
 ln -s ${WORKSPACE}/eloqkv_src eloqkv
 cd eloqkv
