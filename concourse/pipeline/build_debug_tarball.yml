@@ -6,10 +6,10 @@ resources:
     uri: git@github.com:eloqdata/eloqkv.git
     private_key: ((git-key))
 
-- name: image_ubuntu2204_main
+- name: image_ubuntu2404_main
   type: registry-image
   source:
-    repository: monographdb/monograph-dev-ci-ubuntu2204
+    repository: eloqdata/monograph-dev-ci-ubuntu2404
 
 - name: logservice_src_main
   type: git
@@ -26,7 +26,7 @@ resources:
     uri: git@github.com:eloqdata/raft_host_manager.git
 
 jobs:
-- name: ubuntu2204-main
+- name: ubuntu2404-main
   plan:
   - in_parallel:
       limit: 2
@@ -37,12 +37,12 @@ jobs:
         resource: logservice_src_main
       - get: raft_host_manager_src
         resource: raft_host_manager_src_main
-      - get: image_ubuntu2204
-        resource: image_ubuntu2204_main
+      - get: image_ubuntu2404
+        resource: image_ubuntu2404_main
 
   - task: build-rocksdb-cloud-s3-type
     file: eloqkv_src/concourse/tasks/build_debug_tarball.yml
-    image: image_ubuntu2204
+    image: image_ubuntu2404
     params:
       ASAN: "ON"
       AWS_ACCESS_KEY_ID: ((aws-access-key-id))
@@ -56,7 +56,7 @@ jobs:
 
   - task: build-rocksdb-type
     file: eloqkv_src/concourse/tasks/build_debug_tarball.yml
-    image: image_ubuntu2204
+    image: image_ubuntu2404
     params:
       ASAN: "ON"
       AWS_ACCESS_KEY_ID: ((aws-access-key-id))
