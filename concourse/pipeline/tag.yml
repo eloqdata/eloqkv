@@ -1,0 +1,89 @@
+jobs:
+  - name: major
+    serial: true
+    plan:
+      - in_parallel:
+          limit: 2
+          steps:
+            - get: eloqkv_src
+              params:
+                submodules: all
+            - get: logservice_src
+              params:
+                submodules: all
+            - get: raft_host_manager_src
+              params:
+                submodules: all
+            - get: base_image
+      - task: new-tag
+        image: base_image
+        params:
+          TAG_LEVEL: "major"
+        file: eloqkv_src/concourse/tasks/tag.yml
+  - name: minor
+    serial: true
+    plan:
+      - in_parallel:
+          limit: 2
+          steps:
+            - get: eloqkv_src
+              params:
+                submodules: all
+            - get: logservice_src
+              params:
+                submodules: all
+            - get: raft_host_manager_src
+              params:
+                submodules: all
+            - get: base_image
+      - task: new-tag
+        image: base_image
+        params:
+          TAG_LEVEL: "minor"
+        file: eloqkv_src/concourse/tasks/tag.yml
+  - name: patch
+    serial: true
+    plan:
+      - in_parallel:
+          limit: 2
+          steps:
+            - get: eloqkv_src
+              params:
+                submodules: all
+            - get: logservice_src
+              params:
+                submodules: all
+            - get: raft_host_manager_src
+              params:
+                submodules: all
+            - get: base_image
+      - task: new-tag
+        image: base_image
+        params:
+          TAG_LEVEL: "patch"
+        file: eloqkv_src/concourse/tasks/tag.yml
+
+resources:
+  - name: base_image
+    source:
+      repository: eloqdata/monograph-dev-ci-ubuntu2404
+    type: registry-image
+
+  - name: eloqkv_src
+    source:
+      branch: main
+      private_key: ((git-key))
+      uri: git@github.com:eloqdata/eloqkv.git
+    type: git
+  - name: logservice_src
+    type: git
+    source:
+      branch: main
+      uri: git@github.com:eloqdata/log_service.git
+      private_key: ((git-key))
+  - name: raft_host_manager_src
+    type: git
+    source:
+      branch: main
+      uri: git@github.com:eloqdata/raft_host_manager.git
+      private_key: ((git-key))

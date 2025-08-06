@@ -25,9 +25,17 @@ resources:
     private_key: ((git-key))
     uri: git@github.com:eloqdata/raft_host_manager.git
 
+- name: periodic-trigger
+  type: time
+  source:
+    start: 6:00 AM  # 2pm Beijing time (UTC+8)
+    interval: 24h
+
 jobs:
 - name: ubuntu2404-main
   plan:
+  - get: periodic-trigger
+    trigger: true
   - in_parallel:
       limit: 2
       steps:
@@ -45,6 +53,7 @@ jobs:
     image: image_ubuntu2404
     params:
       ASAN: "ON"
+      TAGGED: ""
       AWS_ACCESS_KEY_ID: ((aws-access-key-id))
       AWS_DEFAULT_REGION: ((aws-default-region))
       AWS_SECRET_ACCESS_KEY: ((aws-secret-access-key))
@@ -59,6 +68,7 @@ jobs:
     image: image_ubuntu2404
     params:
       ASAN: "ON"
+      TAGGED: ""
       AWS_ACCESS_KEY_ID: ((aws-access-key-id))
       AWS_DEFAULT_REGION: ((aws-default-region))
       AWS_SECRET_ACCESS_KEY: ((aws-secret-access-key))

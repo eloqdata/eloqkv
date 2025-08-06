@@ -1,0 +1,210 @@
+resources:
+- name: eloqkv_src_main
+  type: git
+  source:
+    branch: main
+    uri: git@github.com:eloqdata/eloqkv.git
+    private_key: ((git-key))
+    tag_regex: '^[[:digit:]]+\.[[:digit:]]+\.[[:digit:]]+$'
+
+- name: image_ubuntu2004_main
+  type: registry-image
+  source:
+    repository: eloqdata/monograph-dev-ci-ubuntu2004
+
+- name: image_ubuntu2204_main
+  type: registry-image
+  source:
+    repository: eloqdata/monograph-dev-ci-ubuntu2204
+
+- name: image_ubuntu2404_main
+  type: registry-image
+  source:
+    repository: eloqdata/monograph-dev-ci-ubuntu2404
+
+- name: image_centos7_main
+  type: registry-image
+  source:
+    repository: eloqdata/monograph-dev-ci-centos7
+
+- name: logservice_src_main
+  type: git
+  source:
+    branch: main
+    private_key: ((git-key))
+    uri: git@github.com:eloqdata/eloq_log_service.git
+
+- name: raft_host_manager_src_main
+  type: git
+  source:
+    branch: main
+    private_key: ((git-key))
+    uri: git@github.com:eloqdata/raft_host_manager.git
+jobs:
+- name: ubuntu2004-main
+  plan:
+  - in_parallel:
+      limit: 2
+      steps:
+      - get: eloqkv_src
+        resource: eloqkv_src_main
+      - get: logservice_src
+        resource: logservice_src_main
+      - get: raft_host_manager_src
+        resource: raft_host_manager_src_main
+      - get: image_ubuntu2004
+        resource: image_ubuntu2004_main
+
+  - task: build-rocksdb-cloud-s3-type
+    file: eloqkv_src/concourse/tasks/build_release_tarball.yml
+    image: image_ubuntu2004
+    params:
+      TAGGED: "true"
+      AWS_ACCESS_KEY_ID: ((aws_access_key_id))
+      AWS_DEFAULT_REGION: ((aws-region))
+      AWS_SECRET_ACCESS_KEY: ((aws_secret_access_key))
+      BUILD_LOG_SRV: "true"
+      BUILD_TYPE: RelWithDebInfo
+      KV_TYPE: ELOQDSS_ROCKSDB_CLOUD_S3
+      CLOUDFRONT_DIST: ((cloudfront-dist))
+
+  - task: build-rocksdb-type
+    file: eloqkv_src/concourse/tasks/build_release_tarball.yml
+    image: image_ubuntu2004
+    params:
+      TAGGED: "true"
+      AWS_ACCESS_KEY_ID: ((aws_access_key_id))
+      AWS_DEFAULT_REGION: ((aws-region))
+      AWS_SECRET_ACCESS_KEY: ((aws_secret_access_key))
+      BUILD_LOG_SRV: "true"
+      BUILD_TYPE: RelWithDebInfo
+      KV_TYPE: ROCKSDB
+      CLOUDFRONT_DIST: ((cloudfront-dist))
+
+  serial: true
+
+- name: ubuntu2204-main
+  plan:
+  - in_parallel:
+      limit: 2
+      steps:
+      - get: eloqkv_src
+        resource: eloqkv_src_main
+      - get: logservice_src
+        resource: logservice_src_main
+      - get: raft_host_manager_src
+        resource: raft_host_manager_src_main
+      - get: image_ubuntu2204
+        resource: image_ubuntu2204_main
+
+  - task: build-rocksdb-cloud-s3-type
+    file: eloqkv_src/concourse/tasks/build_release_tarball.yml
+    image: image_ubuntu2204
+    params:
+      TAGGED: "true"
+      AWS_ACCESS_KEY_ID: ((aws_access_key_id))
+      AWS_DEFAULT_REGION: ((aws-region))
+      AWS_SECRET_ACCESS_KEY: ((aws_secret_access_key))
+      BUILD_LOG_SRV: "true"
+      BUILD_TYPE: RelWithDebInfo
+      KV_TYPE: ELOQDSS_ROCKSDB_CLOUD_S3
+      CLOUDFRONT_DIST: ((cloudfront-dist))
+
+  - task: build-rocksdb-type
+    file: eloqkv_src/concourse/tasks/build_release_tarball.yml
+    image: image_ubuntu2204
+    params:
+      TAGGED: "true"
+      AWS_ACCESS_KEY_ID: ((aws_access_key_id))
+      AWS_DEFAULT_REGION: ((aws-region))
+      AWS_SECRET_ACCESS_KEY: ((aws_secret_access_key))
+      BUILD_LOG_SRV: "true"
+      BUILD_TYPE: RelWithDebInfo
+      KV_TYPE: ROCKSDB
+      CLOUDFRONT_DIST: ((cloudfront-dist))
+
+  serial: true
+
+- name: ubuntu2404-main
+  plan:
+  - in_parallel:
+      limit: 2
+      steps:
+      - get: eloqkv_src
+        resource: eloqkv_src_main
+      - get: logservice_src
+        resource: logservice_src_main
+      - get: raft_host_manager_src
+        resource: raft_host_manager_src_main
+      - get: image_ubuntu2404
+        resource: image_ubuntu2404_main
+
+  - task: build-rocksdb-cloud-s3-type
+    file: eloqkv_src/concourse/tasks/build_release_tarball.yml
+    image: image_ubuntu2404
+    params:
+      TAGGED: "true"
+      AWS_ACCESS_KEY_ID: ((aws_access_key_id))
+      AWS_DEFAULT_REGION: ((aws-region))
+      AWS_SECRET_ACCESS_KEY: ((aws_secret_access_key))
+      BUILD_LOG_SRV: "true"
+      BUILD_TYPE: RelWithDebInfo
+      KV_TYPE: ELOQDSS_ROCKSDB_CLOUD_S3
+      CLOUDFRONT_DIST: ((cloudfront-dist))
+
+  - task: build-rocksdb-type
+    file: eloqkv_src/concourse/tasks/build_release_tarball.yml
+    image: image_ubuntu2404
+    params:
+      TAGGED: "true"
+      AWS_ACCESS_KEY_ID: ((aws_access_key_id))
+      AWS_DEFAULT_REGION: ((aws-region))
+      AWS_SECRET_ACCESS_KEY: ((aws_secret_access_key))
+      BUILD_LOG_SRV: "true"
+      BUILD_TYPE: RelWithDebInfo
+      KV_TYPE: ROCKSDB
+      CLOUDFRONT_DIST: ((cloudfront-dist))
+
+  serial: true
+
+- name: centos7-main
+  plan:
+  - in_parallel:
+      limit: 2
+      steps:
+      - get: eloqkv_src
+        resource: eloqkv_src_main
+      - get: logservice_src
+        resource: logservice_src_main
+      - get: raft_host_manager_src
+        resource: raft_host_manager_src_main
+      - get: image_centos7
+        resource: image_centos7_main
+
+  - task: build-rocksdb-cloud-s3-type
+    file: eloqkv_src/concourse/tasks/build_release_tarball.yml
+    image: image_centos7
+    params:
+      TAGGED: "true"
+      AWS_ACCESS_KEY_ID: ((aws_access_key_id))
+      AWS_DEFAULT_REGION: ((aws-region))
+      AWS_SECRET_ACCESS_KEY: ((aws_secret_access_key))
+      BUILD_LOG_SRV: "true"
+      BUILD_TYPE: RelWithDebInfo
+      KV_TYPE: ELOQDSS_ROCKSDB_CLOUD_S3
+      CLOUDFRONT_DIST: ((cloudfront-dist))
+
+  - task: build-rocksdb-type
+    file: eloqkv_src/concourse/tasks/build_release_tarball.yml
+    image: image_centos7
+    params:
+      TAGGED: "true"
+      AWS_ACCESS_KEY_ID: ((aws_access_key_id))
+      AWS_DEFAULT_REGION: ((aws-region))
+      AWS_SECRET_ACCESS_KEY: ((aws_secret_access_key))
+      BUILD_LOG_SRV: "true"
+      BUILD_TYPE: RelWithDebInfo
+      KV_TYPE: ROCKSDB
+      CLOUDFRONT_DIST: ((cloudfront-dist))
+
+  serial: true

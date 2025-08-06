@@ -7,16 +7,6 @@ inputs:
   - name: raft_host_manager_src
 outputs:
   - name: the-output
-params:
-  KV_TYPE: "ROCKSDB"
-  ROCKS_FS: ""
-  CMAKE_ARGS: ""
-  TAGGED: ""
-  BUILD_TYPE: "RelWithDebInfo"
-  ASAN: "OFF"
-  NCORE: 6
-  BUILD_LOG_SRV: true
-  OUT_NAME: nightly
 run:
   path: /bin/bash
   args:

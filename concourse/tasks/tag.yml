@@ -1,13 +1,13 @@
 platform: linux
+container_limits:
+  memory: 10GB
 image_resource:
   type: registry-image
 inputs:
   - name: eloqkv_src
   - name: logservice_src
   - name: raft_host_manager_src
-outputs:
-  - name: the-output
 run:
   path: /bin/bash
   args:
-    - eloqkv_src/concourse/scripts/build_tarball.bash
+    - eloqkv_src/concourse/scripts/tag.sh
