@@ -9,12 +9,12 @@ resources:
 - name: image_ubuntu2004_main
   type: registry-image
   source:
-    repository: eloqdata/monograph-dev-ci-ubuntu2004
+    repository: eloqdata/eloq-build-ubuntu2004
 
 - name: image_ubuntu2204_main
   type: registry-image
   source:
-    repository: eloqdata/monograph-dev-ci-ubuntu2204
+    repository: eloqdata/eloq-build-ubuntu2204
 
 - name: image_ubuntu2404_main
   type: registry-image
