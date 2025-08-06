@@ -9,30 +9,22 @@ resources:
 - name: image_ubuntu2004_main
   type: registry-image
   source:
-    password: ((docker-secret-key))
     repository: monographdb/monograph-dev-ci-ubuntu2004
-    username: monographdb
 
 - name: image_ubuntu2204_main
   type: registry-image
   source:
-    password: ((docker-secret-key))
     repository: monographdb/monograph-dev-ci-ubuntu2204
-    username: monographdb
 
 - name: image_ubuntu2404_main
   type: registry-image
   source:
-    password: ((docker-secret-key))
     repository: monographdb/monograph-dev-ci-ubuntu2404
-    username: monographdb
 
 - name: image_centos7_main
   type: registry-image
   source:
-    password: ((docker-secret-key))
     repository: monographdb/monograph-dev-ci-centos7
-    username: monographdb
 
 - name: logservice_src_main
   type: git

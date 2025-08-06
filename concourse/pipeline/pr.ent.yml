@@ -45,8 +45,6 @@ resources:
     source:
       repository: eloqdata/monograph-dev-ci-ubuntu2404
       tag: latest
-      username: monographdb
-      password: ((docker-secret-key))
 
 jobs:
   - name: compile-test
