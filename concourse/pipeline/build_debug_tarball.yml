@@ -6,10 +6,11 @@ resources:
     uri: git@github.com:eloqdata/eloqkv.git
     private_key: ((git-key))
 
-- name: image_ubuntu2404_main
+- name: image_ubuntu2204_main
   type: registry-image
   source:
-    repository: eloqdata/monograph-dev-ci-ubuntu2404
+    repository: eloqdata/eloq-build-ubuntu2204
+
 
 - name: logservice_src_main
   type: git
