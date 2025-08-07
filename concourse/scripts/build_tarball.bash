@@ -131,6 +131,13 @@ EOF
 # Write the license content to LICENSE.txt in the destination directory
 echo "$LICENSE_CONTENT" >"${DEST_DIR}/LICENSE.txt"
 
+# build redis-cli
+CLIENT_S3_FILE="client/eloqkv-cli-7.2.5-${OS_ID}-${ARCH}"
+aws s3api head-object --bucket ${S3_BUCKET} --key eloqkv/${CLIENT_S3_FILE} 
+aws s3 cp ${S3_PREFIX}/${CLIENT_S3_FILE} redis-cli
+chmod +x redis-cli
+mv redis-cli ${DEST_DIR}/bin/eloqkv-cli
+
 # build eloqkv
 cd $ELOQKV_SRC
 mkdir build && cd build
