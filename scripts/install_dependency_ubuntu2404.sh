@@ -91,7 +91,7 @@ cd ../../ && rm -rf braft
 # Install mimalloc
 git clone https://github.com/monographdb/mimalloc.git mimalloc
 cd mimalloc
-git checkout monograph-v2.1.2
+git checkout eloq-v2.1.2
 mkdir bld && cd bld
 cmake .. && make && sudo make install
 cd ../../ && rm -rf mimalloc
