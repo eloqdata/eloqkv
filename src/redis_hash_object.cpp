@@ -145,7 +145,7 @@ void RedisHashObject::Execute(EloqKV::HStrLenCommand &cmd) const
     }
 }
 
-void RedisHashObject::Execute(EloqKV::HDelCommand &cmd) const
+bool RedisHashObject::Execute(EloqKV::HDelCommand &cmd) const
 {
     RedisHashResult &hash_result = cmd.result_;
     int cnt = 0;
@@ -153,9 +153,12 @@ void RedisHashObject::Execute(EloqKV::HDelCommand &cmd) const
     {
         cnt += (hash_map_.find(key) != hash_map_.end());
     }
-    if (cnt)
+    if (cnt > 0)
+    {
         hash_result.err_code_ = RD_OK;
+    }
     hash_result.result_ = cnt;
+    return cnt > 0;
 }
 
 bool RedisHashObject::CommitHdel(std::vector<EloqString> &keys)

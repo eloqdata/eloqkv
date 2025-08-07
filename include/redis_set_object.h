@@ -58,12 +58,12 @@ public:
 
     bool Execute(SAddCommand &cmd) const;
     void Execute(SMembersCommand &cmd) const;
-    void Execute(SRemCommand &cmd) const;
+    bool Execute(SRemCommand &cmd) const;
     void Execute(SCardCommand &cmd) const;
     void Execute(SIsMemberCommand &cmd) const;
     void Execute(SMIsMemberCommand &cmd) const;
     void Execute(SRandMemberCommand &cmd) const;
-    void Execute(SPopCommand &cmd) const;
+    bool Execute(SPopCommand &cmd) const;
     void Execute(SScanCommand &cmd) const;
     void Execute(SortableLoadCommand &cmd) const;
     void Execute(SZScanCommand &cmd) const;

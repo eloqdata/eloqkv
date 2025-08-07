@@ -186,7 +186,7 @@ public:
     bool Execute(LInsertCommand &cmd) const;
     void Execute(LPosCommand &cmd) const;
     bool Execute(LSetCommand &cmd) const;
-    void Execute(LRemCommand &cmd) const;
+    bool Execute(LRemCommand &cmd) const;
     bool Execute(LPushXCommand &cmd) const;
     bool Execute(RPushXCommand &cmd) const;
     bool Execute(LMovePopCommand &cmd) const;

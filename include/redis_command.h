@@ -6394,11 +6394,15 @@ public:
  */
 struct StoreListCommand : public RedisCommand
 {
-    StoreListCommand() = default;
+    StoreListCommand()
+    {
+        result_.err_code_ = RD_OK;
+    };
     explicit StoreListCommand(std::vector<EloqString> elements)
         : elements_(std::move(elements))
     {
         SetVolatile();
+        result_.err_code_ = RD_OK;
     }
 
     StoreListCommand(const StoreListCommand &rhs);
@@ -6432,7 +6436,8 @@ struct StoreListCommand : public RedisCommand
 
     bool ProceedOnNonExistentObject() const override
     {
-        return true;
+        // If nothing to store and the object was empty, cannot proceed.
+        return !elements_.empty();
     }
 
     bool ProceedOnExistentObject() const override
@@ -6447,7 +6452,7 @@ struct StoreListCommand : public RedisCommand
 
     bool IgnoreOldValue() const override
     {
-        return IsOverwrite();
+        return !elements_.empty();
     }
 
     txservice::ExecResult ExecuteOn(const txservice::TxObject &object) override;

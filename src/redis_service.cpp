@@ -936,7 +936,7 @@ bool RedisServiceImpl::Init(brpc::Server &brpc_server)
             {
                 LOG(ERROR)
                     << "WAL is enabled but `txlog_service_list` is empty and "
-                       "no built-in log server as `WITH_LOG_SERVICE` is ON, "
+                       "built-in log server initialization failed, "
                        "unable to proceed.";
                 return false;
             }

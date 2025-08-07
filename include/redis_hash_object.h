@@ -210,7 +210,7 @@ public:
     void Execute(HGetCommand &) const;
     void Execute(HLenCommand &) const;
     void Execute(HStrLenCommand &) const;
-    void Execute(HDelCommand &) const;
+    bool Execute(HDelCommand &) const;
     void Execute(HExistsCommand &) const;
     void Execute(HGetAllCommand &) const;
     bool Execute(HIncrByCommand &) const;
