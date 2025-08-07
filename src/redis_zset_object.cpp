@@ -89,11 +89,12 @@ txservice::TxRecord::Uptr RedisZsetObject::AddTTL(uint64_t ttl)
     return std::make_unique<RedisZsetTTLObject>(std::move(*this), ttl);
 }
 
-std::pair<int, int> RedisZsetObject::ZAddXX(
+std::tuple<int, int, bool> RedisZsetObject::ZAddXX(
     std::vector<std::pair<double, EloqString>> &elements, bool ch) const
 {
     std::unordered_map<std::string_view, double> used_field;
     int cnt = 0;
+    bool modified = false;
 
     auto result = elements.begin();
     for (auto it = elements.begin(); it != elements.end(); it++)
@@ -112,11 +113,19 @@ std::pair<int, int> RedisZsetObject::ZAddXX(
 
         if (!used_empty)
         {
+            if (num != used_it->second)
+            {
+                modified = true;
+            }
             cnt += (ch && num != used_it->second) ? 1 : 0;
             used_it->second = num;
         }
         else if (!ha_empty)
         {
+            if (num != hash_it->second)
+            {
+                modified = true;
+            }
             cnt += (ch && num != hash_it->second) ? 1 : 0;
             used_field.insert({field_sv, num});
         }
@@ -129,10 +138,10 @@ std::pair<int, int> RedisZsetObject::ZAddXX(
     }
 
     elements.erase(result, elements.end());
-    return {RD_OK, cnt};
+    return {RD_OK, cnt, modified};
 }
 
-std::pair<int, int> RedisZsetObject::ZAddNX(
+std::tuple<int, int, bool> RedisZsetObject::ZAddNX(
     std::vector<std::pair<double, EloqString>> &elements) const
 {
     std::unordered_set<std::string_view> used_field;
@@ -162,16 +171,17 @@ std::pair<int, int> RedisZsetObject::ZAddNX(
         }
     }
     elements.erase(result, elements.end());
-    return {RD_OK, cnt};
+    return {RD_OK, cnt, cnt > 0};
 }
 
-std::pair<int, int> RedisZsetObject::ZAddLT(
+std::tuple<int, int, bool> RedisZsetObject::ZAddLT(
     std::vector<std::pair<double, EloqString>> &elements,
     bool ch,
     bool xx) const
 {
     std::unordered_map<std::string_view, double> used_field;
     int cnt = 0;
+    bool modified = false;
 
     // this loop like std::remove_if to move all can't execute to the end of
     // vector and erase it, so serialize and commit will not do illegal order
@@ -203,11 +213,19 @@ std::pair<int, int> RedisZsetObject::ZAddLT(
 
         if (used_it == used_field.end())
         {
+            if (ha_empty || num < hash_it->second)
+            {
+                modified = true;
+            }
             cnt += (ha_empty) || (ch && num < hash_it->second);
             used_field.emplace(field_sv, num);
         }
         else if (num < used_it->second)
         {
+            if (num < used_it->second)
+            {
+                modified = true;
+            }
             cnt += (ch && num < used_it->second);
             used_it->second = num;
         }
@@ -219,16 +237,17 @@ std::pair<int, int> RedisZsetObject::ZAddLT(
         result++;
     }
     elements.erase(result, elements.end());
-    return {RD_OK, cnt};
+    return {RD_OK, cnt, modified};
 }
 
-std::pair<int, int> RedisZsetObject::ZAddGT(
+std::tuple<int, int, bool> RedisZsetObject::ZAddGT(
     std::vector<std::pair<double, EloqString>> &elements,
     bool ch,
     bool xx) const
 {
     std::unordered_map<std::string_view, double> used_field;
     int cnt = 0;
+    bool modified = false;
 
     // this loop like std::remove_if to move all can't execute to the end of
     // vector and erase it, so serialize and commit will not do illegal order
@@ -260,12 +279,20 @@ std::pair<int, int> RedisZsetObject::ZAddGT(
 
         if (used_it == used_field.end())
         {
+            if (ha_empty || num > hash_it->second)
+            {
+                modified = true;
+            }
             cnt += (ha_empty) || (ch && num > hash_it->second);
             used_field.emplace(field_sv, num);
         }
         else if (num > used_it->second)
         {
-            cnt += (ch && num < used_it->second);
+            if (num > used_it->second)
+            {
+                modified = true;
+            }
+            cnt += (ch && num > used_it->second);
             used_it->second = num;
         }
 
@@ -276,13 +303,14 @@ std::pair<int, int> RedisZsetObject::ZAddGT(
         result++;
     }
     elements.erase(result, elements.end());
-    return {RD_OK, cnt};
+    return {RD_OK, cnt, modified};
 }
 
-std::pair<int, int> RedisZsetObject::ZAdd(
+std::tuple<int, int, bool> RedisZsetObject::ZAdd(
     std::vector<std::pair<double, EloqString>> &elements, bool ch) const
 {
     int cnt = 0;
+    bool modified = false;
 
     std::unordered_map<std::string_view, double> used_field;
     for (auto &[num, field] : elements)
@@ -293,23 +321,31 @@ std::pair<int, int> RedisZsetObject::ZAdd(
         {
             used_field.emplace(field_sv, num);
             auto hash_it = z_hash_map_.find(field.StringView());
+            if (hash_it == z_hash_map_.end() || hash_it->second != num)
+            {
+                modified = true;
+            }
             cnt += (hash_it == z_hash_map_.end()) ||
                    (ch && hash_it->second != num);
         }
         else
         {
+            if (used_it->second != num)
+            {
+                modified = true;
+            }
             cnt += ch && (used_it->second != num);
             used_it->second = num;
         }
     }
 
-    return {RD_OK, cnt};
+    return {RD_OK, cnt, modified};
 }
 
 // this command only accepct one pair, like zincrby
 // return can be nil, first element mark this command reply int/nil, second one
 // is ans
-std::pair<int, EloqString> RedisZsetObject::ZAddIncr(
+std::tuple<int, EloqString, bool> RedisZsetObject::ZAddIncr(
     std::variant<std::monostate,
                  std::pair<double, EloqString>,
                  std::vector<std::pair<double, EloqString>>> &elements,
@@ -334,21 +370,21 @@ std::pair<int, EloqString> RedisZsetObject::ZAddIncr(
     {
         elements = std::monostate{};
         type = ZAddCommand::ElementType::monostate;
-        return {RD_NIL, EloqString()};
+        return {RD_NIL, EloqString(), false};
     }
     if (params.GT() && ((hash_it == z_hash_map_.end()) ||
                         (hash_it->second + num <= hash_it->second)))
     {
         elements = std::monostate{};
         type = ZAddCommand::ElementType::monostate;
-        return {RD_NIL, EloqString()};
+        return {RD_NIL, EloqString(), false};
     }
     if (params.LT() && ((hash_it == z_hash_map_.end()) ||
                         (hash_it->second + num >= hash_it->second)))
     {
         elements = std::monostate{};
         type = ZAddCommand::ElementType::monostate;
-        return {RD_NIL, EloqString()};
+        return {RD_NIL, EloqString(), false};
     }
     if (flag && hash_it != z_hash_map_.end())
     {
@@ -368,10 +404,11 @@ std::pair<int, EloqString> RedisZsetObject::ZAddIncr(
     {
         elements = std::monostate{};
         type = ZAddCommand::ElementType::monostate;
-        return {RD_ERR_SCORE_NAN, EloqString()};
+        return {RD_ERR_SCORE_NAN, EloqString(), false};
     }
 
-    return {RD_OK, EloqString(d2string(num).data(), d2string(num).size())};
+    return {
+        RD_OK, EloqString(d2string(num).data(), d2string(num).size()), true};
 }
 
 bool RedisZsetObject::Execute(ZAddCommand &cmd) const
@@ -410,44 +447,47 @@ bool RedisZsetObject::Execute(ZAddCommand &cmd) const
         return false;
     }
 
+    bool modified = false;
+
     if (cmd.params_.INCR())
     {
-        std::tie(result.err_code_, result.result_) =
+        std::tie(result.err_code_, result.result_, modified) =
             ZAddIncr(cmd.elements_, cmd.params_, cmd.type_);
     }
     else if (cmd.params_.LT())
     {
-        std::tie(result.err_code_, result.result_) = ZAddLT(
+        std::tie(result.err_code_, result.result_, modified) = ZAddLT(
             std::get<std::vector<std::pair<double, EloqString>>>(cmd.elements_),
             cmd.params_.CH(),
             cmd.params_.XX());
     }
     else if (cmd.params_.GT())
     {
-        std::tie(result.err_code_, result.result_) = ZAddGT(
+        std::tie(result.err_code_, result.result_, modified) = ZAddGT(
             std::get<std::vector<std::pair<double, EloqString>>>(cmd.elements_),
             cmd.params_.CH(),
             cmd.params_.XX());
     }
     else if (cmd.params_.NX())
     {
-        std::tie(result.err_code_, result.result_) =
+        std::tie(result.err_code_, result.result_, modified) =
             ZAddNX(std::get<std::vector<std::pair<double, EloqString>>>(
                 cmd.elements_));
     }
     else if (cmd.params_.XX())
     {
-        std::tie(result.err_code_, result.result_) = ZAddXX(
+        std::tie(result.err_code_, result.result_, modified) = ZAddXX(
             std::get<std::vector<std::pair<double, EloqString>>>(cmd.elements_),
             cmd.params_.CH());
     }
     else
     {
-        std::tie(result.err_code_, result.result_) = ZAdd(
+        std::tie(result.err_code_, result.result_, modified) = ZAdd(
             std::get<std::vector<std::pair<double, EloqString>>>(cmd.elements_),
             cmd.params_.CH());
     }
-    return true;
+
+    return modified;
 }
 
 void RedisZsetObject::CommitZAdd(
@@ -1072,7 +1112,7 @@ void RedisZsetObject::Execute(ZCardCommand &cmd) const
     result.result_ = static_cast<int>(z_ordered_set_.size());
 }
 
-void RedisZsetObject::Execute(ZRemCommand &cmd) const
+bool RedisZsetObject::Execute(ZRemCommand &cmd) const
 {
     RedisZsetResult &result = cmd.zset_result_;
     int ans = 0;
@@ -1082,6 +1122,7 @@ void RedisZsetObject::Execute(ZRemCommand &cmd) const
     }
     result.err_code_ = RD_OK;
     result.result_ = ans;
+    return ans > 0;
 }
 
 void RedisZsetObject::Execute(SortableLoadCommand &cmd) const
@@ -1234,32 +1275,36 @@ int RedisZsetObject::ZRemRangeByRank(ZRangeSpec &spec) const
     return remove_cnt;
 }
 
-void RedisZsetObject::Execute(ZRemRangeCommand &cmd) const
+bool RedisZsetObject::Execute(ZRemRangeCommand &cmd) const
 {
     RedisZsetResult &zset_result = cmd.zset_result_;
     zset_result.err_code_ = RD_OK;
 
     assert(cmd.range_type_ != ZRangeType::ZRANGE_AUTO);
+
+    int remove_cnt = 0;
     switch (cmd.range_type_)
     {
     case ZRangeType::ZRANGE_SCORE:
     {
-        zset_result.result_ = ZRemRangeByScore(cmd.spec_);
+        remove_cnt = ZRemRangeByScore(cmd.spec_);
         break;
     }
     case ZRangeType::ZRANGE_LEX:
     {
-        zset_result.result_ = ZRemRangeByLex(cmd.spec_);
+        remove_cnt = ZRemRangeByLex(cmd.spec_);
         break;
     }
     case ZRangeType::ZRANGE_RANK:
     {
-        zset_result.result_ = ZRemRangeByRank(cmd.spec_);
+        remove_cnt = ZRemRangeByRank(cmd.spec_);
         break;
     }
     default:
         assert(false && "Unknown range type");
     }
+    zset_result.result_ = remove_cnt;
+    return remove_cnt > 0;
 }
 
 bool RedisZsetObject::CommitZRemRange(ZRangeType &range_type, ZRangeSpec &spec)
@@ -1427,7 +1472,7 @@ void RedisZsetObject::Execute(ZScoreCommand &cmd) const
     }
 }
 
-void RedisZsetObject::Execute(ZPopCommand &cmd) const
+bool RedisZsetObject::Execute(ZPopCommand &cmd) const
 {
     RedisZsetResult &result = cmd.zset_result_;
 
@@ -1455,8 +1500,10 @@ void RedisZsetObject::Execute(ZPopCommand &cmd) const
         }
     }
 
+    bool success = !ans.empty();
     result.err_code_ = RD_OK;
     result.result_ = std::move(ans);
+    return success;
 }
 
 bool RedisZsetObject::CommitZPop(ZPopCommand::PopType pop_type, int64_t count)

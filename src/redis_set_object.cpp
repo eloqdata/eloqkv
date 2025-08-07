@@ -90,7 +90,7 @@ void RedisHashSetObject::Execute(SMembersCommand &cmd) const
     }
 }
 
-void RedisHashSetObject::Execute(SRemCommand &cmd) const
+bool RedisHashSetObject::Execute(SRemCommand &cmd) const
 {
     RedisHashSetResult &result = cmd.result_;
     result.err_code_ = RD_OK;
@@ -100,6 +100,7 @@ void RedisHashSetObject::Execute(SRemCommand &cmd) const
     {
         result.ret_ += hash_set_.find(str) == hash_set_.end() ? 0 : 1;
     }
+    return result.ret_ > 0;
 }
 
 void RedisHashSetObject::Execute(SCardCommand &cmd) const
@@ -135,6 +136,8 @@ void RedisHashSetObject::Execute(SRandMemberCommand &cmd) const
     int64_t count = cmd.count_ < 0 ? -cmd.count_ : cmd.count_;
     bool distinct = cmd.count_ >= 0;
     int32_t sz = static_cast<int32_t>(hash_set_.size());
+    // When a set is empty, it is removed. Empty set does not exist.
+    assert(sz > 0);
     if (distinct)
     {
         count = sz < count ? sz : count;
@@ -205,7 +208,7 @@ void RedisHashSetObject::Execute(SRandMemberCommand &cmd) const
     }
 }
 
-void RedisHashSetObject::Execute(SPopCommand &cmd) const
+bool RedisHashSetObject::Execute(SPopCommand &cmd) const
 {
     RedisHashSetResult &result = cmd.result_;
     result.err_code_ = RD_OK;
@@ -281,6 +284,7 @@ void RedisHashSetObject::Execute(SPopCommand &cmd) const
             result.string_list_[miter->second] = hiter->Clone();
         }
     }
+    return !result.string_list_.empty();
 }
 
 // TODO(lzx): Support Cursor and Count.(Batch Scanning)

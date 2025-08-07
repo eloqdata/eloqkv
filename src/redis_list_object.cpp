@@ -445,7 +445,7 @@ bool RedisListObject::Execute(LSetCommand &cmd) const
     }
 }
 
-void RedisListObject::Execute(LRemCommand &cmd) const
+bool RedisListObject::Execute(LRemCommand &cmd) const
 {
     RedisListResult &list_result = cmd.result_;
 
@@ -492,6 +492,7 @@ void RedisListObject::Execute(LRemCommand &cmd) const
             }
         }
     }
+    return list_result.ret_ > 0;
 }
 
 bool RedisListObject::Execute(LPushXCommand &cmd) const

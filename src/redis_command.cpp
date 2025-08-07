@@ -4389,8 +4389,9 @@ txservice::ExecResult LRemCommand::ExecuteOn(const txservice::TxObject &object)
     list_result.err_code_ = RD_OK;
     const RedisListObject &list_obj =
         static_cast<const RedisListObject &>(object);
-    list_obj.Execute(*this);
-    return txservice::ExecResult::Write;
+    bool cmd_success = list_obj.Execute(*this);
+    return cmd_success ? txservice::ExecResult::Write
+                       : txservice::ExecResult::Fail;
 }
 
 txservice::TxObject *LRemCommand::CommitOn(txservice::TxObject *obj_ptr)
@@ -5643,18 +5644,13 @@ txservice::ExecResult SAddCommand::ExecuteOn(const txservice::TxObject &object)
 
         set_result.err_code_ = RD_OK;
         set_result.ret_ = vct_paras_.size();
-    }
-    else
-    {
-        const RedisHashSetObject *set_obj =
-            static_cast<const RedisHashSetObject *>(&object);
-        if (!set_obj->Execute(*this))
-        {
-            return txservice::ExecResult::Fail;
-        }
+        return txservice::ExecResult::Write;
     }
 
-    return txservice::ExecResult::Write;
+    const RedisHashSetObject *set_obj =
+        static_cast<const RedisHashSetObject *>(&object);
+    return set_obj->Execute(*this) ? txservice::ExecResult::Write
+                                   : txservice::ExecResult::Fail;
 }
 
 txservice::TxObject *SAddCommand::CommitOn(txservice::TxObject *obj_ptr)
@@ -5801,8 +5797,8 @@ txservice::ExecResult SRemCommand::ExecuteOn(const txservice::TxObject &object)
 
     const RedisHashSetObject &set_obj =
         static_cast<const RedisHashSetObject &>(object);
-    set_obj.Execute(*this);
-    return txservice::ExecResult::Write;
+    return set_obj.Execute(*this) ? txservice::ExecResult::Write
+                                  : txservice::ExecResult::Fail;
 }
 
 txservice::TxObject *SRemCommand::CommitOn(txservice::TxObject *obj_ptr)
@@ -6664,9 +6660,9 @@ txservice::ExecResult SPopCommand::ExecuteOn(const txservice::TxObject &object)
 
     const RedisHashSetObject *set_obj =
         static_cast<const RedisHashSetObject *>(&object);
-    set_obj->Execute(*this);
 
-    return txservice::ExecResult::Write;
+    return set_obj->Execute(*this) ? txservice::ExecResult::Write
+                                   : txservice::ExecResult::Fail;
 }
 
 txservice::TxObject *SPopCommand::CommitOn(txservice::TxObject *obj_ptr)
@@ -11985,8 +11981,8 @@ txservice::ExecResult ZPopCommand::ExecuteOn(const txservice::TxObject &object)
 
     const RedisZsetObject &zset_obj =
         static_cast<const RedisZsetObject &>(object);
-    zset_obj.Execute(*this);
-    return txservice::ExecResult::Write;
+    return zset_obj.Execute(*this) ? txservice::ExecResult::Write
+                                   : txservice::ExecResult::Fail;
 }
 
 txservice::TxObject *ZPopCommand::CommitOn(txservice::TxObject *obj_ptr)
@@ -12121,19 +12117,12 @@ txservice::ExecResult ZAddCommand::ExecuteOn(const txservice::TxObject &object)
             zset_result_.result_ = 0;
         }
         zset_result_.err_code_ = RD_OK;
+        return txservice::ExecResult::Write;
     }
-    else
-    {
-        const RedisZsetObject &zset_obj =
-            static_cast<const RedisZsetObject &>(object);
-        bool success = zset_obj.Execute(*this);
-        if (!success)
-        {
-            return txservice::ExecResult::Fail;
-        }
-    }
-
-    return txservice::ExecResult::Write;
+    const RedisZsetObject &zset_obj =
+        static_cast<const RedisZsetObject &>(object);
+    return zset_obj.Execute(*this) ? txservice::ExecResult::Write
+                                   : txservice::ExecResult::Fail;
 }
 
 txservice::TxObject *ZAddCommand::CommitOn(txservice::TxObject *obj_ptr)
@@ -12873,8 +12862,8 @@ txservice::ExecResult ZRemRangeCommand::ExecuteOn(
 
     const RedisZsetObject &zset_obj =
         static_cast<const RedisZsetObject &>(object);
-    zset_obj.Execute(*this);
-    return txservice::ExecResult::Write;
+    return zset_obj.Execute(*this) ? txservice::ExecResult::Write
+                                   : txservice::ExecResult::Fail;
 }
 
 txservice::TxObject *ZRemRangeCommand::CommitOn(txservice::TxObject *obj_ptr)
@@ -13085,8 +13074,8 @@ txservice::ExecResult ZRemCommand::ExecuteOn(const txservice::TxObject &object)
     }
     const RedisZsetObject &zset_obj =
         static_cast<const RedisZsetObject &>(object);
-    zset_obj.Execute(*this);
-    return txservice::ExecResult::Write;
+    return zset_obj.Execute(*this) ? txservice::ExecResult::Write
+                                   : txservice::ExecResult::Fail;
 }
 
 txservice::TxObject *ZRemCommand::CommitOn(txservice::TxObject *obj_ptr)
@@ -14543,8 +14532,8 @@ txservice::ExecResult HDelCommand::ExecuteOn(const txservice::TxObject &object)
 
     const RedisHashObject &hash_obj =
         static_cast<const RedisHashObject &>(object);
-    hash_obj.Execute(*this);
-    return txservice::ExecResult::Write;
+    return hash_obj.Execute(*this) ? txservice::ExecResult::Write
+                                   : txservice::ExecResult::Fail;
 }
 
 txservice::TxObject *HDelCommand::CommitOn(txservice::TxObject *const obj_ptr)
@@ -15022,8 +15011,8 @@ txservice::ExecResult HSetNxCommand::ExecuteOn(
 
     const RedisHashObject &hash_obj =
         static_cast<const RedisHashObject &>(object);
-    bool b = hash_obj.Execute(*this);
-    return b ? txservice::ExecResult::Write : txservice::ExecResult::Fail;
+    bool success = hash_obj.Execute(*this);
+    return success ? txservice::ExecResult::Write : txservice::ExecResult::Fail;
 }
 
 txservice::TxObject *HSetNxCommand::CommitOn(txservice::TxObject *const obj_ptr)
@@ -15377,6 +15366,8 @@ txservice::ExecResult RestoreCommand::ExecuteOn(
     const txservice::TxObject &object)
 {
     result_.err_code_ = RD_OK;
+    // If the RESTORE command does not modify the object, it won't proceed to
+    // ExecuteOn.
     return ExecResult::Write;
 }
 
@@ -17065,6 +17056,9 @@ txservice::ExecResult StoreListCommand::ExecuteOn(
 {
     result_.err_code_ = RD_OK;
     result_.int_val_ = elements_.size();
+    // STORE command in SORT always overwrite the object with one exception:
+    // nothing to store and the object was empty, in which case the STORE
+    // command won't proceed to ExecuteOn.
     return txservice::ExecResult::Write;
 }
 

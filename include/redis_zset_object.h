@@ -162,21 +162,21 @@ public:
 
     txservice::TxRecord::Uptr AddTTL(uint64_t ttl) override;
 
-    std::pair<int, int> ZAddXX(
+    std::tuple<int, int, bool> ZAddXX(
         std::vector<std::pair<double, EloqString>> &elements, bool ch) const;
-    std::pair<int, int> ZAddNX(
+    std::tuple<int, int, bool> ZAddNX(
         std::vector<std::pair<double, EloqString>> &elements) const;
-    std::pair<int, int> ZAddLT(
+    std::tuple<int, int, bool> ZAddLT(
         std::vector<std::pair<double, EloqString>> &elements,
         bool ch,
         bool xx) const;
-    std::pair<int, int> ZAddGT(
+    std::tuple<int, int, bool> ZAddGT(
         std::vector<std::pair<double, EloqString>> &elements,
         bool ch,
         bool xx) const;
-    std::pair<int, int> ZAdd(
+    std::tuple<int, int, bool> ZAdd(
         std::vector<std::pair<double, EloqString>> &elements, bool ch) const;
-    std::pair<int, EloqString> ZAddIncr(
+    std::tuple<int, EloqString, bool> ZAddIncr(
         std::variant<std::monostate,
                      std::pair<double, EloqString>,
                      std::vector<std::pair<double, EloqString>>> &elements,
@@ -184,11 +184,11 @@ public:
         ZAddCommand::ElementType &type) const;
 
     bool Execute(ZAddCommand &cmd) const;
-    void Execute(ZRemCommand &cmd) const;
-    void Execute(ZRemRangeCommand &cmd) const;
+    bool Execute(ZRemCommand &cmd) const;
+    bool Execute(ZRemRangeCommand &cmd) const;
     void Execute(ZScoreCommand &cmd) const;
     void Execute(ZRangeCommand &cmd) const;
-    void Execute(ZPopCommand &cmd) const;
+    bool Execute(ZPopCommand &cmd) const;
     void Execute(ZLexCountCommand &cmd) const;
     void Execute(ZCountCommand &cmd) const;
     void Execute(ZCardCommand &cmd) const;
