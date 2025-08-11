@@ -49,7 +49,7 @@ jobs:
   - name: compile-test
     build_log_retention:
       builds: 500
-    serial: true
+    max_in_flight: 3
     plan:
       - in_parallel:
           steps:
