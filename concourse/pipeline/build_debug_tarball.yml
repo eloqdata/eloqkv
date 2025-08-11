@@ -26,17 +26,9 @@ resources:
     private_key: ((git-key))
     uri: git@github.com:eloqdata/raft_host_manager.git
 
-- name: periodic-trigger
-  type: time
-  source:
-    start: 6:00 AM  # 2pm Beijing time (UTC+8)
-    interval: 24h
-
 jobs:
-- name: ubuntu2404-main
+- name: ubuntu2204-main
   plan:
-  - get: periodic-trigger
-    trigger: true
   - in_parallel:
       limit: 2
       steps:
@@ -46,18 +38,18 @@ jobs:
         resource: logservice_src_main
       - get: raft_host_manager_src
         resource: raft_host_manager_src_main
-      - get: image_ubuntu2404
-        resource: image_ubuntu2404_main
+      - get: image_ubuntu2204
+        resource: image_ubuntu2204_main
 
   - task: build-rocksdb-cloud-s3-type
     file: eloqkv_src/concourse/tasks/build_debug_tarball.yml
-    image: image_ubuntu2404
+    image: image_ubuntu2204
     params:
       ASAN: "ON"
       TAGGED: ""
-      AWS_ACCESS_KEY_ID: ((aws-access-key-id))
-      AWS_DEFAULT_REGION: ((aws-default-region))
-      AWS_SECRET_ACCESS_KEY: ((aws-secret-access-key))
+      AWS_ACCESS_KEY_ID: ((aws_access_key_id))
+      AWS_DEFAULT_REGION: ((aws-region))
+      AWS_SECRET_ACCESS_KEY: ((aws_secret_access_key))
       BUILD_LOG_SRV: "true"
       BUILD_TYPE: Debug
       KV_TYPE: ELOQDSS_ROCKSDB_CLOUD_S3
@@ -66,13 +58,13 @@ jobs:
 
   - task: build-rocksdb-type
     file: eloqkv_src/concourse/tasks/build_debug_tarball.yml
-    image: image_ubuntu2404
+    image: image_ubuntu2204
     params:
       ASAN: "ON"
       TAGGED: ""
-      AWS_ACCESS_KEY_ID: ((aws-access-key-id))
-      AWS_DEFAULT_REGION: ((aws-default-region))
-      AWS_SECRET_ACCESS_KEY: ((aws-secret-access-key))
+      AWS_ACCESS_KEY_ID: ((aws_access_key_id))
+      AWS_DEFAULT_REGION: ((aws-region))
+      AWS_SECRET_ACCESS_KEY: ((aws_secret_access_key))
       BUILD_LOG_SRV: "true"
       BUILD_TYPE: Debug
       KV_TYPE: ROCKSDB

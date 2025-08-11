@@ -43,18 +43,29 @@ ln -s $WORKSPACE/redis_src eloqkv
 ln -s $WORKSPACE/eloq_test_src eloq_test
 
 cd eloqkv
-git submodule sync
-git submodule update --init --recursive
 
 ln -s $WORKSPACE/logservice_pr eloq_log_service
-cd /home/$current_user/workspace/eloqkv/eloq_log_service
-git submodule update --init --recursive
+cd eloq_log_service
+pr_branch_name=$(cat .git/resource/metadata.json | jq -r '.[] | select(.name=="head_name") | .value')
+if [ -n "$pr_branch_name" ] && git ls-remote --exit-code --heads origin "$pr_branch_name" > /dev/null; then
+  git fetch origin
+  git checkout -b ${pr_branch_name} origin/${pr_branch_name}
+  git submodule update --init --recursive
+fi
 
 cd /home/$current_user/workspace/eloqkv/tx_service
 
 ln -s $WORKSPACE/raft_host_manager_src raft_host_manager
+cd raft_host_manager
+git fetch origin
+git checkout -b ${pr_branch_name} origin/${pr_branch_name}
+git submodule update --init --recursive
 
 cd /home/$current_user/workspace/eloqkv
+git fetch origin
+git checkout -b ${pr_branch_name} origin/${pr_branch_name}
+git submodule sync
+git submodule update --init --recursive
 
 cmake_version=$(cmake --version 2>&1)
 if [[ $? -eq 0 ]]; then
