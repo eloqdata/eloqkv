@@ -19,6 +19,7 @@ jobs:
         image: base_image
         params:
           TAG_LEVEL: "major"
+          GIT_SSH_KEY: ((git-key))
         file: eloqkv_src/concourse/tasks/tag.yml
   - name: minor
     serial: true
@@ -40,6 +41,7 @@ jobs:
         image: base_image
         params:
           TAG_LEVEL: "minor"
+          GIT_SSH_KEY: ((git-key))
         file: eloqkv_src/concourse/tasks/tag.yml
   - name: patch
     serial: true
@@ -61,6 +63,7 @@ jobs:
         image: base_image
         params:
           TAG_LEVEL: "patch"
+          GIT_SSH_KEY: ((git-key))
         file: eloqkv_src/concourse/tasks/tag.yml
 
 resources:

@@ -13,6 +13,13 @@ popd
 
 git config --global user.email "concourse@noreply.com"
 git config --global user.name "concourse-ci"
+
+# Configure git to use SSH key for authentication
+mkdir -p ~/.ssh
+echo "$GIT_SSH_KEY" > ~/.ssh/id_rsa
+chmod 600 ~/.ssh/id_rsa
+ssh-keyscan github.com >> ~/.ssh/known_hosts
+
 # exit detach mode
 git checkout -
 git fetch --tags
@@ -30,7 +37,6 @@ while [[ ${#digits[@]} -lt 3 ]]; do
     digits+=(0)
 done
 
-IFS='.' read -ra digits <<<"$latest"
 case "$TAG_LEVEL" in
 "major")
     ((++digits[0])) && digits[1]=0 && digits[2]=0
