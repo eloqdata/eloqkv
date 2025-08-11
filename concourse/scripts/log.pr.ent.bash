@@ -50,6 +50,7 @@ pr_branch_name=$(cat .git/resource/metadata.json | jq -r '.[] | select(.name=="h
 ln -s $WORKSPACE/logservice_pr eloq_log_service
 cd /home/$current_user/workspace/eloqkv/eloq_log_service
 if [ -n "$pr_branch_name" ] && git ls-remote --exit-code --heads origin "$pr_branch_name" > /dev/null; then
+  git fetch origin
   git checkout -b ${pr_branch_name} origin/${pr_branch_name}
   git submodule update --init --recursive
 fi
@@ -59,6 +60,7 @@ cd /home/$current_user/workspace/eloqkv/tx_service
 ln -s $WORKSPACE/raft_host_manager_src raft_host_manager
 cd raft_host_manager
 if [ -n "$pr_branch_name" ] && git ls-remote --exit-code --heads origin "$pr_branch_name" > /dev/null; then
+  git fetch origin
   git checkout -b ${pr_branch_name} origin/${pr_branch_name}
   git submodule update --init --recursive
 fi
