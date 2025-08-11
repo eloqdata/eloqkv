@@ -45,14 +45,23 @@ ln -s $WORKSPACE/eloq_test_src eloq_test
 cd eloqkv
 git submodule sync
 git submodule update --init --recursive
+pr_branch_name=$(cat .git/resource/metadata.json | jq -r '.[] | select(.name=="head_name") | .value')
 
 ln -s $WORKSPACE/logservice_pr eloq_log_service
 cd /home/$current_user/workspace/eloqkv/eloq_log_service
-git submodule update --init --recursive
+if [ -n "$pr_branch_name" ] && git ls-remote --exit-code --heads origin "$pr_branch_name" > /dev/null; then
+  git checkout -b ${pr_branch_name} origin/${pr_branch_name}
+  git submodule update --init --recursive
+fi
 
 cd /home/$current_user/workspace/eloqkv/tx_service
 
 ln -s $WORKSPACE/raft_host_manager_src raft_host_manager
+cd raft_host_manager
+if [ -n "$pr_branch_name" ] && git ls-remote --exit-code --heads origin "$pr_branch_name" > /dev/null; then
+  git checkout -b ${pr_branch_name} origin/${pr_branch_name}
+  git submodule update --init --recursive
+fi
 
 cd /home/$current_user/workspace/eloqkv
 
