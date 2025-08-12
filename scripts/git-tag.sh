@@ -30,7 +30,7 @@ set -e
 if git show-ref --verify --quiet refs/heads/main; then
   git checkout main
 else
-  git checkout -b main origin/main
+  git checkout -b main --track origin/main
 fi
 
 # Check if the release branch exists, if not create it from main
@@ -63,4 +63,4 @@ git checkout main
 sed -i "s/constexpr char VERSION\[\] = \".*\";/constexpr char VERSION[] = \"${TAG}\";/" src/redis_server.cpp
 git add src/redis_server.cpp
 git commit -m "Update version to ${TAG}" || true
-git push
+git push -u origin main
