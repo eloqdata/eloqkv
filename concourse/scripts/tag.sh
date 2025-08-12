@@ -6,7 +6,10 @@ sudo chown -R $USER $PWD
 cd $HOME
 ln -s ${WORKSPACE}/eloqkv_src eloqkv
 cd eloqkv
-ln -s $WORKSPACE/logservice_src log_service
+# Prefer linking to expected path used by build scripts: eloq_log_service
+if [ -d "$WORKSPACE/logservice_src" ]; then
+  ln -s $WORKSPACE/logservice_src eloq_log_service
+fi
 pushd tx_service
 ln -s $WORKSPACE/raft_host_manager_src raft_host_manager
 popd

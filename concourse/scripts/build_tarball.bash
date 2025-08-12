@@ -8,7 +8,10 @@ sudo chown -R $current_user $PWD
 cd $HOME
 ln -s ${WORKSPACE}/eloqkv_src eloqkv
 cd eloqkv
-ln -s $WORKSPACE/logservice_src eloq_log_service
+# ensure log service under expected path
+if [ -d "$WORKSPACE/logservice_src" ]; then
+  ln -s $WORKSPACE/logservice_src eloq_log_service
+fi
 pushd tx_service
 ln -s $WORKSPACE/raft_host_manager_src raft_host_manager
 popd
