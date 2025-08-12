@@ -30,7 +30,7 @@ set -e
 if git show-ref --verify --quiet refs/heads/main; then
   git checkout main
 else
-  git checkout -b main --track origin/main
+  git checkout -b main origin/main
 fi
 
 # Check if the release branch exists, if not create it from main
