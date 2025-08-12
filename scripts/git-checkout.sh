@@ -36,6 +36,9 @@ else
     git fetch origin '+refs/heads/*:refs/remotes/origin/*'
     if git ls-remote --heads origin "$REL_BRANCH" | grep -q "$REL_BRANCH"; then
       git checkout -b "$REL_BRANCH" "origin/$REL_BRANCH"
+    else
+      echo "Expected release branch $REL_BRANCH not found in eloq_log_service"
+      exit 1
     fi
     git submodule update --init --recursive
     popd
@@ -46,6 +49,9 @@ else
     git fetch origin '+refs/heads/*:refs/remotes/origin/*'
     if git ls-remote --heads origin "$REL_BRANCH" | grep -q "$REL_BRANCH"; then
       git checkout -b "$REL_BRANCH" "origin/$REL_BRANCH"
+    else
+      echo "Expected release branch $REL_BRANCH not found in tx_service/raft_host_manager"
+      exit 1
     fi
     popd
   fi

@@ -58,9 +58,9 @@ git push origin "$TAG"
 create_and_push_release_branch "eloq_log_service" "$BRANCH_NAME" || true
 create_and_push_release_branch "tx_service/raft_host_manager" "$BRANCH_NAME" || true
 
-# Update the version on main branch
-git checkout main
+# Update the version on the tag (release) branch to ensure consistency
+git checkout "$BRANCH_NAME"
 sed -i "s/constexpr char VERSION\[\] = \".*\";/constexpr char VERSION[] = \"${TAG}\";/" src/redis_server.cpp
 git add src/redis_server.cpp
 git commit -m "Update version to ${TAG}" || true
-git push -u origin main
+git push origin "$BRANCH_NAME"
