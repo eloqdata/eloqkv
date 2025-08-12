@@ -8,6 +8,5 @@ inputs:
 outputs:
   - name: the-output
 run:
-  path: /bin/bash
-  args:
-    - eloqkv_src/concourse/scripts/build_tarball.bash
+  path: eloqkv_src/concourse/scripts/build_tarball.bash
+  args: []

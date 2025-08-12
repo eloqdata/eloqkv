@@ -6,6 +6,12 @@ export AWS_PAGER=""
 current_user=$(whoami)
 sudo chown -R $current_user $PWD
 cd $HOME
+
+mkdir -p ~/.ssh
+echo "$GIT_SSH_KEY" > ~/.ssh/id_rsa
+chmod 600 ~/.ssh/id_rsa
+ssh-keyscan github.com >> ~/.ssh/known_hosts
+
 ln -s ${WORKSPACE}/eloqkv_src eloqkv
 cd eloqkv
 # ensure log service under expected path

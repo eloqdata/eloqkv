@@ -2,7 +2,7 @@ resources:
 - name: eloqkv_src_main
   type: git
   source:
-    branch: main
+    branch: fix_release_pipeline_zx
     uri: git@github.com:eloqdata/eloqkv.git
     private_key: ((git-key))
     tag_regex: '^[[:digit:]]+\.[[:digit:]]+\.[[:digit:]]+$'
@@ -60,6 +60,7 @@ jobs:
     image: image_ubuntu2004
     params:
       TAGGED: "true"
+      GIT_SSH_KEY: ((git-key))
       AWS_ACCESS_KEY_ID: ((aws_access_key_id))
       AWS_DEFAULT_REGION: ((aws-region))
       AWS_SECRET_ACCESS_KEY: ((aws_secret_access_key))
@@ -73,6 +74,7 @@ jobs:
     image: image_ubuntu2004
     params:
       TAGGED: "true"
+      GIT_SSH_KEY: ((git-key))
       AWS_ACCESS_KEY_ID: ((aws_access_key_id))
       AWS_DEFAULT_REGION: ((aws-region))
       AWS_SECRET_ACCESS_KEY: ((aws_secret_access_key))
@@ -102,6 +104,7 @@ jobs:
     image: image_ubuntu2204
     params:
       TAGGED: "true"
+      GIT_SSH_KEY: ((git-key))
       AWS_ACCESS_KEY_ID: ((aws_access_key_id))
       AWS_DEFAULT_REGION: ((aws-region))
       AWS_SECRET_ACCESS_KEY: ((aws_secret_access_key))
@@ -144,6 +147,7 @@ jobs:
     image: image_ubuntu2404
     params:
       TAGGED: "true"
+      GIT_SSH_KEY: ((git-key))
       AWS_ACCESS_KEY_ID: ((aws_access_key_id))
       AWS_DEFAULT_REGION: ((aws-region))
       AWS_SECRET_ACCESS_KEY: ((aws_secret_access_key))
@@ -157,6 +161,7 @@ jobs:
     image: image_ubuntu2404
     params:
       TAGGED: "true"
+      GIT_SSH_KEY: ((git-key))
       AWS_ACCESS_KEY_ID: ((aws_access_key_id))
       AWS_DEFAULT_REGION: ((aws-region))
       AWS_SECRET_ACCESS_KEY: ((aws_secret_access_key))
@@ -186,6 +191,7 @@ jobs:
     image: image_centos7
     params:
       TAGGED: "true"
+      GIT_SSH_KEY: ((git-key))
       AWS_ACCESS_KEY_ID: ((aws_access_key_id))
       AWS_DEFAULT_REGION: ((aws-region))
       AWS_SECRET_ACCESS_KEY: ((aws_secret_access_key))
@@ -199,6 +205,7 @@ jobs:
     image: image_centos7
     params:
       TAGGED: "true"
+      GIT_SSH_KEY: ((git-key))
       AWS_ACCESS_KEY_ID: ((aws_access_key_id))
       AWS_DEFAULT_REGION: ((aws-region))
       AWS_SECRET_ACCESS_KEY: ((aws_secret_access_key))

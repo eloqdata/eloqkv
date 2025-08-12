@@ -47,6 +47,7 @@ jobs:
     params:
       ASAN: "ON"
       TAGGED: ""
+      GIT_SSH_KEY: ((git-key))
       AWS_ACCESS_KEY_ID: ((aws_access_key_id))
       AWS_DEFAULT_REGION: ((aws-region))
       AWS_SECRET_ACCESS_KEY: ((aws_secret_access_key))
@@ -62,6 +63,7 @@ jobs:
     params:
       ASAN: "ON"
       TAGGED: ""
+      GIT_SSH_KEY: ((git-key))
       AWS_ACCESS_KEY_ID: ((aws_access_key_id))
       AWS_DEFAULT_REGION: ((aws-region))
       AWS_SECRET_ACCESS_KEY: ((aws_secret_access_key))
