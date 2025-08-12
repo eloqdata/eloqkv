@@ -2,7 +2,7 @@ resources:
 - name: eloqkv_src_main
   type: git
   source:
-    branch: fix_release_pipeline_zx
+    branch: main
     uri: git@github.com:eloqdata/eloqkv.git
     private_key: ((git-key))
     tag_regex: '^[[:digit:]]+\.[[:digit:]]+\.[[:digit:]]+$'
