@@ -351,6 +351,13 @@ DEFINE_string(eloq_store_data_path,
 DEFINE_uint32(eloq_store_open_files_limit,
               1024,
               "EloqStore maximum open files.");
+DEFINE_string(eloq_store_cloud_store_path,
+              "",
+              "EloqStore cloud store path.(disable cloud store if empty)");
+DEFINE_uint32(eloq_store_gc_threads,
+              1,
+              "EloqStore gc threads count (Must be 0 when cloud store is "
+              "enabled).");
 #endif
 #endif
 
@@ -1170,6 +1177,22 @@ bool RedisServiceImpl::Init(brpc::Server &brpc_server)
                 : config_reader.GetInteger("store",
                                            "eloq_store_open_files_limit",
                                            FLAGS_eloq_store_open_files_limit);
+        eloq_store_config.cloud_store_path_ =
+            !CheckCommandLineFlagIsDefault("eloq_store_cloud_store_path")
+                ? FLAGS_eloq_store_cloud_store_path
+                : config_reader.GetString("store",
+                                          "eloq_store_cloud_store_path",
+                                          FLAGS_eloq_store_cloud_store_path);
+        LOG_IF(INFO, !eloq_store_config.cloud_store_path_.empty())
+            << "EloqStore cloud store enabled";
+        eloq_store_config.gc_threads_ =
+            !eloq_store_config.cloud_store_path_.empty()
+                ? 0
+                : (!CheckCommandLineFlagIsDefault("eloq_store_gc_threads")
+                       ? FLAGS_eloq_store_gc_threads
+                       : config_reader.GetInteger("store",
+                                                  "eloq_store_gc_threads",
+                                                  FLAGS_eloq_store_gc_threads));
         auto ds_factory = std::make_unique<EloqDS::EloqStoreDataStoreFactory>(
             eloq_store_config);
 #endif
@@ -1205,7 +1228,7 @@ bool RedisServiceImpl::Init(brpc::Server &brpc_server)
                 data_store_service_.get());
 
 #elif defined(DATA_STORE_TYPE_ELOQDSS_ELOQSTORE)
-            ::kvstore::KvOptions store_config;
+            ::eloqstore::KvOptions store_config;
             store_config.num_threads = eloq_store_config.worker_count_;
             store_config.store_path.emplace_back()
                 .append(eloq_store_config.storage_path_)
@@ -1213,11 +1236,22 @@ bool RedisServiceImpl::Init(brpc::Server &brpc_server)
                 .append(std::to_string(shard_id));
             store_config.fd_limit = eloq_store_config.open_files_limit_ /
                                     eloq_store_config.worker_count_;
+            if (!eloq_store_config.cloud_store_path_.empty())
+            {
+                store_config.cloud_store_path
+                    .append(eloq_store_config.cloud_store_path_)
+                    .append("/ds_")
+                    .append(std::to_string(shard_id));
+            }
+            store_config.num_gc_threads = eloq_store_config.gc_threads_;
 
             DLOG(INFO) << "Create EloqStore storage with workers: "
                        << store_config.num_threads
                        << ", store path: " << store_config.store_path.front()
-                       << ", open files limit: " << store_config.fd_limit;
+                       << ", open files limit: " << store_config.fd_limit
+                       << ", cloud store path: "
+                       << store_config.cloud_store_path
+                       << ", gc threads: " << store_config.num_gc_threads;
             auto ds = std::make_unique<EloqDS::EloqStoreDataStore>(
                 shard_id, data_store_service_.get(), store_config);
 #endif
