@@ -2,7 +2,7 @@
 set -eo
 
 TAG=$1
-BRANCH_NAME="rel_${TAG//./_}"
+BRANCH_NAME="rel_${TAG//./_}_eloqkv"
 
 # Utility: create and push a release branch for a module repo if available
 create_and_push_release_branch() {
@@ -50,11 +50,6 @@ if [ -n "$(git diff --name-only src/redis_server.cpp)" ]; then
   git push origin "$BRANCH_NAME"
 fi
 
-# Create and push the tag
-git tag "$TAG"
-git push origin "$TAG"
-
-# Create release branches for private modules (without recording hashes in repo)
 create_and_push_release_branch "eloq_log_service" "$BRANCH_NAME" || true
 create_and_push_release_branch "tx_service/raft_host_manager" "$BRANCH_NAME" || true
 

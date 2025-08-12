@@ -30,7 +30,7 @@ if [ "${TAG}" = "main" ]; then
   fi
 else
   # For non-main builds (e.g., tagged builds), prefer release branches created during tagging
-  REL_BRANCH="rel_${TAG//./_}"
+  REL_BRANCH="rel_${TAG//./_}_eloqkv"
   if [ -d eloq_log_service ]; then
     pushd eloq_log_service
     git fetch origin '+refs/heads/*:refs/remotes/origin/*'
