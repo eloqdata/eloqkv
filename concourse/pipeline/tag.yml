@@ -82,7 +82,7 @@ resources:
     type: git
     source:
       branch: main
-      uri: git@github.com:eloqdata/log_service.git
+      uri: git@github.com:eloqdata/eloq_log_service.git
       private_key: ((git-key))
   - name: raft_host_manager_src
     type: git
