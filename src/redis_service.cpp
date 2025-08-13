@@ -6253,10 +6253,7 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
                                 txm,
                                 static_cast<int32_t>(cmd->obj_type_),
                                 cmd->pattern_.StringView());
-#ifdef RANGE_PARTITION_ENABLED
-    uint64_t scan_alias = txm->OpenTxScan(scan_open);
-    assert(scan_alias != UINT64_MAX);
-#else
+
     bool success = SendTxRequestAndWaitResult(txm, &scan_open, output);
     if (!success)
     {
@@ -6271,35 +6268,15 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
 
     uint64_t scan_alias = scan_open.Result();
     assert(scan_alias != UINT64_MAX);
-#endif
 
     std::unique_ptr<txservice::store::DataStoreScanner> storage_scanner =
         nullptr;
-#ifndef RANGE_PARTITION_ENABLED
     if (store_hd_ != nullptr && !skip_kv_)
     {
         const RedisTableSchema &redis_table_schema =
             *static_cast<const RedisTableSchema *>(catalog_rec.Schema());
         std::vector<txservice::store::DataStoreSearchCond> pushed_cond;
-#if defined(DATA_STORE_TYPE_CASSANDRA)
-        pushed_cond.emplace_back("___deleted___",
-                                 "=",
-                                 "FALSE",
-                                 txservice::store::DataStoreDataType::Numeric);
-        if (cmd->obj_type_ != RedisObjectType::Unknown)
-        {
-            char type = static_cast<char>(cmd->obj_type_);
-            char type2 = type + 1;
-            pushed_cond.emplace_back("___encoded_blob___",
-                                     ">=",
-                                     std::string(&type, 1),
-                                     txservice::store::DataStoreDataType::Blob);
-            pushed_cond.emplace_back("___encoded_blob___",
-                                     "<",
-                                     std::string(&type2, 1),
-                                     txservice::store::DataStoreDataType::Blob);
-        }
-#elif defined(DATA_STORE_TYPE_DYNAMODB)
+#if defined(DATA_STORE_TYPE_DYNAMODB)
         pushed_cond.emplace_back(
             "#dl", "=", "FALSE", txservice::store::DataStoreDataType::Bool);
         if (cmd->obj_type_ != RedisObjectType::Unknown)
@@ -6355,7 +6332,6 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
             return false;
         }
     }
-#endif
 
     std::vector<txservice::ScanBatchTuple> scan_batch;
     size_t scan_batch_idx{UINT64_MAX};
@@ -6402,9 +6378,6 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
                     txm,
                     static_cast<int32_t>(cmd->obj_type_),
                     cmd->pattern_.StringView());
-#ifdef RANGE_PARTITION_ENABLED
-                scan_batch_req.prefetch_slice_cnt_ = 255;
-#endif
                 auto success =
                     SendTxRequestAndWaitResult(txm, &scan_batch_req, output);
                 if (!success)

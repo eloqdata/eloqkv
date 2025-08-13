@@ -6,9 +6,6 @@ set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -DFAULT_INJECTOR")
 
 option(BRPC_WITH_GLOG "With glog" ON)
 
-option(RANGE_PARTITION_ENABLED "Whether enable range partition" OFF)
-message(NOTICE "RANGE_PARTITION_ENABLED : ${RANGE_PARTITION_ENABLED}")
-
 option (FORK_HM_PROCESS "Whether fork host manager process" OFF)
 message(NOTICE "FORK_HM_PROCESS : ${FORK_HM_PROCESS}")
 if (FORK_HM_PROCESS)
@@ -18,10 +15,6 @@ endif()
 option(SKIP_WRITE_LOG "Skip writing log" ON)
 
 add_compile_definitions(ON_KEY_OBJECT)
-
-if (RANGE_PARTITION_ENABLED)
-    add_compile_definitions(RANGE_PARTITION_ENABLED)
-endif()
 
 if (SKIP_WRITE_LOG)
     add_compile_definitions(SKIP_WRITE_LOG)

@@ -625,26 +625,9 @@ txservice::CcMap::uptr RedisCatalogFactory::CreateRangeMap(
 std::unique_ptr<txservice::CcScanner> RedisCatalogFactory::CreatePkCcmScanner(
     txservice::ScanDirection direction, const txservice::KeySchema *key_schema)
 {
-#ifdef RANGE_PARTITION_ENABLED
-    if (direction == txservice::ScanDirection::Forward)
-    {
-        return std::make_unique<
-            txservice::
-                RangePartitionedCcmScanner<EloqKey, RedisEloqObject, true>>(
-            direction, txservice::ScanIndexType::Primary, key_schema);
-    }
-    else
-    {
-        return std::make_unique<
-            txservice::
-                RangePartitionedCcmScanner<EloqKey, RedisEloqObject, false>>(
-            direction, txservice::ScanIndexType::Primary, key_schema);
-    }
-#else
     return std::make_unique<
         txservice::TemplateCcScanner<EloqKey, RedisEloqObject>>(
         direction, txservice::ScanIndexType::Primary, key_schema);
-#endif
 }
 
 std::unique_ptr<txservice::CcScanner> RedisCatalogFactory::CreateSkCcmScanner(

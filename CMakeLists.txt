@@ -94,13 +94,6 @@ if(OPEN_LOG_SERVICE)
     add_compile_definitions(OPEN_LOG_SERVICE=1)
 endif()
 
-option(RANGE_PARTITION_ENABLED "Whether enable range partition" OFF)
-message(NOTICE "RANGE_PARTITION_ENABLED : ${RANGE_PARTITION_ENABLED}")
-
-if(RANGE_PARTITION_ENABLED)
-    add_definitions(-DRANGE_PARTITION_ENABLED)
-endif()
-
 option(EXT_TX_PROC_ENABLED "Allows runtime threads to move forward the tx service." ON)
 
 if(EXT_TX_PROC_ENABLED)
