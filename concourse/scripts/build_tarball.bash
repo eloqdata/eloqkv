@@ -88,14 +88,23 @@ copy_libraries() {
 
 S3_BUCKET="eloq-release"
 S3_PREFIX="s3://${S3_BUCKET}/eloqkv"
-KVS_ID=$(echo ${KV_TYPE} | tr '[:upper:]' '[:lower:]')
-if [ "${KV_TYPE}" = "ELOQDSS_ROCKSDB_CLOUD_S3" ]; then
-    CMAKE_ARGS="${CMAKE_ARGS} -DUSE_ROCKSDB_LOG_STATE=ON -DWITH_ROCKSDB_CLOUD=S3 -DWITH_CLOUD_AZ_INFO=ON"
+
+# Normalize behavior for supported KV_TYPE values
+if [ "${KV_TYPE}" = "ROCKSDB" ]; then
+    KVS_ID="rocksdb"
+elif [ "${KV_TYPE}" = "ELOQDSS_ROCKSDB_CLOUD_S3" ]; then
+    CMAKE_ARGS="${CMAKE_ARGS} -DUSE_ROCKSDB_LOG_STATE=ON -DWITH_ROCKSDB_CLOUD=S3"
     KVS_ID="rocks_s3"
 elif [ "${KV_TYPE}" = "ELOQDSS_ROCKSDB_CLOUD_GCS" ]; then
     CMAKE_ARGS="${CMAKE_ARGS} -DUSE_ROCKSDB_LOG_STATE=ON -DWITH_ROCKSDB_CLOUD=GCS"
     KVS_ID="rocks_gcs"
+elif [ "${KV_TYPE}" = "ELOQDSS_ROCKSDB" ]; then
+    KVS_ID="eloqdss_rocksdb"
+else
+    echo "Unsupported KV_TYPE: ${KV_TYPE}"
+    exit 1
 fi
+
 
 if [ "$ASAN" = "ON" ]; then
     export ASAN_OPTIONS=abort_on_error=1:detect_container_overflow=0:leak_check_at_exit=0
@@ -158,7 +167,8 @@ copy_libraries eloqkv ${DEST_DIR}/lib
 mv eloqkv ${DEST_DIR}/bin/
 copy_libraries host_manager ${DEST_DIR}/lib
 mv host_manager ${DEST_DIR}/bin/
-if [ $KVS_ID = "rocksdb" ]; then
+
+if [ "${KV_TYPE}" = "ROCKSDB" ]; then
     copy_libraries eloqkv_to_aof ${DEST_DIR}/lib
     mv eloqkv_to_aof ${DEST_DIR}/bin/
     copy_libraries eloqkv_to_rdb ${DEST_DIR}/lib

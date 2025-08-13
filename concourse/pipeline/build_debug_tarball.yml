@@ -2,7 +2,7 @@ resources:
 - name: eloqkv_src_main
   type: git
   source:
-    branch: main
+    branch: fix_build_tarball_script_zx
     uri: git@github.com:eloqdata/eloqkv.git
     private_key: ((git-key))
 
@@ -70,6 +70,22 @@ jobs:
       BUILD_LOG_SRV: "true"
       BUILD_TYPE: Debug
       KV_TYPE: ROCKSDB
+      OUT_NAME: debug
+      CLOUDFRONT_DIST: ((cloudfront-dist))
+
+  - task: build-eloqdss-rocksdb-type
+    file: eloqkv_src/concourse/tasks/build_debug_tarball.yml
+    image: image_ubuntu2204
+    params:
+      ASAN: "ON"
+      TAGGED: ""
+      GIT_SSH_KEY: ((git-key))
+      AWS_ACCESS_KEY_ID: ((aws_access_key_id))
+      AWS_DEFAULT_REGION: ((aws-region))
+      AWS_SECRET_ACCESS_KEY: ((aws_secret_access_key))
+      BUILD_LOG_SRV: "true"
+      BUILD_TYPE: Debug
+      KV_TYPE: ELOQDSS_ROCKSDB
       OUT_NAME: debug
       CLOUDFRONT_DIST: ((cloudfront-dist))
 
