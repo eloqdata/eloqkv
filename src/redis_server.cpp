@@ -63,7 +63,7 @@ int main(int argc, char *argv[])
 #if BRPC_WITH_GLOG
     InitGoogleLogging(argv);
 #endif
-    FLAGS_stderrthreshold = google::GLOG_ERROR;
+    FLAGS_stderrthreshold = google::GLOG_FATAL;
     if (!FLAGS_alsologtostderr)
     {
         PrintHelloText();

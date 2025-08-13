@@ -105,7 +105,7 @@ inline void InitGoogleLogging(char **argv)
 
         // stderrthreshold (log messages at or above this level are copied to
         // stderr in addition to logfiles.) default: 2.
-        FLAGS_stderrthreshold = 3;
+        FLAGS_stderrthreshold = google::GLOG_FATAL;
 
         // Don't buffer anything. NOTE: If `logtostderr` or `logtostdout` is
         // `true` then glog will force this value to -1.
