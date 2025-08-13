@@ -93,7 +93,7 @@ S3_PREFIX="s3://${S3_BUCKET}/eloqkv"
 if [ "${KV_TYPE}" = "ROCKSDB" ]; then
     KVS_ID="rocksdb"
 elif [ "${KV_TYPE}" = "ELOQDSS_ROCKSDB_CLOUD_S3" ]; then
-    CMAKE_ARGS="${CMAKE_ARGS} -DUSE_ROCKSDB_LOG_STATE=ON -DWITH_ROCKSDB_CLOUD=S3"
+    CMAKE_ARGS="${CMAKE_ARGS} -DUSE_ROCKSDB_LOG_STATE=ON -DWITH_ROCKSDB_CLOUD=S3 -DWITH_CLOUD_AZ_INFO=ON"
     KVS_ID="rocks_s3"
 elif [ "${KV_TYPE}" = "ELOQDSS_ROCKSDB_CLOUD_GCS" ]; then
     CMAKE_ARGS="${CMAKE_ARGS} -DUSE_ROCKSDB_LOG_STATE=ON -DWITH_ROCKSDB_CLOUD=GCS"
@@ -216,7 +216,7 @@ build_upload_log_srv() {
     mkdir build && cd build
     cmake_args="-DCMAKE_BUILD_TYPE=$BUILD_TYPE -DWITH_ASAN=$ASAN -DDISABLE_CODE_LINE_IN_LOG=ON -DUSE_ROCKSDB_LOG_STATE=ON"
     if [ "$kv_type" = "ELOQDSS_ROCKSDB_CLOUD_S3" ]; then
-        cmake_args="$cmake_args -DWITH_ROCKSDB_CLOUD=S3"
+        cmake_args="$cmake_args -DWITH_ROCKSDB_CLOUD=S3 -DWITH_CLOUD_AZ_INFO=ON"
     elif [ "$kv_type" = "ELOQDSS_ROCKSDB_CLOUD_GCS" ]; then
         cmake_args="$cmake_args -DWITH_ROCKSDB_CLOUD=GCS"
     fi
