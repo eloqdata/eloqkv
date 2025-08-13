@@ -4775,7 +4775,7 @@ BLMoveCommand::BLMoveCommand(EloqKey &&skey,
 
 void BLMoveCommand::OutputResult(OutputHandler *reply) const
 {
-    if (curr_step_ == 1 && is_forward_ &&
+    if (curr_step_ == 1 && has_forwarded_ &&
         vct_cmd_ptrs_[curr_step_][0] == discard_cmd_.get())
     {
         // expired
@@ -4809,7 +4809,7 @@ void BLMoveCommand::OutputResult(OutputHandler *reply) const
 bool BLMoveCommand::ForwardResult()
 {
     assert(curr_step_ == 1);
-    is_forward_ = true;
+    has_forwarded_ = true;
 
     if (sour_cmd_->result_.err_code_ == RD_ERR_WRONG_TYPE)
     {
@@ -4882,7 +4882,8 @@ bool BLMoveCommand::HandleMiddleResult()
         // Step 1: This step is blocking operation. Block on the object until
         // the object has at least one element and only return list object size.
         // Commands executed in this step will not be written to the log.
-        if (is_forward_ && vct_cmd_ptrs_[curr_step_][0] == discard_cmd_.get())
+        if (has_forwarded_ &&
+            vct_cmd_ptrs_[curr_step_][0] == discard_cmd_.get())
         {
             // expired.
             return false;
@@ -5051,7 +5052,7 @@ bool BLMPopCommand::ForwardResult()
         discard = true;
     }
 
-    is_forward_ = true;
+    has_forwarded_ = true;
     return discard;
 }
 
