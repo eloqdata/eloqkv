@@ -49,7 +49,7 @@ sudo ldconfig
 cd ../ && rm -rf protobuf
 
 # Install glog
-git clone https://github.com/monographdb/glog.git glog
+git clone https://github.com/eloqdata/glog.git glog
 cd glog
 cmake -S . -B build -G "Unix Makefiles"
 cmake --build build -j6
@@ -65,7 +65,7 @@ make -j4 && sudo make install
 cd .. && rm -rf liburing
 
 # Install brpc
-git clone https://github.com/monographdb/brpc.git brpc
+git clone https://github.com/eloqdata/brpc.git brpc
 cd brpc
 mkdir build && cd build
 cmake .. \
@@ -78,7 +78,7 @@ sudo cp ./output/lib/* /usr/lib/
 cd ../../ && rm -rf brpc
 
 # Install braft
-git clone https://github.com/monographdb/braft.git braft
+git clone https://github.com/eloqdata/braft.git braft
 cd braft
 sed -i 's/libbrpc.a//g' CMakeLists.txt
 mkdir bld && cd bld
@@ -89,7 +89,7 @@ sudo cp ./output/lib/* /usr/lib/
 cd ../../ && rm -rf braft
 
 # Install mimalloc
-git clone https://github.com/monographdb/mimalloc.git mimalloc
+git clone https://github.com/eloqdata/mimalloc.git mimalloc
 cd mimalloc
 git checkout eloq-v2.1.2
 mkdir bld && cd bld
@@ -97,7 +97,7 @@ cmake .. && make && sudo make install
 cd ../../ && rm -rf mimalloc
 
 # Install cuckoo filter
-git clone https://github.com/monographdb/cuckoofilter.git cuckoofilter
+git clone https://github.com/eloqdata/cuckoofilter.git cuckoofilter
 cd cuckoofilter
 sudo make install
 cd .. && rm -rf cuckoofilter
@@ -251,9 +251,9 @@ sudo cp single_header/catch/fakeit.hpp /usr/include/catch2/fakeit.hpp
 cd ../ && rm -rf FakeIt
 
 # Install RocksDB-Cloud
-git clone https://github.com/monographdb/rocksdb-cloud.git
+git clone https://github.com/eloqdata/rocksdb-cloud.git
 cd rocksdb-cloud
-git checkout monographdb_main
+git checkout main
 LIBNAME=librocksdb-cloud-aws USE_RTTI=1 USE_AWS=1 ROCKSDB_DISABLE_TCMALLOC=1 ROCKSDB_DISABLE_JEMALLOC=1 make shared_lib -j8
 LIBNAME=librocksdb-cloud-aws PREFIX=$(pwd)/output make install-shared
 sudo mkdir -p /usr/local/include/rocksdb_cloud_header

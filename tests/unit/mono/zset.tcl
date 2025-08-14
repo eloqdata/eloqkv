@@ -1013,7 +1013,6 @@ start_server {tags {"zset"}} {
             assert_equal {a 1} [r zdiff 2 zseta{t} zsetb{t} withscores]
         }
 
-        # see issue https://github.com/monographdb/eloqkv/issues/566
         test "ZDIFFSTORE with a regular set - $encoding" {
             r del seta{t}
             r sadd seta{t} a
