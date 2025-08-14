@@ -1479,14 +1479,13 @@ start_server {tags {"zset"}} {
         r zrange out{t} 0 -1 withscores
     } {neginf 0} {}
 
-    # see issue https://github.com/monographdb/eloqkv/issues/566
-    # test {ZINTERSTORE #516 regression, mixed sets and ziplist zsets} {
-    #     r sadd one{t} 100 101 102 103
-    #     r sadd two{t} 100 200 201 202
-    #     r zadd three{t} 1 500 1 501 1 502 1 503 1 100
-    #     r zinterstore to_here{t} 3 one{t} two{t} three{t} WEIGHTS 0 0 1
-    #     r zrange to_here{t} 0 -1
-    # } {100}
+    test {ZINTERSTORE #516 regression, mixed sets and ziplist zsets} {
+        r sadd one{t} 100 101 102 103
+        r sadd two{t} 100 200 201 202
+        r zadd three{t} 1 500 1 501 1 502 1 503 1 100
+        r zinterstore to_here{t} 3 one{t} two{t} three{t} WEIGHTS 0 0 1
+        r zrange to_here{t} 0 -1
+    } {100}
 
     test {ZUNIONSTORE result is sorted} {
         # Create two sets with common and not common elements, perform
@@ -2612,22 +2611,21 @@ start_server {tags {"zset"}} {
                     small set_small{t} zset_big{t}
                     big set_big{t} zset_small{t}
                 } {
-                    # see issue https://github.com/monographdb/eloqkv/issues/566
-                    # # The result of these commands are not related to the order of the keys.
-                    # assert_equal {1 2 3 4 5} [lsort [r zunion 2 $set_key $zset_key]]
-                    # assert_equal {5} [r zunionstore zset_dest{t} 2 $set_key $zset_key]
-                    # assert_equal {1 2 3} [lsort [r zinter 2 $set_key $zset_key]]
-                    # assert_equal {3} [r zinterstore zset_dest{t} 2 $set_key $zset_key]
-                    # assert_equal {3} [r zintercard 2 $set_key $zset_key]
+                    # The result of these commands are not related to the order of the keys.
+                    assert_equal {1 2 3 4 5} [lsort [r zunion 2 $set_key $zset_key]]
+                    assert_equal {5} [r zunionstore zset_dest{t} 2 $set_key $zset_key]
+                    assert_equal {1 2 3} [lsort [r zinter 2 $set_key $zset_key]]
+                    assert_equal {3} [r zinterstore zset_dest{t} 2 $set_key $zset_key]
+                    assert_equal {3} [r zintercard 2 $set_key $zset_key]
 
-                    # # The result of sdiff is related to the order of the keys.
-                    # if {$small_or_big == "small"} {
-                    #     assert_equal {} [r zdiff 2 $set_key $zset_key]
-                    #     assert_equal {0} [r zdiffstore zset_dest{t} 2 $set_key $zset_key]
-                    # } else {
-                    #     assert_equal {4 5} [lsort [r zdiff 2 $set_key $zset_key]]
-                    #     assert_equal {2} [r zdiffstore zset_dest{t} 2 $set_key $zset_key]
-                    # }
+                    # The result of sdiff is related to the order of the keys.
+                    if {$small_or_big == "small"} {
+                        assert_equal {} [r zdiff 2 $set_key $zset_key]
+                        assert_equal {0} [r zdiffstore zset_dest{t} 2 $set_key $zset_key]
+                    } else {
+                        assert_equal {4 5} [lsort [r zdiff 2 $set_key $zset_key]]
+                        assert_equal {2} [r zdiffstore zset_dest{t} 2 $set_key $zset_key]
+                    }
                 }
             }
         }
