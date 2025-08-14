@@ -1243,8 +1243,7 @@ bool RedisServiceImpl::Init(brpc::Server &brpc_server)
                 .append(eloq_store_config.storage_path_)
                 .append("/ds_")
                 .append(std::to_string(shard_id));
-            store_config.fd_limit = eloq_store_config.open_files_limit_ /
-                                    eloq_store_config.worker_count_;
+            store_config.fd_limit = eloq_store_config.open_files_limit_;
             if (!eloq_store_config.cloud_store_path_.empty())
             {
                 store_config.cloud_store_path
