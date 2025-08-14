@@ -1591,8 +1591,9 @@ bool RedisServiceImpl::Init(brpc::Server &brpc_server)
         {"max_standby_lag", max_standby_lag},
         {"kickout_data_for_test", FLAGS_kickout_data_for_test ? 1 : 0}};
 
+    CatalogFactory *catalog_factory[3]{nullptr, &catalog_factory_, nullptr};
     tx_service_ = std::make_unique<TxService>(
-        &catalog_factory_,
+        catalog_factory,
         nullptr,  // "SystemHandler" is only used for mysql
         tx_service_conf,
         node_id,
