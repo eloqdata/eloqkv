@@ -358,6 +358,9 @@ DEFINE_uint32(eloq_store_gc_threads,
               1,
               "EloqStore gc threads count (Must be 0 when cloud store is "
               "enabled).");
+DEFINE_uint32(eloq_store_cloud_worker_count,
+              1,
+              "EloqStore cloud worker count.");
 #endif
 #endif
 
@@ -1193,6 +1196,12 @@ bool RedisServiceImpl::Init(brpc::Server &brpc_server)
                        : config_reader.GetInteger("store",
                                                   "eloq_store_gc_threads",
                                                   FLAGS_eloq_store_gc_threads));
+        eloq_store_config.cloud_worker_count_ =
+            !CheckCommandLineFlagIsDefault("eloq_store_cloud_worker_count")
+                ? FLAGS_eloq_store_cloud_worker_count
+                : config_reader.GetInteger("store",
+                                           "eloq_store_cloud_worker_count",
+                                           FLAGS_eloq_store_cloud_worker_count);
         auto ds_factory = std::make_unique<EloqDS::EloqStoreDataStoreFactory>(
             eloq_store_config);
 #endif
@@ -1244,6 +1253,7 @@ bool RedisServiceImpl::Init(brpc::Server &brpc_server)
                     .append(std::to_string(shard_id));
             }
             store_config.num_gc_threads = eloq_store_config.gc_threads_;
+            store_config.rclone_threads = eloq_store_config.cloud_worker_count_;
 
             DLOG(INFO) << "Create EloqStore storage with workers: "
                        << store_config.num_threads
@@ -1251,7 +1261,9 @@ bool RedisServiceImpl::Init(brpc::Server &brpc_server)
                        << ", open files limit: " << store_config.fd_limit
                        << ", cloud store path: "
                        << store_config.cloud_store_path
-                       << ", gc threads: " << store_config.num_gc_threads;
+                       << ", gc threads: " << store_config.num_gc_threads
+                       << ", cloud worker count: "
+                       << store_config.rclone_threads;
             auto ds = std::make_unique<EloqDS::EloqStoreDataStore>(
                 shard_id, data_store_service_.get(), store_config);
 #endif
