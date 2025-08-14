@@ -33,9 +33,6 @@
 #include "tx_key.h"
 #include "tx_record.h"
 #include "type.h"
-#if defined(DATA_STORE_TYPE_CASSANDRA)
-#include "cass/include/cassandra.h"
-#endif
 
 namespace EloqKV
 {
@@ -76,39 +73,6 @@ struct RedisRecordSchema : public txservice::RecordSchema
 {
 public:
     RedisRecordSchema() = default;
-
-private:
-#if defined(DATA_STORE_TYPE_CASSANDRA)
-    void EncodeToSerializeFormat(txservice::TableType table_type,
-                                 const void *row,
-                                 std::string &buf) const override
-    {
-        buf.clear();
-        const CassRow *cass_row = reinterpret_cast<const CassRow *>(row);
-        assert(table_type == txservice::TableType::Primary);
-        const cass_byte_t *encoded_blob = NULL;
-        size_t encoded_blob_len = 0;
-        cass_value_get_bytes(
-            cass_row_get_column(cass_row, 0), &encoded_blob, &encoded_blob_len);
-        buf.append(reinterpret_cast<const char *>(encoded_blob),
-                   encoded_blob_len);
-    }
-
-    void EncodeToTxRecord(const txservice::TableName &table_name,
-                          const void *row,
-                          txservice::TxRecord &tx_record) const override
-    {
-        assert(table_name.Type() == txservice::TableType::Primary);
-        const CassRow *cass_row = reinterpret_cast<const CassRow *>(row);
-        const cass_byte_t *encoded_blob = NULL;
-        size_t encoded_blob_len = 0;
-        cass_value_get_bytes(
-            cass_row_get_column(cass_row, 0), &encoded_blob, &encoded_blob_len);
-        size_t offset = 0;
-        tx_record.Deserialize(reinterpret_cast<const char *>(encoded_blob),
-                              offset);
-    }
-#endif
 };
 
 struct RedisTableSchema : public txservice::TableSchema

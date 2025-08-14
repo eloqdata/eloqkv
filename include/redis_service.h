@@ -59,10 +59,6 @@
 #include "store_handler/rocksdb_handler.h"
 #endif
 
-#ifdef DATA_STORE_TYPE_CASSANDRA
-#include "store_handler/cass_handler.h"
-#endif
-
 #ifdef DATA_STORE_TYPE_DYNAMODB
 #include "store_handler/dynamo_handler.h"
 #endif
@@ -544,9 +540,7 @@ private:
     Aws::SDKOptions aws_options_;
 #endif
 
-#if defined(DATA_STORE_TYPE_CASSANDRA)
-    std::unique_ptr<EloqDS::CassHandler> store_hd_;
-#elif defined(DATA_STORE_TYPE_DYNAMODB)
+#if defined(DATA_STORE_TYPE_DYNAMODB)
     std::unique_ptr<EloqDS::DynamoHandler> store_hd_;
 #elif defined(DATA_STORE_TYPE_ROCKSDB)
     std::unique_ptr<RocksDBHandlerImpl> store_hd_;
