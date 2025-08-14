@@ -44,10 +44,7 @@
 #define ELOQDS 1
 #endif
 
-#ifdef DATA_STORE_TYPE_CASSANDRA
-#include "cass/include/cassandra.h"
-#include "store_handler/cass_handler.h"
-#elif defined(DATA_STORE_TYPE_DYNAMODB)
+#if defined(DATA_STORE_TYPE_DYNAMODB)
 #include "store_handler/dynamo_handler.h"
 #elif defined(DATA_STORE_TYPE_ROCKSDB)
 #include "store_handler/rocksdb_handler.h"
@@ -64,21 +61,7 @@ RedisTableSchema::RedisTableSchema(const txservice::TableName &redis_table_name,
       schema_image_(catalog_image),
       version_(version)
 {
-#ifdef DATA_STORE_TYPE_CASSANDRA
-    kv_info_ = std::make_unique<EloqDS::CassCatalogInfo>();
-    // Deserialize catalog_image into frm_str and kv_info_str
-    std::string frm, kv_info, schemas_ts_str;
-    EloqDS::DeserializeSchemaImage(catalog_image, frm, kv_info, schemas_ts_str);
-
-    // Deserialize kv info
-    size_t offset = 0;
-    kv_info_->Deserialize(kv_info.data(), offset);
-    // Use table version as key schema version.
-    uint64_t key_schema_ts = version;
-    key_schema_ = std::make_unique<RedisKeySchema>(key_schema_ts);
-    record_schema_ = std::make_unique<RedisRecordSchema>();
-
-#elif defined(DATA_STORE_TYPE_DYNAMODB)
+#if defined(DATA_STORE_TYPE_DYNAMODB)
     // TODO(lokax): catalog image format
     kv_info_ = std::make_unique<EloqDS::DynamoCatalogInfo>();
     // Catalog image only stores kv_table_name for now.

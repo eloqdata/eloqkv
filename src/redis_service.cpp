@@ -956,59 +956,7 @@ bool RedisServiceImpl::Init(brpc::Server &brpc_server)
 
     if (!skip_kv_)
     {
-#if defined(DATA_STORE_TYPE_CASSANDRA)
-        std::string store_host =
-            !CheckCommandLineFlagIsDefault("cass_hosts")
-                ? FLAGS_cass_hosts
-                : config_reader.GetString(
-                      "store", "cass_hosts", FLAGS_cass_hosts);
-
-        std::string store_port =
-            !CheckCommandLineFlagIsDefault("cass_port")
-                ? FLAGS_cass_port
-                : config_reader.GetString(
-                      "store", "cass_port", FLAGS_cass_port);
-
-        std::string store_keyspace =
-            !CheckCommandLineFlagIsDefault("cass_keyspace")
-                ? FLAGS_cass_keyspace
-                : config_reader.GetString(
-                      "store", "cass_keyspace", FLAGS_cass_keyspace);
-
-        std::string store_user =
-            !CheckCommandLineFlagIsDefault("cass_user")
-                ? FLAGS_cass_user
-                : config_reader.GetString("store", "cass_user", "cassandra");
-        std::string store_password =
-            !CheckCommandLineFlagIsDefault("cass_password")
-                ? FLAGS_cass_password
-                : config_reader.GetString(
-                      "store", "cass_password", "cassandra");
-        std::string store_class =
-            !CheckCommandLineFlagIsDefault("cass_keyspace_class")
-                ? FLAGS_cass_keyspace_class
-                : config_reader.GetString(
-                      "store", "cass_keyspace_class", "SimpleStrategy");
-        std::string store_replication =
-            !CheckCommandLineFlagIsDefault("cass_keyspace_replication")
-                ? FLAGS_cass_keyspace_replication
-                : config_reader.GetString(
-                      "store", "cass_keyspace_replication", "1");
-
-        int store_queue_size_io = 300000;
-        store_hd_ = std::make_unique<EloqDS::CassHandler>(store_host,
-                                                          stoi(store_port),
-                                                          store_user,
-                                                          store_password,
-                                                          store_keyspace,
-                                                          store_class,
-                                                          store_replication,
-                                                          false,
-                                                          store_queue_size_io,
-                                                          false,
-                                                          false);
-
-#elif defined(DATA_STORE_TYPE_DYNAMODB)
+#if defined(DATA_STORE_TYPE_DYNAMODB)
         std::string dynamodb_endpoint =
             !CheckCommandLineFlagIsDefault("dynamodb_endpoint")
                 ? FLAGS_dynamodb_endpoint
