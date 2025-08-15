@@ -375,14 +375,14 @@ if((WITH_DATA_STORE STREQUAL "ROCKSDB_CLOUD_S3") OR(WITH_DATA_STORE STREQUAL "RO
 endif()
 
 if(WITH_DATA_STORE STREQUAL "DYNAMODB")
-    SET(RESMONOGRAPH_LIBRARY ${RESMONOGRAPH_LIBRARY} ${AWSSDK_LINK_LIBRARIES})
+    SET(RESELOQ_LIBRARY ${RESELOQ_LIBRARY} ${AWSSDK_LINK_LIBRARIES})
 elseif(WITH_DATA_STORE STREQUAL "ROCKSDB")
-    SET(RESMONOGRAPH_LIBRARY ${RESMONOGRAPH_LIBRARY} ${ROCKSDB_LIBRARIES})
+    SET(RESELOQ_LIBRARY ${RESELOQ_LIBRARY} ${ROCKSDB_LIBRARIES})
 elseif((WITH_DATA_STORE STREQUAL "ROCKSDB_CLOUD_S3") OR(WITH_DATA_STORE STREQUAL "ROCKSDB_CLOUD_GCS")
     OR(WITH_DATA_STORE STREQUAL "ELOQDSS_ROCKSDB_CLOUD_S3") OR(WITH_DATA_STORE STREQUAL "ELOQDSS_ROCKSDB_CLOUD_GCS"))
-    SET(RESMONOGRAPH_LIBRARY ${RESMONOGRAPH_LIBRARY} ${ROCKSDB_LIBRARIES})
+    SET(RESELOQ_LIBRARY ${RESELOQ_LIBRARY} ${ROCKSDB_LIBRARIES})
 elseif(WITH_DATA_STORE STREQUAL "ELOQDSS_ELOQSTORE")
-    SET(RESMONOGRAPH_LIBRARY ${RESMONOGRAPH_LIBRARY} eloqstore)
+    SET(RESELOQ_LIBRARY ${RESELOQ_LIBRARY} eloqstore)
 endif()
 
 set(DYNAMIC_LIB
@@ -496,10 +496,10 @@ if(NOT(WITH_DATA_STORE STREQUAL "ELOQDSS_ELOQSTORE"))
     SET(RESELOQ_RESOURCES ${RESELOQ_RESOURCES} ${INI_SOURCES})
 endif()
 
-SET(RESMONOGRAPH_LIBRARY ${RESMONOGRAPH_LIBRARY} txservice ${METRICS_LIB})
+SET(RESELOQ_LIBRARY ${RESELOQ_LIBRARY} txservice ${METRICS_LIB})
 
 if(WITH_LOG_SERVICE)
-    SET(RESMONOGRAPH_LIBRARY ${RESMONOGRAPH_LIBRARY} logservice)
+    SET(RESELOQ_LIBRARY ${RESELOQ_LIBRARY} logservice)
 endif()
 
 # crcspeed
@@ -604,7 +604,7 @@ add_subdirectory(fpconv)
 
 # add_executable(redis_press redis_press.cpp)
 add_executable(eloqkv src/redis_server.cpp ${RESELOQ_RESOURCES})
-target_link_libraries(eloqkv ${DYNAMIC_LIB} ${RESMONOGRAPH_LIBRARY} ${ABSEIL} lua fpconv)
+target_link_libraries(eloqkv ${DYNAMIC_LIB} ${RESELOQ_LIBRARY} ${ABSEIL} lua fpconv)
 
 option(WITH_BOOST_STACKTRACE "With boost stack trace." OFF)
 message("WITH_BOOST_STACKTRACE: " ${WITH_BOOST_STACKTRACE})
@@ -619,13 +619,13 @@ endif()
 
 if(WITH_DATA_STORE STREQUAL "ROCKSDB")
     add_executable(eloqkv_to_aof src/tools/eloqkv2aof/eloqkv2aof.cpp ${RESELOQ_RESOURCES})
-    target_link_libraries(eloqkv_to_aof ${DYNAMIC_LIB} ${RESMONOGRAPH_LIBRARY} ${ABSEIL} lua fpconv)
+    target_link_libraries(eloqkv_to_aof ${DYNAMIC_LIB} ${RESELOQ_LIBRARY} ${ABSEIL} lua fpconv)
     add_executable(eloqkv_to_rdb src/tools/eloqkv2rdb/eloqkv2rdb.cpp ${RESELOQ_RESOURCES})
-    target_link_libraries(eloqkv_to_rdb ${DYNAMIC_LIB} ${RESMONOGRAPH_LIBRARY} ${ABSEIL} lua fpconv)
+    target_link_libraries(eloqkv_to_rdb ${DYNAMIC_LIB} ${RESELOQ_LIBRARY} ${ABSEIL} lua fpconv)
 endif()
 
 # add_executable(test_io_write src/tools/eloqkv2aof/test_io_write.cpp ${RESELOQ_RESOURCES})
-# target_link_libraries(test_io_write ${DYNAMIC_LIB} ${RESMONOGRAPH_LIBRARY} ${ABSEIL} lua fpconv)
+# target_link_libraries(test_io_write ${DYNAMIC_LIB} ${RESELOQ_LIBRARY} ${ABSEIL} lua fpconv)
 
 # set(AUX_LIB readline ncurses)
 # add_executable(eloqkv-client src/redis_cli.cpp)
@@ -636,7 +636,7 @@ if(${BUILD_WITH_TESTS})
     find_package(Catch2 REQUIRED)
 
     add_executable(object_serialize_deserialize_test ./tests/unit/mono/object_serialize_deserialize_test.cpp ${RESELOQ_RESOURCES})
-    target_link_libraries(object_serialize_deserialize_test PRIVATE Catch2::Catch2WithMain ${ABSEIL} ${LOG_LIB} ${RESMONOGRAPH_LIBRARY} lua fpconv ${DYNAMIC_LIB})
+    target_link_libraries(object_serialize_deserialize_test PRIVATE Catch2::Catch2WithMain ${ABSEIL} ${LOG_LIB} ${RESELOQ_LIBRARY} lua fpconv ${DYNAMIC_LIB})
 
     add_test(NAME serialize/deserialize_test COMMAND object_serialize_deserialize_test WORKING_DIRECTORY ${CMAKE_BINARY_DIR})
     enable_testing()
