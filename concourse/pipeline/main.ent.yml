@@ -34,7 +34,7 @@ resources:
   - name: eloq_ubuntu_2404
     type: registry-image
     source:
-      repository: eloqdata/monograph-dev-ci-ubuntu2404
+      repository: eloqdata/eloq-dev-ci-ubuntu2404
       tag: latest
 
 jobs:

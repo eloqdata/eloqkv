@@ -52,7 +52,7 @@ option(WITH_ASAN "Enable memory sanitize" OFF)
 message(NOTICE "WITH ASAN: ${WITH_ASAN}")
 
 # KV data store backend for redis server, Rocksdb, DynamoDB, RocksDB Cloud
-set(WITH_DATA_STORE "ROCKSDB" CACHE STRING "The KV data store for Monograph Redis")
+set(WITH_DATA_STORE "ROCKSDB" CACHE STRING "The KV data store for EloqKV")
 set_property(CACHE WITH_DATA_STORE PROPERTY STRINGS "DYNAMODB" "ROCKSDB" "ROCKSDB_CLOUD_S3" "ROCKSDB_CLOUD_GCS" "ELOQDSS_ROCKSDB_CLOUD_S3" "ELOQDSS_ROCKSDB_CLOUD_GCS" "ELOQDSS_ROCKSDB""ELOQDSS_ELOQSTORE")
 message(NOTICE "With DATA_STORE: ${WITH_DATA_STORE}")
 
@@ -459,7 +459,7 @@ endif()
 
 INCLUDE(build_eloq_metrics.cmake)
 
-SET(RESMONOGRAPH_SOURCES
+SET(RESELOQ_RESOURCES
     src/redis/commands.c
     src/redis/zmalloc.c
     src/redis/monotonic.c
@@ -493,7 +493,7 @@ SET(RESMONOGRAPH_SOURCES
 SET(INI_SOURCES src/ini.c src/INIReader.cpp)
 
 if(NOT(WITH_DATA_STORE STREQUAL "ELOQDSS_ELOQSTORE"))
-    SET(RESMONOGRAPH_SOURCES ${RESMONOGRAPH_SOURCES} ${INI_SOURCES})
+    SET(RESELOQ_RESOURCES ${RESELOQ_RESOURCES} ${INI_SOURCES})
 endif()
 
 SET(RESMONOGRAPH_LIBRARY ${RESMONOGRAPH_LIBRARY} txservice ${METRICS_LIB})
@@ -504,16 +504,16 @@ endif()
 
 # crcspeed
 SET(CRCSPEED_SOURCES crcspeed/crcspeed.c crcspeed/crc16speed.c crcspeed/crc64speed.c)
-SET(RESMONOGRAPH_SOURCES ${RESMONOGRAPH_SOURCES} ${CRCSPEED_SOURCES})
+SET(RESELOQ_RESOURCES ${RESELOQ_RESOURCES} ${CRCSPEED_SOURCES})
 
 if(WITH_DATA_STORE STREQUAL "DYNAMODB")
-    SET(RESMONOGRAPH_SOURCES ${RESMONOGRAPH_SOURCES}
+    SET(RESELOQ_RESOURCES ${RESELOQ_RESOURCES}
         store_handler/dynamo_handler.cpp
         store_handler/dynamo_scanner.cpp
         store_handler/dynamo_handler_typed.cpp
     )
 elseif((WITH_DATA_STORE STREQUAL "ROCKSDB") OR(WITH_DATA_STORE STREQUAL "ROCKSDB_CLOUD_S3") OR(WITH_DATA_STORE STREQUAL "ROCKSDB_CLOUD_GCS"))
-    SET(RESMONOGRAPH_SOURCES ${RESMONOGRAPH_SOURCES}
+    SET(RESELOQ_RESOURCES ${RESELOQ_RESOURCES}
         store_handler/rocksdb_config.cpp
         store_handler/rocksdb_handler.cpp
         store_handler/rocksdb_scanner.cpp
@@ -521,7 +521,7 @@ elseif((WITH_DATA_STORE STREQUAL "ROCKSDB") OR(WITH_DATA_STORE STREQUAL "ROCKSDB
     )
 elseif((WITH_DATA_STORE STREQUAL "ELOQDSS_ROCKSDB_CLOUD_S3") OR
     (WITH_DATA_STORE STREQUAL "ELOQDSS_ROCKSDB_CLOUD_GCS"))
-    SET(RESMONOGRAPH_SOURCES ${RESMONOGRAPH_SOURCES}
+    SET(RESELOQ_RESOURCES ${RESELOQ_RESOURCES}
         store_handler/data_store_service_client.cpp
         store_handler/data_store_service_client_closure.cpp
         store_handler/data_store_service_scanner.cpp
@@ -536,7 +536,7 @@ elseif((WITH_DATA_STORE STREQUAL "ELOQDSS_ROCKSDB_CLOUD_S3") OR
         store_handler/eloq_data_store_service/rocksdb_config.cpp
     )
 elseif(WITH_DATA_STORE STREQUAL "ELOQDSS_ROCKSDB")
-    SET(RESMONOGRAPH_SOURCES ${RESMONOGRAPH_SOURCES}
+    SET(RESELOQ_RESOURCES ${RESELOQ_RESOURCES}
         store_handler/data_store_service_client.cpp
         store_handler/data_store_service_client_closure.cpp
         store_handler/data_store_service_scanner.cpp
@@ -551,7 +551,7 @@ elseif(WITH_DATA_STORE STREQUAL "ELOQDSS_ROCKSDB")
         store_handler/eloq_data_store_service/rocksdb_config.cpp
     )
 elseif(WITH_DATA_STORE STREQUAL "ELOQDSS_ELOQSTORE")
-    SET(RESMONOGRAPH_SOURCES ${RESMONOGRAPH_SOURCES}
+    SET(RESELOQ_RESOURCES ${RESELOQ_RESOURCES}
         store_handler/data_store_service_client.cpp
         store_handler/data_store_service_scanner.cpp
         store_handler/data_store_service_client_closure.cpp
@@ -603,7 +603,7 @@ add_subdirectory(lua)
 add_subdirectory(fpconv)
 
 # add_executable(redis_press redis_press.cpp)
-add_executable(eloqkv src/redis_server.cpp ${RESMONOGRAPH_SOURCES})
+add_executable(eloqkv src/redis_server.cpp ${RESELOQ_RESOURCES})
 target_link_libraries(eloqkv ${DYNAMIC_LIB} ${RESMONOGRAPH_LIBRARY} ${ABSEIL} lua fpconv)
 
 option(WITH_BOOST_STACKTRACE "With boost stack trace." OFF)
@@ -618,13 +618,13 @@ if(WITH_BOOST_STACKTRACE)
 endif()
 
 if(WITH_DATA_STORE STREQUAL "ROCKSDB")
-    add_executable(eloqkv_to_aof src/tools/eloqkv2aof/eloqkv2aof.cpp ${RESMONOGRAPH_SOURCES})
+    add_executable(eloqkv_to_aof src/tools/eloqkv2aof/eloqkv2aof.cpp ${RESELOQ_RESOURCES})
     target_link_libraries(eloqkv_to_aof ${DYNAMIC_LIB} ${RESMONOGRAPH_LIBRARY} ${ABSEIL} lua fpconv)
-    add_executable(eloqkv_to_rdb src/tools/eloqkv2rdb/eloqkv2rdb.cpp ${RESMONOGRAPH_SOURCES})
+    add_executable(eloqkv_to_rdb src/tools/eloqkv2rdb/eloqkv2rdb.cpp ${RESELOQ_RESOURCES})
     target_link_libraries(eloqkv_to_rdb ${DYNAMIC_LIB} ${RESMONOGRAPH_LIBRARY} ${ABSEIL} lua fpconv)
 endif()
 
-# add_executable(test_io_write src/tools/eloqkv2aof/test_io_write.cpp ${RESMONOGRAPH_SOURCES})
+# add_executable(test_io_write src/tools/eloqkv2aof/test_io_write.cpp ${RESELOQ_RESOURCES})
 # target_link_libraries(test_io_write ${DYNAMIC_LIB} ${RESMONOGRAPH_LIBRARY} ${ABSEIL} lua fpconv)
 
 # set(AUX_LIB readline ncurses)
@@ -635,7 +635,7 @@ option(BUILD_WITH_TESTS "Run unit-tests" OFF)
 if(${BUILD_WITH_TESTS})
     find_package(Catch2 REQUIRED)
 
-    add_executable(object_serialize_deserialize_test ./tests/unit/mono/object_serialize_deserialize_test.cpp ${RESMONOGRAPH_SOURCES})
+    add_executable(object_serialize_deserialize_test ./tests/unit/mono/object_serialize_deserialize_test.cpp ${RESELOQ_RESOURCES})
     target_link_libraries(object_serialize_deserialize_test PRIVATE Catch2::Catch2WithMain ${ABSEIL} ${LOG_LIB} ${RESMONOGRAPH_LIBRARY} lua fpconv ${DYNAMIC_LIB})
 
     add_test(NAME serialize/deserialize_test COMMAND object_serialize_deserialize_test WORKING_DIRECTORY ${CMAKE_BINARY_DIR})
