@@ -69,7 +69,7 @@ jobs:
 resources:
   - name: base_image
     source:
-      repository: eloqdata/monograph-dev-ci-ubuntu2404
+      repository: eloqdata/eloq-dev-ci-ubuntu2404
     type: registry-image
 
   - name: eloqkv_src
