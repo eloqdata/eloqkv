@@ -33,7 +33,7 @@ ELOQKV_SRC="${HOME}/eloqkv"
 
 # ensure log service under expected path
 if [ -d "${WORKSPACE}/logservice_src" ]; then
-  ln -sfn "${WORKSPACE}/logservice_src" "${ELOQKV_SRC}/eloq_log_service"
+  ln -sfn "${WORKSPACE}/logservice_src" "${ELOQKV_SRC}/log_service"
 fi
 
 pushd "${ELOQKV_SRC}/tx_service" >/dev/null
@@ -112,7 +112,7 @@ if [ -f "${ELOQKV_SRC}/concourse/artifact/eloqkv.ini" ]; then
 fi
 
 # Build and include open log_service
-LOG_SV_SRC="${ELOQKV_SRC}/eloq_log_service"
+LOG_SV_SRC="${ELOQKV_SRC}/log_service"
 if [ -d "${LOG_SV_SRC}" ]; then
   pushd "${LOG_SV_SRC}" >/dev/null
   rm -rf build LogService
