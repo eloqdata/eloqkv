@@ -139,7 +139,7 @@ EloqKV is a decoupled, distributed database built on [Data Substrate](https://ww
 Each EloqKV instance includes a frontend, compatible with the Redis protocol, deployed together with the core TxService to handle data operations. A logically independent LogService handles Write Ahead Logging (WAL) to ensure persistence, while a Storage Service manages memory state checkpoints and cold data storage.
 
 <!---
-In EloqKV, the TxService is responsible for concurrency control, ensuring that transactional operations are consistent. The Log Service can replicate logs and distributes them across different availability zones (AZs) to provide resilience against AZ-level failures. The storage service supports various persistent storage engines, including local options like RocksDB, remote clusters like Cassandra, and cloud storage solutions such as AWS DynamoDB and Object Storage. This persistent storage store cold data for cache misses and provide high availability, even during node failures.
+In EloqKV, the TxService is responsible for concurrency control, ensuring that transactional operations are consistent. The Log Service can replicate logs and distributes them across different availability zones (AZs) to provide resilience against AZ-level failures. The storage service supports various persistent storage engines, including local options like RocksDB, cloud storage solutions such as AWS DynamoDB and Object Storage. This persistent storage store cold data for cache misses and provide high availability, even during node failures.
 -->
 
 ## Benchmark

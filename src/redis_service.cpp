@@ -129,17 +129,6 @@ DECLARE_int32(event_dispatcher_num);
 
 // DEFINE all gflags here
 DECLARE_int32(core_number);
-DEFINE_string(cass_hosts, "127.0.0.1", "KvStore Cassandra hosts");
-DEFINE_string(cass_port, "9042", "KvStore Cassandra port");
-DEFINE_string(cass_user, "user", "KvStore Cassandra username");
-DEFINE_string(cass_password, "password", "KvStore Cassandra password");
-DEFINE_string(cass_keyspace, "eloq_kv", "KvStore Cassandra keyspace");
-DEFINE_string(cass_keyspace_class,
-              "SimpleStrategy",
-              "KvStore Cassandra keyspace class");
-DEFINE_string(cass_keyspace_replication,
-              "1",
-              "KvStore Cassandra keyspace replication");
 
 #if defined(DATA_STORE_TYPE_DYNAMODB)
 DEFINE_string(dynamodb_endpoint, "", "Endpoint of KvStore Dynamodb");
@@ -1539,7 +1528,8 @@ bool RedisServiceImpl::Init(brpc::Server &brpc_server)
         {"max_standby_lag", max_standby_lag},
         {"kickout_data_for_test", FLAGS_kickout_data_for_test ? 1 : 0}};
 
-    CatalogFactory *catalog_factory[3]{nullptr, &catalog_factory_, nullptr};
+    CatalogFactory *catalog_factory[4]{
+        nullptr, &catalog_factory_, nullptr, nullptr};
     tx_service_ = std::make_unique<TxService>(
         catalog_factory,
         nullptr,  // "SystemHandler" is only used for mysql
