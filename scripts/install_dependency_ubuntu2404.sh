@@ -2,8 +2,27 @@
 
 set -ex
 
+# Ensure noninteractive apt; keep TZ default
+export DEBIAN_FRONTEND=noninteractive
+export TZ=${TZ:-UTC}
+
+needs_tz_config=false
+if [ ! -f /etc/timezone ] || ! grep -qE '^(Etc/UTC|UTC)$' /etc/timezone; then
+  needs_tz_config=true
+fi
+if [ ! -L /etc/localtime ] || [ "$(readlink -f /etc/localtime)" != "/usr/share/zoneinfo/Etc/UTC" ]; then
+  needs_tz_config=true
+fi
+
+if $needs_tz_config; then
+  echo 'tzdata tzdata/Areas select Etc' | sudo debconf-set-selections || true
+  echo 'tzdata tzdata/Zones/Etc select UTC' | sudo debconf-set-selections || true
+  echo 'Etc/UTC' | sudo tee /etc/timezone >/dev/null
+  sudo ln -sf /usr/share/zoneinfo/Etc/UTC /etc/localtime
+fi
+
 # Install system packages
-sudo apt-get update
+DEBIAN_FRONTEND=noninteractive sudo apt-get update
 DEBIAN_FRONTEND=noninteractive sudo apt-get install -y --no-install-recommends \
     jq sudo vim wget curl apt-utils python3 python3-dev python3-pip python3-venv \
     python3-venv gdb libcurl4-openssl-dev build-essential libncurses5-dev \
@@ -239,10 +258,10 @@ sudo cmake --build cmake-out --target install
 cd ../ && rm -rf google-cloud-cpp
 
 # Install Google Cloud CLI
-sudo apt-get install -y apt-transport-https ca-certificates gnupg curl sudo
+DEBIAN_FRONTEND=noninteractive sudo apt-get install -y apt-transport-https ca-certificates gnupg curl sudo
 echo "deb https://packages.cloud.google.com/apt cloud-sdk main" | sudo tee -a /etc/apt/sources.list.d/google-cloud-sdk.list
 curl https://packages.cloud.google.com/apt/doc/apt-key.gpg | sudo apt-key add -
-sudo apt-get update && sudo apt-get install -y google-cloud-cli
+DEBIAN_FRONTEND=noninteractive sudo apt-get update && DEBIAN_FRONTEND=noninteractive sudo apt-get install -y google-cloud-cli
 
 # Install FakeIt
 git clone https://github.com/eranpeer/FakeIt.git

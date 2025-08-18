@@ -1,0 +1,54 @@
+resources:
+  - name: eloqkv_src_main
+    type: git
+    source:
+      branch: main
+      uri: git@github.com:eloqdata/eloqkv.git
+      private_key: ((git-key))
+
+  - name: image_ubuntu2404_main
+    type: registry-image
+    source:
+      repository: ubuntu
+      tag: "24.04"
+
+  - name: logservice_src_main
+    type: git
+    source:
+      branch: main
+      private_key: ((git-key))
+      uri: git@github.com:eloqdata/log_service.git
+
+  - name: raft_host_manager_src_main
+    type: git
+    source:
+      branch: main
+      private_key: ((git-key))
+      uri: git@github.com:eloqdata/raft_host_manager.git
+
+jobs:
+  - name: ubuntu2404-debug-openlog
+    plan:
+      - in_parallel:
+          limit: 2
+          steps:
+            - get: eloqkv_src
+              resource: eloqkv_src_main
+            - get: logservice_src
+              resource: logservice_src_main
+            - get: raft_host_manager_src
+              resource: raft_host_manager_src_main
+            - get: image_ubuntu2404
+              resource: image_ubuntu2404_main
+
+      - task: build-debug-openlog
+        file: eloqkv_src/concourse/tasks/build_tarball_open.yml
+        image: image_ubuntu2404
+        params:
+          GIT_SSH_KEY: ((git-key))
+          BUILD_TYPE: Debug
+          OUT_NAME: debug-openlog
+
+    serial: true
+
+
