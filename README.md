@@ -177,7 +177,7 @@ When running with full durability, EloqKV outperforms other Redis-compatible sto
 We recommend using our Docker image with pre-installed dependencies and pull EloqKV source code in the container for a quick build and run of EloqKV.
 
 ```bash
-docker pull eloqdata/eloq-build-ubuntu2404:latest
+docker pull eloqdata/eloq-dev-ci-ubuntu2404:latest
 docker run -it --name eloq eloqdata/eloq-build-ubuntu2404
 git clone https://github.com/eloqdata/eloqkv.git
 cd eloqkv
