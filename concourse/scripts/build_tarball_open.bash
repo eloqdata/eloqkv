@@ -16,7 +16,7 @@ if [ -n "${GIT_SSH_KEY}" ]; then
   mkdir -p ~/.ssh
   echo "${GIT_SSH_KEY}" > ~/.ssh/id_rsa
   chmod 600 ~/.ssh/id_rsa
-  ssh-keyscan github.com >> ~/.ssh/known_hosts 2>/dev/null || true
+  ssh-keyscan github.com >> ~/.ssh/known_hosts 2>/dev/null
 fi
 
 # Defaults
@@ -43,7 +43,7 @@ popd >/dev/null
 # Install dependencies for Ubuntu 24.04
 pushd "${ELOQKV_SRC}" >/dev/null
 bash scripts/install_dependency_ubuntu2404.sh
-source "$HOME/venv/bin/activate" || true
+source "$HOME/venv/bin/activate"
 popd >/dev/null
 
 # Helper to copy dependent libraries for portability
@@ -101,7 +101,7 @@ fi
 if command -v patchelf >/dev/null 2>&1; then
   for libpat in libleveldb.* libbrpc.* libbraft.* librocksdb*; do
     if compgen -G "${DEST_DIR}/lib/${libpat}" > /dev/null; then
-      patchelf --set-rpath '$ORIGIN' ${DEST_DIR}/lib/${libpat} || true
+      patchelf --set-rpath '$ORIGIN' ${DEST_DIR}/lib/${libpat}
     fi
   done
 fi
@@ -120,7 +120,7 @@ if [ -d "${LOG_SV_SRC}" ]; then
   mkdir build && cd build
   cmake .. -DCMAKE_BUILD_TYPE="${BUILD_TYPE}" -DWITH_ASAN="${ASAN}" -DDISABLE_CODE_LINE_IN_LOG=ON -DUSE_ROCKSDB_LOG_STATE=ON
   cmake --build . --config "${BUILD_TYPE}" -j"${NCORE}"
-  mv "${LOG_SV_SRC}/build/launch_sv" "${LOG_SV_SRC}/LogService/bin" || true
+  mv "${LOG_SV_SRC}/build/launch_sv" "${LOG_SV_SRC}/LogService/bin"
   if [ -f "${LOG_SV_SRC}/LogService/bin/launch_sv" ]; then
     copy_libraries "${LOG_SV_SRC}/LogService/bin/launch_sv" "${LOG_SV_SRC}/LogService/lib"
     # also place into main package for convenience
