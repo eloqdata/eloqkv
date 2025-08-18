@@ -178,7 +178,7 @@ We recommend using our Docker image with pre-installed dependencies and pull Elo
 
 ```bash
 docker pull eloqdata/eloq-dev-ci-ubuntu2404:latest
-docker run -it --name eloq eloqdata//eloq-dev-ci-ubuntu2404
+docker run -it --name eloq eloqdata/eloq-dev-ci-ubuntu2404
 git clone https://github.com/eloqdata/eloqkv.git
 cd eloqkv
 ```
