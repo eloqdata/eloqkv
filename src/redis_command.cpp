@@ -12141,12 +12141,9 @@ txservice::TxObject *ZAddCommand::CommitOn(txservice::TxObject *obj_ptr)
         zset_obj->CommitZAdd(elements_, params_, is_in_the_middle_stage_);
         return static_cast<txservice::TxObject *>(new_obj_uptr.release());
     }
-    else
-    {
-        auto &zset_obj = static_cast<RedisZsetObject &>(*obj_ptr);
-        zset_obj.CommitZAdd(elements_, params_, is_in_the_middle_stage_);
-        return obj_ptr;
-    }
+    auto &zset_obj = static_cast<RedisZsetObject &>(*obj_ptr);
+    zset_obj.CommitZAdd(elements_, params_, is_in_the_middle_stage_);
+    return obj_ptr;
 }
 
 void ZAddCommand::Serialize(std::string &str) const
@@ -14079,10 +14076,29 @@ bool ZInterStoreCommand::HandleMiddleResult()
     std::unordered_map<std::string_view,
                        std::tuple<double, size_t, EloqString *>>
         result_map;
+    std::vector<std::pair<double, EloqString>> results;
     auto update_value_func = AggregateUtil::GetUpdateFunction(aggregate_type_);
 
     auto &vals = std::get<std::vector<std::pair<EloqString, double>>>(
         cmds_[smallest_set_idx].set_scan_result_.result_);
+
+    if (cmds_.size() == 1)
+    {
+        auto weight = weights_[0];
+        for (auto &[key, score] : vals)
+        {
+            double new_score = 0;
+            update_value_func(new_score,
+                              AggregateUtil::CaculateNewScore(score, weight));
+            results.emplace_back(new_score, key);
+        }
+        assert(!results.empty());
+        assert(cmd_store_->is_in_the_middle_stage_ == true);
+        cmd_store_->elements_ = std::move(results);
+        cmd_store_->type_ = ZAddCommand::ElementType::vector;
+        cmd_store_->params_.flags = ZADD_FORCE_CLEAR;
+        return true;
+    }
     for (size_t idx = 0; idx < vals.size(); idx += 1)
     {
         result_map.emplace(
@@ -14095,7 +14111,6 @@ bool ZInterStoreCommand::HandleMiddleResult()
     }
 
     size_t processed_cmd_cnt = 1;
-    std::vector<std::pair<double, EloqString>> results;
     for (size_t cmd_idx = 0; cmd_idx < cmds_.size(); ++cmd_idx)
     {
         assert(cmds_[cmd_idx].set_scan_result_.err_code_ == RD_OK);
@@ -14105,11 +14120,12 @@ bool ZInterStoreCommand::HandleMiddleResult()
             continue;
         }
 
-        const auto &vals = std::get<std::vector<std::pair<EloqString, double>>>(
-            cmds_[cmd_idx].set_scan_result_.result_);
-        for (size_t val_idx = 0; val_idx < vals.size(); val_idx += 1)
+        const auto &cmd_vals =
+            std::get<std::vector<std::pair<EloqString, double>>>(
+                cmds_[cmd_idx].set_scan_result_.result_);
+        for (size_t val_idx = 0; val_idx < cmd_vals.size(); val_idx += 1)
         {
-            auto iter = result_map.find(vals[val_idx].first.StringView());
+            auto iter = result_map.find(cmd_vals[val_idx].first.StringView());
             if (iter == result_map.end() ||
                 std::get<1>(iter->second) != processed_cmd_cnt)
             {
@@ -14120,14 +14136,13 @@ bool ZInterStoreCommand::HandleMiddleResult()
 
             update_value_func(std::get<0>(iter->second),
                               AggregateUtil::CaculateNewScore(
-                                  vals[val_idx].second, weights_[cmd_idx]));
+                                  cmd_vals[val_idx].second, weights_[cmd_idx]));
 
             if (std::get<1>(iter->second) == cmds_.size())
             {
                 // all zsets contain this entry
-                results.push_back(
-                    std::pair(std::get<0>(iter->second),
-                              std::move(*std::get<2>(iter->second))));
+                results.emplace_back(std::get<0>(iter->second),
+                                     std::move(*std::get<2>(iter->second)));
             }
         }
 
