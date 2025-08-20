@@ -2334,6 +2334,12 @@ start_server {tags {"zset"}} {
         assert_equal 1 [r zadd zset_1 1 i]
         assert_equal 1 [r zinterstore zset_2 1 zset_1]
         assert_equal {i} [r zrandmember zset_2]
+        assert_equal 1 [r zinterstore zset_2 1 zset_1 weights 2 aggregate min]
+        assert_equal {i 2} [r zrandmember zset_2 1 withscores]
+        assert_equal 1 [r zinterstore zset_2 1 zset_1 weights 2 aggregate max]
+        assert_equal {i 2} [r zrandmember zset_2 1 withscores]
+        assert_equal 1 [r zinterstore zset_2 1 zset_1 weights 2 aggregate sum]
+        assert_equal {i 2} [r zrandmember zset_2 1 withscores]
     }
 
     proc get_keys {l} {
