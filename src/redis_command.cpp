@@ -14087,7 +14087,8 @@ bool ZInterStoreCommand::HandleMiddleResult()
         auto weight = weights_[0];
         for (auto &[key, score] : vals)
         {
-            results.emplace_back(AggregateUtil::CaculateNewScore(score, weight), key);
+            results.emplace_back(AggregateUtil::CaculateNewScore(score, weight),
+                              key);
         }
         assert(!results.empty());
         assert(cmd_store_->is_in_the_middle_stage_ == true);
