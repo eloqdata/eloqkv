@@ -14,8 +14,6 @@ endif()
 
 option(SKIP_WRITE_LOG "Skip writing log" ON)
 
-add_compile_definitions(ON_KEY_OBJECT)
-
 if (SKIP_WRITE_LOG)
     add_compile_definitions(SKIP_WRITE_LOG)
 endif ()
