@@ -163,6 +163,10 @@ DEFINE_bool(raft_log_async_fsync,
             "Whether raft log fsync is performed asynchronously (blocking the "
             "bthread) instead of blocking the worker thread");
 DEFINE_int32(core_number, 4, "Number of TxProcessors");
+DEFINE_bool(
+    bind_all,
+    false,
+    "Listen on all interfaces if enabled, otherwise listen on local.ip");
 DEFINE_string(ip, "127.0.0.1", "Redis IP");
 DEFINE_int32(port, 6379, "Redis Port");
 DEFINE_string(ip_port_list, "", "redis server cluster ip port list");
@@ -360,7 +364,7 @@ const auto NUM_VCPU = std::thread::hardware_concurrency();
 
 int databases;
 std::string requirepass;
-std::string redis_ip_port;
+butil::EndPoint listen_addr;
 brpc::Acceptor *server_acceptor = nullptr;
 
 // The maximum size of a object.
@@ -504,6 +508,11 @@ bool RedisServiceImpl::Init(brpc::Server &brpc_server)
             ? FLAGS_txlog_service_list
             : config_reader.GetString(
                   "cluster", "txlog_service_list", FLAGS_txlog_service_list);
+
+    bool bind_all =
+        !CheckCommandLineFlagIsDefault("bind_all")
+            ? FLAGS_bind_all
+            : config_reader.GetBoolean("local", "bind_all", FLAGS_bind_all);
 
     std::string local_ip =
         !CheckCommandLineFlagIsDefault("ip")
@@ -689,7 +698,15 @@ bool RedisServiceImpl::Init(brpc::Server &brpc_server)
     // Change(lzx): change the "local.port" and "cluster.ip_port_list" to the
     // address of local redis and cluster instead of txservice. The port of
     // txservice is set as redis port add "10000". eg.6379->16379
-    redis_ip_port = local_ip + ":" + std::to_string(redis_port_);
+    std::string redis_ip_port = local_ip + ":" + std::to_string(redis_port_);
+    butil::ip_t redis_ip;
+    if (butil::str2ip(local_ip.c_str(), &redis_ip) == -1)
+    {
+        LOG(ERROR) << "Invalid redis address " << redis_ip_port;
+        return false;
+    }
+    listen_addr = bind_all ? butil::EndPoint(butil::IP_ANY, redis_port_)
+                           : butil::EndPoint(redis_ip, redis_port_);
 
     uint32_t tx_ng_replica_num =
         !CheckCommandLineFlagIsDefault("tx_nodegroup_replica_num")
@@ -986,7 +1003,6 @@ bool RedisServiceImpl::Init(brpc::Server &brpc_server)
                                                             false);
 
 #elif defined(DATA_STORE_TYPE_ROCKSDB)
-
         bool is_single_node =
             (standby_ip_port_list.empty() && voter_ip_port_list.empty() &&
              ip_port_list.find(',') == ip_port_list.npos);
@@ -999,7 +1015,6 @@ bool RedisServiceImpl::Init(brpc::Server &brpc_server)
             enable_cache_replacement_);
 
 #elif ELOQDS
-
         bool is_single_node =
             (standby_ip_port_list.empty() && voter_ip_port_list.empty() &&
              ip_port_list.find(',') == ip_port_list.npos);
