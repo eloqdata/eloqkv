@@ -350,6 +350,59 @@ DEFINE_uint32(eloq_store_gc_threads,
 DEFINE_uint32(eloq_store_cloud_worker_count,
               1,
               "EloqStore cloud worker count.");
+DEFINE_uint32(eloq_store_data_page_restart_interval,
+              16,
+              "EloqStore data page restart interval.");
+DEFINE_uint32(eloq_store_index_page_restart_interval,
+              16,
+              "EloqStore index page restart interval.");
+DEFINE_uint32(eloq_store_init_page_count,
+              1 << 15,
+              "EloqStore initial page count.");
+DEFINE_bool(eloq_store_skip_verify_checksum,
+            false,
+            "EloqStore skip verify checksum.");
+DEFINE_uint32(eloq_store_index_buffer_pool_size,
+              1 << 15,
+              "EloqStore index buffer pool size.");
+DEFINE_uint32(eloq_store_manifest_limit, 8 << 20, "EloqStore manifest limit.");
+DEFINE_uint32(eloq_store_io_queue_size,
+              4096,
+              "EloqStore io queue size per shard.");
+DEFINE_uint32(eloq_store_max_inflight_write,
+              64 << 10,
+              "EloqStore max inflight write.");
+DEFINE_uint32(eloq_store_max_write_batch_pages,
+              256,
+              "EloqStore max write batch pages.");
+DEFINE_uint32(eloq_store_buf_ring_size, 1 << 12, "EloqStore buf ring size.");
+DEFINE_uint32(eloq_store_coroutine_stack_size,
+              32 * 1024,
+              "EloqStore coroutine stack size.");
+DEFINE_uint32(eloq_store_num_retained_archives,
+              0,
+              "EloqStore num retained archives.");
+DEFINE_uint32(eloq_store_archive_interval_secs,
+              86400,
+              "EloqStore archive interval secs.");
+DEFINE_uint32(eloq_store_max_archive_tasks,
+              256,
+              "EloqStore max archive tasks.");
+DEFINE_uint32(eloq_store_file_amplify_factor,
+              4,
+              "EloqStore file amplify factor.");
+DEFINE_uint64(eloq_store_local_space_limit,
+              1ULL << 40,
+              "EloqStore local space limit.");
+DEFINE_uint32(eloq_store_reserve_space_ratio,
+              100,
+              "EloqStore reserve space ratio.");
+DEFINE_uint32(eloq_store_data_page_size, 1 << 12, "EloqStore data page size.");
+DEFINE_uint32(eloq_store_pages_per_file_shift,
+              11,
+              "EloqStore pages per file shift.");
+DEFINE_uint32(eloq_store_overflow_pointers, 16, "EloqStore overflow pointers.");
+DEFINE_bool(eloq_store_data_append_mode, false, "EloqStore data append mode.");
 #endif
 #endif
 
@@ -1094,6 +1147,8 @@ bool RedisServiceImpl::Init(brpc::Server &brpc_server)
                 : config_reader.GetInteger("store",
                                            "eloq_store_worker_num",
                                            FLAGS_eloq_store_worker_num);
+        eloq_store_config.worker_count_ =
+            std::max(eloq_store_config.worker_count_, uint16_t(1));
         eloq_store_config.storage_path_ =
             !CheckCommandLineFlagIsDefault("eloq_store_data_path")
                 ? FLAGS_eloq_store_data_path
@@ -1139,6 +1194,151 @@ bool RedisServiceImpl::Init(brpc::Server &brpc_server)
                 : config_reader.GetInteger("store",
                                            "eloq_store_cloud_worker_count",
                                            FLAGS_eloq_store_cloud_worker_count);
+        eloq_store_config.data_page_restart_interval_ =
+            !CheckCommandLineFlagIsDefault(
+                "eloq_store_data_page_restart_interval")
+                ? FLAGS_eloq_store_data_page_restart_interval
+                : config_reader.GetInteger(
+                      "store",
+                      "eloq_store_data_page_restart_interval",
+                      FLAGS_eloq_store_data_page_restart_interval);
+        eloq_store_config.index_page_restart_interval_ =
+            !CheckCommandLineFlagIsDefault(
+                "eloq_store_index_page_restart_interval")
+                ? FLAGS_eloq_store_index_page_restart_interval
+                : config_reader.GetInteger(
+                      "store",
+                      "eloq_store_index_page_restart_interval",
+                      FLAGS_eloq_store_index_page_restart_interval);
+        eloq_store_config.init_page_count_ =
+            !CheckCommandLineFlagIsDefault("eloq_store_init_page_count")
+                ? FLAGS_eloq_store_init_page_count
+                : config_reader.GetInteger("store",
+                                           "eloq_store_init_page_count",
+                                           FLAGS_eloq_store_init_page_count);
+        eloq_store_config.skip_verify_checksum_ =
+            !CheckCommandLineFlagIsDefault("eloq_store_skip_verify_checksum")
+                ? FLAGS_eloq_store_skip_verify_checksum
+                : config_reader.GetBoolean(
+                      "store",
+                      "eloq_store_skip_verify_checksum",
+                      FLAGS_eloq_store_skip_verify_checksum);
+        eloq_store_config.index_buffer_pool_size_ =
+            !CheckCommandLineFlagIsDefault("eloq_store_index_buffer_pool_size")
+                ? FLAGS_eloq_store_index_buffer_pool_size
+                : config_reader.GetInteger(
+                      "store",
+                      "eloq_store_index_buffer_pool_size",
+                      FLAGS_eloq_store_index_buffer_pool_size);
+        eloq_store_config.index_buffer_pool_size_ /=
+            eloq_store_config.worker_count_;
+        eloq_store_config.manifest_limit_ =
+            !CheckCommandLineFlagIsDefault("eloq_store_manifest_limit")
+                ? FLAGS_eloq_store_manifest_limit
+                : config_reader.GetInteger("store",
+                                           "eloq_store_manifest_limit",
+                                           FLAGS_eloq_store_manifest_limit);
+        eloq_store_config.io_queue_size_ =
+            !CheckCommandLineFlagIsDefault("eloq_store_io_queue_size")
+                ? FLAGS_eloq_store_io_queue_size
+                : config_reader.GetInteger("store",
+                                           "eloq_store_io_queue_size",
+                                           FLAGS_eloq_store_io_queue_size);
+        eloq_store_config.io_queue_size_ /= eloq_store_config.worker_count_;
+        eloq_store_config.max_inflight_write_ =
+            !CheckCommandLineFlagIsDefault("eloq_store_max_inflight_write")
+                ? FLAGS_eloq_store_max_inflight_write
+                : config_reader.GetInteger("store",
+                                           "eloq_store_max_inflight_write",
+                                           FLAGS_eloq_store_max_inflight_write);
+        eloq_store_config.max_inflight_write_ /=
+            eloq_store_config.worker_count_;
+        eloq_store_config.max_write_batch_pages_ =
+            !CheckCommandLineFlagIsDefault("eloq_store_max_write_batch_pages")
+                ? FLAGS_eloq_store_max_write_batch_pages
+                : config_reader.GetInteger(
+                      "store",
+                      "eloq_store_max_write_batch_pages",
+                      FLAGS_eloq_store_max_write_batch_pages);
+        eloq_store_config.buf_ring_size_ =
+            !CheckCommandLineFlagIsDefault("eloq_store_buf_ring_size")
+                ? FLAGS_eloq_store_buf_ring_size
+                : config_reader.GetInteger("store",
+                                           "eloq_store_buf_ring_size",
+                                           FLAGS_eloq_store_buf_ring_size);
+        eloq_store_config.coroutine_stack_size_ =
+            !CheckCommandLineFlagIsDefault("eloq_store_coroutine_stack_size")
+                ? FLAGS_eloq_store_coroutine_stack_size
+                : config_reader.GetInteger(
+                      "store",
+                      "eloq_store_coroutine_stack_size",
+                      FLAGS_eloq_store_coroutine_stack_size);
+        eloq_store_config.num_retained_archives_ =
+            !CheckCommandLineFlagIsDefault("eloq_store_num_retained_archives")
+                ? FLAGS_eloq_store_num_retained_archives
+                : config_reader.GetInteger(
+                      "store",
+                      "eloq_store_num_retained_archives",
+                      FLAGS_eloq_store_num_retained_archives);
+        eloq_store_config.archive_interval_secs_ =
+            !CheckCommandLineFlagIsDefault("eloq_store_archive_interval_secs")
+                ? FLAGS_eloq_store_archive_interval_secs
+                : config_reader.GetInteger(
+                      "store",
+                      "eloq_store_archive_interval_secs",
+                      FLAGS_eloq_store_archive_interval_secs);
+        eloq_store_config.max_archive_tasks_ =
+            !CheckCommandLineFlagIsDefault("eloq_store_max_archive_tasks")
+                ? FLAGS_eloq_store_max_archive_tasks
+                : config_reader.GetInteger("store",
+                                           "eloq_store_max_archive_tasks",
+                                           FLAGS_eloq_store_max_archive_tasks);
+        eloq_store_config.file_amplify_factor_ =
+            !CheckCommandLineFlagIsDefault("eloq_store_file_amplify_factor")
+                ? FLAGS_eloq_store_file_amplify_factor
+                : config_reader.GetInteger(
+                      "store",
+                      "eloq_store_file_amplify_factor",
+                      FLAGS_eloq_store_file_amplify_factor);
+        eloq_store_config.local_space_limit_ =
+            !CheckCommandLineFlagIsDefault("eloq_store_local_space_limit")
+                ? FLAGS_eloq_store_local_space_limit
+                : config_reader.GetInteger("store",
+                                           "eloq_store_local_space_limit",
+                                           FLAGS_eloq_store_local_space_limit);
+        eloq_store_config.local_space_limit_ /= eloq_store_config.worker_count_;
+        eloq_store_config.reserve_space_ratio_ =
+            !CheckCommandLineFlagIsDefault("eloq_store_reserve_space_ratio")
+                ? FLAGS_eloq_store_reserve_space_ratio
+                : config_reader.GetInteger(
+                      "store",
+                      "eloq_store_reserve_space_ratio",
+                      FLAGS_eloq_store_reserve_space_ratio);
+        eloq_store_config.data_page_size_ =
+            !CheckCommandLineFlagIsDefault("eloq_store_data_page_size")
+                ? FLAGS_eloq_store_data_page_size
+                : config_reader.GetInteger("store",
+                                           "eloq_store_data_page_size",
+                                           FLAGS_eloq_store_data_page_size);
+        eloq_store_config.pages_per_file_shift_ =
+            !CheckCommandLineFlagIsDefault("eloq_store_pages_per_file_shift")
+                ? FLAGS_eloq_store_pages_per_file_shift
+                : config_reader.GetInteger(
+                      "store",
+                      "eloq_store_pages_per_file_shift",
+                      FLAGS_eloq_store_pages_per_file_shift);
+        eloq_store_config.overflow_pointers_ =
+            !CheckCommandLineFlagIsDefault("eloq_store_overflow_pointers")
+                ? FLAGS_eloq_store_overflow_pointers
+                : config_reader.GetInteger("store",
+                                           "eloq_store_overflow_pointers",
+                                           FLAGS_eloq_store_overflow_pointers);
+        eloq_store_config.data_append_mode_ =
+            !CheckCommandLineFlagIsDefault("eloq_store_data_append_mode")
+                ? FLAGS_eloq_store_data_append_mode
+                : config_reader.GetBoolean("store",
+                                           "eloq_store_data_append_mode",
+                                           FLAGS_eloq_store_data_append_mode);
         auto ds_factory = std::make_unique<EloqDS::EloqStoreDataStoreFactory>(
             eloq_store_config);
 #endif
@@ -1190,6 +1390,46 @@ bool RedisServiceImpl::Init(brpc::Server &brpc_server)
             }
             store_config.num_gc_threads = eloq_store_config.gc_threads_;
             store_config.rclone_threads = eloq_store_config.cloud_worker_count_;
+            store_config.data_page_restart_interval =
+                eloq_store_config.data_page_restart_interval_;
+            store_config.index_page_restart_interval =
+                eloq_store_config.index_page_restart_interval_;
+            store_config.init_page_count = eloq_store_config.init_page_count_;
+            store_config.skip_verify_checksum =
+                eloq_store_config.skip_verify_checksum_;
+            store_config.index_buffer_pool_size =
+                eloq_store_config.index_buffer_pool_size_;
+            store_config.manifest_limit = eloq_store_config.manifest_limit_;
+            store_config.io_queue_size = eloq_store_config.io_queue_size_;
+            store_config.max_inflight_write =
+                eloq_store_config.max_inflight_write_;
+            store_config.max_write_batch_pages =
+                eloq_store_config.max_write_batch_pages_;
+            store_config.buf_ring_size = eloq_store_config.buf_ring_size_;
+            store_config.coroutine_stack_size =
+                eloq_store_config.coroutine_stack_size_;
+            store_config.num_retained_archives =
+                eloq_store_config.num_retained_archives_;
+            store_config.archive_interval_secs =
+                eloq_store_config.archive_interval_secs_;
+            store_config.max_archive_tasks =
+                eloq_store_config.max_archive_tasks_;
+            store_config.file_amplify_factor =
+                eloq_store_config.file_amplify_factor_;
+            store_config.local_space_limit =
+                eloq_store_config.local_space_limit_;
+            store_config.reserve_space_ratio =
+                eloq_store_config.reserve_space_ratio_;
+            store_config.data_page_size = eloq_store_config.data_page_size_;
+            store_config.pages_per_file_shift =
+                eloq_store_config.pages_per_file_shift_;
+            store_config.overflow_pointers =
+                eloq_store_config.overflow_pointers_;
+            store_config.data_append_mode = eloq_store_config.data_append_mode_;
+            if (eloq_store_config.comparator_ != nullptr)
+            {
+                store_config.comparator_ = eloq_store_config.comparator_;
+            }
 
             DLOG(INFO) << "Create EloqStore storage with workers: "
                        << store_config.num_threads
@@ -1199,7 +1439,9 @@ bool RedisServiceImpl::Init(brpc::Server &brpc_server)
                        << store_config.cloud_store_path
                        << ", gc threads: " << store_config.num_gc_threads
                        << ", cloud worker count: "
-                       << store_config.rclone_threads;
+                       << store_config.rclone_threads
+                       << ", buffer pool size per shard: "
+                       << store_config.index_buffer_pool_size;
             auto ds = std::make_unique<EloqDS::EloqStoreDataStore>(
                 shard_id, data_store_service_.get(), store_config);
 #endif
