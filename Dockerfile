@@ -1,4 +1,4 @@
-FROM ubuntu:latest
+FROM ubuntu:24.04
 
 RUN set -eux; \
     apt update; \
