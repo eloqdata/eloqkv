@@ -3613,6 +3613,8 @@ txservice::TxObject *RPushCommand::CommitOn(txservice::TxObject *obj_ptr)
 {
     auto &list_obj = static_cast<RedisListObject &>(*obj_ptr);
     list_obj.CommitRPush(elements_);
+    DLOG(INFO) << "RPushCommand::CommitOn with current ts: "
+               << txservice::LocalCcShards::ClockTs();
     return obj_ptr;
 }
 
@@ -11510,6 +11512,8 @@ std::tuple<bool, EloqKey, RPushCommand> ParseRPushCommand(
     {
         elements.emplace_back(*arg_it);
     }
+    DLOG(INFO) << "ParseRPushCommand with current ts: "
+               << txservice::LocalCcShards::ClockTs();
 
     return {true, args[1], RPushCommand(std::move(elements))};
 }
@@ -19177,6 +19181,8 @@ std::tuple<bool, BLMPopCommand> ParseBRPopCommand(
         vct_key.emplace_back(args[i]);
         vct_cmd.emplace_back(bo, false, 1);
     }
+    DLOG(INFO) << "ParseBRPopCommand with key size: " << vct_key.size()
+               << ", cmd size: " << vct_cmd.size() << ", ts: " << ts;
 
     return {true,
             BLMPopCommand(std::move(vct_key), std::move(vct_cmd), ts, false)};
