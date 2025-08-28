@@ -3613,6 +3613,8 @@ txservice::TxObject *RPushCommand::CommitOn(txservice::TxObject *obj_ptr)
 {
     auto &list_obj = static_cast<RedisListObject &>(*obj_ptr);
     list_obj.CommitRPush(elements_);
+    DLOG(INFO) << "RPushCommand::CommitOn " << static_cast<void *>(this)
+               << " with current ts: " << txservice::LocalCcShards::ClockTs();
     return obj_ptr;
 }
 
@@ -9589,6 +9591,7 @@ ParseMultiCommand(RedisServiceImpl *redis_impl,
         {
             return {false, MultiObjectCommandTxRequest{}};
         }
+        DLOG(INFO) << "ParseBRPopCommand cmd, ts: " << cmd.ts_expired_;
 
         return {success,
                 MultiObjectCommandTxRequest(
