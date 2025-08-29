@@ -3645,6 +3645,8 @@ brpc::RedisCommandHandlerResult BLMPopHandler::Run(
         {
             mcmd.SetVolatile();
         }
+        DLOG(INFO) << "BLMPopHandler: mcmd: " << static_cast<void *>(&mcmd)
+                   << " with ts: " << mcmd.ts_expired_;
         redis_impl_->ExecuteCommand(
             ctx, txm, &mcmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
@@ -3701,6 +3703,8 @@ brpc::RedisCommandHandlerResult BRPopHandler::Run(
         {
             mcmd.SetVolatile();
         }
+        DLOG(INFO) << "BRPopHandler: mcmd: " << static_cast<void *>(&mcmd)
+                   << " with ts: " << mcmd.ts_expired_;
         redis_impl_->ExecuteCommand(
             ctx, txm, &mcmd, &reply, in_tx ? false : auto_commit_, in_tx);
     }
