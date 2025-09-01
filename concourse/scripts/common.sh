@@ -339,8 +339,8 @@ function run_log_replay_test() {
   file1="database_snapshot_before_replay.json" # First JSON file
   file2="database_snapshot_after_replay.json"  # Second JSON file
 
-  if [[ -z "$file1" || -z "$file2" ]]; then
-    echo "ERROR: database_snapshot_before_replay.json or database_snapshot_after_replay.json not generated"
+  if [[ ! -f "$file1" || ! -f "$file2" ]]; then
+    echo "ERROR: missing snapshot file(s)"
     exit 1
   fi
 
@@ -389,8 +389,8 @@ function run_log_replay_test() {
   file1="database_snapshot_before_replay.json" # First JSON file
   file2="database_snapshot_after_replay.json"  # Second JSON file
 
-  if [[ -z "$file1" || -z "$file2" ]]; then
-    echo "ERROR: database_snapshot_before_replay.json or database_snapshot_after_replay.json not generated"
+  if [[ ! -f "$file1" || ! -f "$file2" ]]; then
+    echo "ERROR: missing snapshot file(s)"
     exit 1
   fi
 
@@ -1058,8 +1058,8 @@ function run_eloqkv_tests() {
     file1="database_snapshot_before_replay.json" # First JSON file
     file2="database_snapshot_after_replay.json"  # Second JSON file
 
-    if [[ -z "$file1" || -z "$file2" ]]; then
-      echo "ERROR: database_snapshot_before_replay.json or database_snapshot_after_replay.json not generated"
+    if [[ ! -f "$file1" || ! -f "$file2" ]]; then
+      echo "ERROR: missing snapshot file(s)"
       exit 1
     fi
 
@@ -1609,9 +1609,9 @@ function run_eloqkv_cluster_tests() {
     file1="database_snapshot_before_replay.json"  # First JSON file
     file2="database_snapshot_after_replay.json"  # Second JSON file
 
-    if [[ -z "$file1" || -z "$file2" ]]; then
-        echo "ERROR: database_snapshot_before_replay.json or database_snapshot_after_replay.json not generated"
-        exit 1
+    if [[ ! -f "$file1" || ! -f "$file2" ]]; then
+      echo "ERROR: missing snapshot file(s)"
+      exit 1
     fi
 
     # Sort JSON content and compare using diff
@@ -1991,9 +1991,9 @@ function run_eloqkv_cluster_tests() {
     file1="database_snapshot_before_replay.json"  # First JSON file
     file2="database_snapshot_after_replay.json"  # Second JSON file
 
-    if [[ -z "$file1" || -z "$file2" ]]; then
-        echo "ERROR: database_snapshot_before_replay.json or database_snapshot_after_replay.json not generated"
-        exit 1
+    if [[ ! -f "$file1" || ! -f "$file2" ]]; then
+      echo "ERROR: missing snapshot file(s)"
+      exit 1
     fi
 
     # Sort JSON content and compare using diff
@@ -2270,9 +2270,9 @@ function run_eloqkv_cluster_tests() {
     file1="database_snapshot_before_replay.json"  # First JSON file
     file2="database_snapshot_after_replay.json"  # Second JSON file
 
-    if [[ -z "$file1" || -z "$file2" ]]; then
-        echo "ERROR: database_snapshot_before_replay.json or database_snapshot_after_replay.json not generated"
-        exit 1
+    if [[ ! -f "$file1" || ! -f "$file2" ]]; then
+      echo "ERROR: missing snapshot file(s)"
+      exit 1
     fi
 
     # Sort JSON content and compare using diff
@@ -2668,9 +2668,9 @@ function run_eloqkv_cluster_tests() {
     file1="database_snapshot_before_replay.json"  # First JSON file
     file2="database_snapshot_after_replay.json"  # Second JSON file
 
-    if [[ -z "$file1" || -z "$file2" ]]; then
-        echo "ERROR: database_snapshot_before_replay.json or database_snapshot_after_replay.json not generated"
-        exit 1
+    if [[ ! -f "$file1" || ! -f "$file2" ]]; then
+      echo "ERROR: missing snapshot file(s)"
+      exit 1
     fi
 
     # Sort JSON content and compare using diff
