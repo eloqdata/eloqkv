@@ -562,6 +562,7 @@ elseif(WITH_DATA_STORE STREQUAL "ELOQDSS_ELOQSTORE")
         store_handler/eloq_data_store_service/data_store_service_config.cpp
         store_handler/eloq_data_store_service/eloq_store_data_store.cpp
         store_handler/eloq_data_store_service/ds_request.pb.cc
+        store_handler/eloq_data_store_service/eloq_store_config.cpp
     )
 endif()
 
