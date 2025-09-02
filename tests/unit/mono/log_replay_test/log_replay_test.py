@@ -1155,6 +1155,7 @@ if __name__ == "__main__":
         "--verify", action="store_true", help="Execute verification code"
     )
     parser.add_argument("--load", action="store_true", help="Execute loading code")
+    parser.add_argument("--flush_before_load", action="store_true", help="Flush the db before loading data")
     parser.add_argument("--lua", action="store_true", help="Execute lua code")
     args = parser.parse_args()
 
@@ -1171,7 +1172,8 @@ if __name__ == "__main__":
         # Code to be executed normally
         print("Generate data and log")
 
-        redis_client.flushdb()
+        if args.flush_before_load:
+            redis_client.flushdb()
 
         obj_cnt = 5
 
