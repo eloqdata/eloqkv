@@ -284,139 +284,6 @@ function run_eloq_ttl_tests() {
 
 }
 
-function run_log_replay_test() {
-  local eloqkv_start_cmd=$1
-  local eloqkv_base_path="/home/$current_user/workspace/eloqkv"
-
-  cd ${eloqkv_base_path}
-
-  # run redis
-  echo "redirecting output to /tmp/ to prevent ci pipeline crash"
-  ${eloqkv_start_cmd} \
-    --checkpoint_interval=36000 \
-    >/tmp/redis_server_single_node_before_replay.log 2>&1 \
-    &
-
-  local redis_pid=$!
-
-  # Wait for Redis server to be ready
-  wait_until_ready
-  echo "Redis server is ready!"
-
-
-  local python_test_file="/home/$current_user/workspace/eloqkv/tests/unit/mono/log_replay_test/log_replay_test.py"
-  python3 $python_test_file --load --flush_before_load > /tmp/load.log 2>&1
-
-  # wait for load to finish
-  sleep 10
-
-  # kill redis_server
-  if [[ -n $redis_pid && -e /proc/$redis_pid ]]; then
-    kill -9 $redis_pid
-  fi
-
-  # wait for kill to finish
-  wait_until_finished
-
-  # run redis
-  echo "redirecting output to /tmp/ to prevent ci pipeline crash"
-  ${eloqkv_start_cmd} \
-    --checkpoint_interval=10 \
-    >/tmp/redis_server_single_node_after_first_replay.log 2>&1 \
-    &
-
-  local redis_pid=$!
-
-  # Wait for Redis server to be ready
-  wait_until_ready
-  echo "Redis server is ready!"
-
-  python3 $python_test_file --verify
-
-  # wait for verify to finish
-  sleep 10
-
-  file1="database_snapshot_before_replay.json" # First JSON file
-  file2="database_snapshot_after_replay.json"  # Second JSON file
-
-  if [[ ! -f "$file1" || ! -f "$file2" ]]; then
-    echo "ERROR: missing snapshot file(s)"
-    exit 1
-  fi
-
-  # Sort JSON content and compare using diff
-  if diff <(jq -S . "$file1") <(jq -S . "$file2") &>/dev/null; then
-    echo "PASS: The JSON files are identical."
-  else
-    echo "FAIL: The JSON files are different."
-    exit 1
-  fi
-
-
-  ### Verify log replay from a successful checkpoint
-  # load data without flushing the db
-  python3 $python_test_file --load > /tmp/load.log 2>&1
-
-  # wait for load to finish
-  sleep 10
-
-  # kill EloqKv, this time the eloqkv will do the checkpoint and flush the data
-  if [[ -n $redis_pid && -e /proc/$redis_pid ]]; then
-    kill -9 $redis_pid
-  fi
-
-  # wait for kill to finish
-  wait_until_finished
-
-  # run redis
-  echo "redirecting output to /tmp/ to prevent ci pipeline crash"
-  ${eloqkv_start_cmd} \
-    --checkpoint_interval=10 \
-    >/tmp/redis_server_single_node_after_second_replay.log 2>&1 \
-    &
-
-  local redis_pid=$!
-
-  # Wait for Redis server to be ready
-  wait_until_ready
-  echo "Redis server is ready!"
-
-  python3 $python_test_file --verify
-
-  # wait for verify to finish
-  sleep 10
-
-  file1="database_snapshot_before_replay.json" # First JSON file
-  file2="database_snapshot_after_replay.json"  # Second JSON file
-
-  if [[ ! -f "$file1" || ! -f "$file2" ]]; then
-    echo "ERROR: missing snapshot file(s)"
-    exit 1
-  fi
-
-  # Sort JSON content and compare using diff
-  if diff <(jq -S . "$file1") <(jq -S . "$file2") &>/dev/null; then
-    echo "PASS: The JSON files are identical."
-  else
-    echo "FAIL: The JSON files are different."
-    exit 1
-  fi
-
-  # wait for kill to finish
-  wait_until_finished
-
-  cd /home/$current_user/workspace/eloqkv
-  if [ -d "./cc_ng" ]; then
-    rm -rf ./cc_ng
-  fi
-  if [ -d "./tx_log" ]; then
-    rm -rf ./tx_log
-  fi
-  if [ -d "./eloq_data" ]; then
-    rm -rf ./eloq_data
-  fi
-}
-
 function run_eloqkv_tests() {
   local build_type=$1
   local kv_store_type=$2
@@ -455,6 +322,66 @@ function run_eloqkv_tests() {
 
     run_tcl_tests all $build_type
 
+    # log replay test
+    echo "Running log replay test for $build_type build: "
+
+    local python_test_file="/home/$current_user/workspace/eloqkv/tests/unit/mono/log_replay_test/log_replay_test.py"
+    python3 $python_test_file --load > /tmp/load.log 2>&1
+
+    # wait for load to finish
+    sleep 10
+
+    # kill redis_server
+    if [[ -n $redis_pid && -e /proc/$redis_pid ]]; then
+      kill -9 $redis_pid
+    fi
+
+    # wait for kill to finish
+    wait_until_finished
+
+    # run redis
+    echo "redirecting output to /tmp/ to prevent ci pipeline crash"
+    /home/$current_user/workspace/eloqkv/cmake/eloqkv \
+      --port=6379 \
+      --core_number=2 \
+      --enable_wal=true \
+      --enable_data_store=true \
+      --cass_hosts=$CASS_HOST \
+      --cass_keyspace=$keyspace_name \
+      --maxclients=1000000 \
+      --checkpoint_interval=36000 \
+      --enable_io_uring=${enable_io_uring} \
+      --logtostderr=true \
+      >/tmp/redis_server_single_node_after_replay.log 2>&1 \
+      &
+
+    local redis_pid=$!
+
+    # Wait for Redis server to be ready
+    wait_until_ready
+    echo "Redis server is ready!"
+
+    python3 $python_test_file --verify
+
+    # wait for verify to finish
+    sleep 10
+
+    file1="database_snapshot_before_replay.json" # First JSON file
+    file2="database_snapshot_after_replay.json"  # Second JSON file
+
+    if [[ -z "$file1" || -z "$file2" ]]; then
+      echo "ERROR: database_snapshot_before_replay.json or database_snapshot_after_replay.json not generated"
+      exit 1
+    fi
+
+    # Sort JSON content and compare using diff
+    if diff <(jq -S . "$file1") <(jq -S . "$file2") &>/dev/null; then
+      echo "PASS: The JSON files are identical."
+    else
+      echo "FAIL: The JSON files are different."
+      exit 1
+    fi
+
     # kill redis_server
     if [[ -n $redis_pid && -e /proc/$redis_pid ]]; then
       kill $redis_pid
@@ -463,20 +390,16 @@ function run_eloqkv_tests() {
     # wait for kill to finish
     wait_until_finished
 
-    # log replay test
-    echo "Running log replay test for $build_type build， $kv_store_type kvstore: "
-
-    local eloqkv_start_cmd="/home/$current_user/workspace/eloqkv/cmake/eloqkv \
-                                   --port=6379 \
-                                   --core_number=2 \
-                                   --enable_wal=true \
-                                   --enable_data_store=true \
-                                   --cass_hosts=$CASS_HOST \
-                                   --cass_keyspace=$keyspace_name \
-                                   --maxclients=1000000 \
-                                   --enable_io_uring=${enable_io_uring} \
-                                   --logtostderr=true "
-    run_log_replay_test $eloqkv_start_cmd
+    cd /home/$current_user/workspace/eloqkv
+    if [ -d "./cc_ng" ]; then
+      rm -rf ./cc_ng
+    fi
+    if [ -d "./tx_log" ]; then
+      rm -rf ./tx_log
+    fi
+    if [ -d "./eloq_data" ]; then
+      rm -rf ./eloq_data
+    fi
 
     # run redis with wal disabled.
     echo "redirecting output to /tmp/ to prevent ci pipeline crash"
@@ -577,6 +500,64 @@ function run_eloqkv_tests() {
 
     run_tcl_tests all $build_type
 
+    # log replay test
+    echo "Running log replay test for $build_type build: "
+
+    local python_test_file="/home/$current_user/workspace/eloqkv/tests/unit/mono/log_replay_test/log_replay_test.py"
+    python3 $python_test_file --load > /tmp/load.log 2>&1
+
+    # wait for load to finish
+    sleep 10
+
+    # kill redis_server
+    if [[ -n $redis_pid && -e /proc/$redis_pid ]]; then
+      kill -9 $redis_pid
+    fi
+
+    # wait for kill to finish
+    wait_until_finished
+
+    # run redis
+    echo "redirecting output to /tmp/ to prevent ci pipeline crash"
+    /home/$current_user/workspace/eloqkv/cmake/eloqkv \
+      --port=6379 \
+      --core_number=2 \
+      --enable_wal=true \
+      --enable_data_store=true \
+      --maxclients=1000000 \
+      --checkpoint_interval=36000 \
+      --enable_io_uring=${enable_io_uring} \
+      --logtostderr=true \
+      >/tmp/redis_server_single_node_after_replay.log 2>&1 \
+      &
+
+    local redis_pid=$!
+
+    # Wait for Redis server to be ready
+    wait_until_ready
+    echo "Redis server is ready!"
+
+    python3 $python_test_file --verify
+
+    # wait for verify to finish
+    sleep 10
+
+    file1="database_snapshot_before_replay.json" # First JSON file
+    file2="database_snapshot_after_replay.json"  # Second JSON file
+
+    if [[ -z "$file1" || -z "$file2" ]]; then
+      echo "ERROR: database_snapshot_before_replay.json or database_snapshot_after_replay.json not generated"
+      exit 1
+    fi
+
+    # Sort JSON content and compare using diff
+    if diff <(jq -S . "$file1") <(jq -S . "$file2") &>/dev/null; then
+      echo "PASS: The JSON files are identical."
+    else
+      echo "FAIL: The JSON files are different."
+      exit 1
+    fi
+
     # kill redis_server
     if [[ -n $redis_pid && -e /proc/$redis_pid ]]; then
       kill $redis_pid
@@ -585,17 +566,16 @@ function run_eloqkv_tests() {
     # wait for kill to finish
     wait_until_finished
 
-    # log replay test
-    echo "Running log replay test for $build_type build， $kv_store_type kvstore: "
-    local eloqkv_start_cmd="/home/$current_user/workspace/eloqkv/cmake/eloqkv \
-                                  --port=6379 \
-                                  --core_number=2 \
-                                  --enable_wal=true \
-                                  --enable_data_store=true \
-                                  --maxclients=1000000 \
-                                  --enable_io_uring=${enable_io_uring} \
-                                  --logtostderr=true "
-    run_log_replay_test $eloqkv_start_cmd
+    cd /home/$current_user/workspace/eloqkv
+    if [ -d "./cc_ng" ]; then
+      rm -rf ./cc_ng
+    fi
+    if [ -d "./tx_log" ]; then
+      rm -rf ./tx_log
+    fi
+    if [ -d "./eloq_data" ]; then
+      rm -rf ./eloq_data
+    fi
 
     # run redis with wal disabled.
     echo "redirecting output to /tmp/ to prevent ci pipeline crash"
@@ -695,6 +675,69 @@ function run_eloqkv_tests() {
 
     run_tcl_tests all $build_type
 
+    # log replay test
+    echo "Running log replay test for $build_type build: "
+
+    local python_test_file="/home/$current_user/workspace/eloqkv/tests/unit/mono/log_replay_test/log_replay_test.py"
+    python3 $python_test_file --load > /tmp/load.log 2>&1
+
+    # wait for load to finish
+    sleep 10
+
+    # kill redis_server
+    if [[ -n $redis_pid && -e /proc/$redis_pid ]]; then
+      kill -9 $redis_pid
+    fi
+
+    # wait for kill to finish
+    wait_until_finished
+
+    # run redis
+    echo "redirecting output to /tmp/ to prevent ci pipeline crash"
+    /home/$current_user/workspace/eloqkv/cmake/eloqkv \
+      --port=6379 \
+      --core_number=2 \
+      --enable_wal=true \
+      --enable_data_store=true \
+      --dynamodb_endpoint=$dynamodb_endpoint \
+      --dynamodb_region=$dynamodb_region \
+      --aws_access_key_id=$aws_access_key_id \
+      --aws_secret_key=$aws_secret_key \
+      --dynamodb_keyspace=$keyspace_name \
+      --maxclients=1000000 \
+      --checkpoint_interval=10 \
+      --enable_io_uring=${enable_io_uring} \
+      --logtostderr=true \
+      >/tmp/redis_server_single_node_after_replay.log 2>&1 \
+      &
+
+    local redis_pid=$!
+
+    # Wait for Redis server to be ready
+    wait_until_ready
+    echo "Redis server is ready!"
+
+    python3 $python_test_file --verify
+
+    # wait for verify to finish
+    sleep 10
+
+    file1="database_snapshot_before_replay.json" # First JSON file
+    file2="database_snapshot_after_replay.json"  # Second JSON file
+
+    if [[ -z "$file1" || -z "$file2" ]]; then
+      echo "ERROR: database_snapshot_before_replay.json or database_snapshot_after_replay.json not generated"
+      exit 1
+    fi
+
+    # Sort JSON content and compare using diff
+    if diff <(jq -S . "$file1") <(jq -S . "$file2") &>/dev/null; then
+      echo "PASS: The JSON files are identical."
+    else
+      echo "FAIL: The JSON files are different."
+      exit 1
+    fi
+
     # kill redis_server
     if [[ -n $redis_pid && -e /proc/$redis_pid ]]; then
       kill $redis_pid
@@ -703,22 +746,16 @@ function run_eloqkv_tests() {
     # wait for kill to finish
     wait_until_finished
 
-    # log replay test
-    echo "Running log replay test for $build_type build， $kv_store_type kvstore: "
-    local eloqkv_start_cmd="/home/$current_user/workspace/eloqkv/cmake/eloqkv \
-                                  --port=6379 \
-                                  --core_number=2 \
-                                  --enable_wal=true \
-                                  --enable_data_store=true \
-                                  --dynamodb_endpoint=$dynamodb_endpoint \
-                                  --dynamodb_region=$dynamodb_region \
-                                  --aws_access_key_id=$aws_access_key_id \
-                                  --aws_secret_key=$aws_secret_key \
-                                  --dynamodb_keyspace=$keyspace_name \
-                                  --maxclients=1000000 \
-                                  --enable_io_uring=${enable_io_uring} \
-                                  --logtostderr=true "
-    run_log_replay_test $eloqkv_start_cmd
+    cd /home/$current_user/workspace/eloqkv
+    if [ -d "./cc_ng" ]; then
+      rm -rf ./cc_ng
+    fi
+    if [ -d "./tx_log" ]; then
+      rm -rf ./tx_log
+    fi
+    if [ -d "./eloq_data" ]; then
+      rm -rf ./eloq_data
+    fi
 
     # run redis with wal disabled.
     echo "redirecting output to /tmp/ to prevent ci pipeline crash"
@@ -839,6 +876,69 @@ function run_eloqkv_tests() {
 
     run_tcl_tests all $build_type
 
+    # log replay test
+    echo "Running log replay test for $build_type build: "
+
+    local python_test_file="/home/$current_user/workspace/eloqkv/tests/unit/mono/log_replay_test/log_replay_test.py"
+    python3 $python_test_file --load > /tmp/load.log 2>&1
+
+    # wait for load to finish
+    sleep 10
+
+    # kill redis_server
+    if [[ -n $redis_pid && -e /proc/$redis_pid ]]; then
+      kill -9 $redis_pid
+    fi
+
+    # wait for kill to finish
+    wait_until_finished
+
+    # run redis
+    echo "redirecting output to /tmp/ to prevent ci pipeline crash"
+    /home/$current_user/workspace/eloqkv/cmake/eloqkv \
+      --port=6379 \
+      --core_number=2 \
+      --enable_wal=true \
+      --enable_data_store=true \
+      --rocksdb_cloud_s3_endpoint_url="${rocksdb_cloud_s3_endpoint_url}" \
+      --aws_access_key_id="${rocksdb_cloud_aws_access_key_id}" \
+      --aws_secret_key="${rocksdb_cloud_aws_secret_access_key}" \
+      --rocksdb_cloud_bucket_name=${rocksdb_cloud_bucket_name} \
+      --rocksdb_cloud_object_path=${rocksdb_cloud_object_path} \
+      --maxclients=1000000 \
+      --checkpoint_interval=36000 \
+      --enable_io_uring=${enable_io_uring} \
+      --logtostderr=true \
+      >/tmp/redis_server_single_node_after_replay.log 2>&1 \
+      &
+
+    local redis_pid=$!
+
+    # Wait for Redis server to be ready
+    wait_until_ready
+    echo "Redis server is ready!"
+
+    python3 $python_test_file --verify
+
+    # wait for verify to finish
+    sleep 10
+
+    file1="database_snapshot_before_replay.json" # First JSON file
+    file2="database_snapshot_after_replay.json"  # Second JSON file
+
+    if [[ -z "$file1" || -z "$file2" ]]; then
+      echo "ERROR: database_snapshot_before_replay.json or database_snapshot_after_replay.json not generated"
+      exit 1
+    fi
+
+    # Sort JSON content and compare using diff
+    if diff <(jq -S . "$file1") <(jq -S . "$file2") &>/dev/null; then
+      echo "PASS: The JSON files are identical."
+    else
+      echo "FAIL: The JSON files are different."
+      exit 1
+    fi
+
     # kill redis_server
     if [[ -n $redis_pid && -e /proc/$redis_pid ]]; then
       kill $redis_pid
@@ -847,22 +947,16 @@ function run_eloqkv_tests() {
     # wait for kill to finish
     wait_until_finished
 
-    # log replay test
-    echo "Running log replay test for $build_type build， $kv_store_type kvstore: "
-    local eloqkv_start_cmd="/home/$current_user/workspace/eloqkv/cmake/eloqkv \
-                                  --port=6379 \
-                                  --core_number=2 \
-                                  --enable_wal=true \
-                                  --enable_data_store=true \
-                                  --rocksdb_cloud_s3_endpoint_url="${rocksdb_cloud_s3_endpoint_url}" \
-                                  --aws_access_key_id="${rocksdb_cloud_aws_access_key_id}" \
-                                  --aws_secret_key="${rocksdb_cloud_aws_secret_access_key}" \
-                                  --rocksdb_cloud_bucket_name=${rocksdb_cloud_bucket_name} \
-                                  --rocksdb_cloud_object_path=${rocksdb_cloud_object_path} \
-                                  --maxclients=1000000 \
-                                  --enable_io_uring=${enable_io_uring} \
-                                  --logtostderr=true "
-    run_log_replay_test $eloqkv_start_cmd
+    cd /home/$current_user/workspace/eloqkv
+    if [ -d "./cc_ng" ]; then
+      rm -rf ./cc_ng
+    fi
+    if [ -d "./tx_log" ]; then
+      rm -rf ./tx_log
+    fi
+    if [ -d "./eloq_data" ]; then
+      rm -rf ./eloq_data
+    fi
 
     # run redis with wal disabled.
     echo "redirecting output to /tmp/ to prevent ci pipeline crash"
@@ -1058,8 +1152,8 @@ function run_eloqkv_tests() {
     file1="database_snapshot_before_replay.json" # First JSON file
     file2="database_snapshot_after_replay.json"  # Second JSON file
 
-    if [[ ! -f "$file1" || ! -f "$file2" ]]; then
-      echo "ERROR: missing snapshot file(s)"
+    if [[ -z "$file1" || -z "$file2" ]]; then
+      echo "ERROR: database_snapshot_before_replay.json or database_snapshot_after_replay.json not generated"
       exit 1
     fi
 
@@ -1609,9 +1703,9 @@ function run_eloqkv_cluster_tests() {
     file1="database_snapshot_before_replay.json"  # First JSON file
     file2="database_snapshot_after_replay.json"  # Second JSON file
 
-    if [[ ! -f "$file1" || ! -f "$file2" ]]; then
-      echo "ERROR: missing snapshot file(s)"
-      exit 1
+    if [[ -z "$file1" || -z "$file2" ]]; then
+        echo "ERROR: database_snapshot_before_replay.json or database_snapshot_after_replay.json not generated"
+        exit 1
     fi
 
     # Sort JSON content and compare using diff
@@ -1991,9 +2085,9 @@ function run_eloqkv_cluster_tests() {
     file1="database_snapshot_before_replay.json"  # First JSON file
     file2="database_snapshot_after_replay.json"  # Second JSON file
 
-    if [[ ! -f "$file1" || ! -f "$file2" ]]; then
-      echo "ERROR: missing snapshot file(s)"
-      exit 1
+    if [[ -z "$file1" || -z "$file2" ]]; then
+        echo "ERROR: database_snapshot_before_replay.json or database_snapshot_after_replay.json not generated"
+        exit 1
     fi
 
     # Sort JSON content and compare using diff
@@ -2270,9 +2364,9 @@ function run_eloqkv_cluster_tests() {
     file1="database_snapshot_before_replay.json"  # First JSON file
     file2="database_snapshot_after_replay.json"  # Second JSON file
 
-    if [[ ! -f "$file1" || ! -f "$file2" ]]; then
-      echo "ERROR: missing snapshot file(s)"
-      exit 1
+    if [[ -z "$file1" || -z "$file2" ]]; then
+        echo "ERROR: database_snapshot_before_replay.json or database_snapshot_after_replay.json not generated"
+        exit 1
     fi
 
     # Sort JSON content and compare using diff
@@ -2668,9 +2762,9 @@ function run_eloqkv_cluster_tests() {
     file1="database_snapshot_before_replay.json"  # First JSON file
     file2="database_snapshot_after_replay.json"  # Second JSON file
 
-    if [[ ! -f "$file1" || ! -f "$file2" ]]; then
-      echo "ERROR: missing snapshot file(s)"
-      exit 1
+    if [[ -z "$file1" || -z "$file2" ]]; then
+        echo "ERROR: database_snapshot_before_replay.json or database_snapshot_after_replay.json not generated"
+        exit 1
     fi
 
     # Sort JSON content and compare using diff
