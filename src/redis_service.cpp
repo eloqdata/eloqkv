@@ -333,6 +333,9 @@ DEFINE_string(eloq_dss_peer_node,
               "",
               "EloqDataStoreService peer node address. Used to fetch eloq-dss "
               "topology from a working eloq-dss server.");
+DEFINE_string(eloq_dss_branch_name,
+              "development",
+              "Branch name of EloqDataStore");
 #endif
 
 namespace EloqKV
@@ -1070,6 +1073,7 @@ bool RedisServiceImpl::Init(brpc::Server &brpc_server)
         EloqDS::RocksDBCloudConfig rocksdb_cloud_config(config_reader);
         auto ds_factory =
             std::make_unique<EloqDS::RocksDBCloudDataStoreFactory>(
+                FLAGS_eloq_dss_branch_name,
                 rocksdb_config,
                 rocksdb_cloud_config,
                 enable_cache_replacement_);
@@ -1101,6 +1105,7 @@ bool RedisServiceImpl::Init(brpc::Server &brpc_server)
     defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB_CLOUD_GCS)
             // TODO(lzx): move setup datastore to data_store_service
             auto ds = std::make_unique<EloqDS::RocksDBCloudDataStore>(
+                FLAGS_eloq_dss_branch_name,
                 rocksdb_cloud_config,
                 rocksdb_config,
                 (FLAGS_bootstrap || is_single_node),
@@ -2411,7 +2416,7 @@ void RedisServiceImpl::RedisClusterSlots(std::vector<SlotInfo> &info)
                 }
             }
         }  // end-if
-    }  // end-for
+    }      // end-for
 
     if (info.size() > 1)
     {
