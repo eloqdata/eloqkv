@@ -19,6 +19,8 @@
  *    <http://www.gnu.org/licenses/>.
  *
  */
+#include "redis_service.h"
+
 #include <absl/types/span.h>
 #include <bthread/mutex.h>
 #include <bthread/task_group.h>
@@ -40,7 +42,6 @@
 #include "eloq_metrics/include/metrics.h"
 #include "error_messages.h"
 #include "kv_store.h"
-#include "redis_service.h"
 #include "sharder.h"
 #include "tx_key.h"
 #if defined(DATA_STORE_TYPE_DYNAMODB) ||                                       \
