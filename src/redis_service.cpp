@@ -6136,6 +6136,9 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
     bool is_require_sort = true;
     bool is_read_local = false;
 
+    auto bucket_scan_save_point =
+        std::make_unique<txservice::BucketScanSavePoint>();
+
     ScanOpenTxRequest scan_open(redis_table_name,
                                 schema_version,
                                 ScanIndexType::Primary,
@@ -6156,7 +6159,8 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
                                 nullptr,
                                 txm,
                                 static_cast<int32_t>(cmd->obj_type_),
-                                cmd->pattern_.StringView());
+                                cmd->pattern_.StringView(),
+                                bucket_scan_save_point.get());
 
     bool success = SendTxRequestAndWaitResult(txm, &scan_open, output);
     if (!success)
@@ -6172,6 +6176,65 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
 
     uint64_t scan_alias = scan_open.Result();
     assert(scan_alias != UINT64_MAX);
+
+    bucket_scan_save_point->Debug();
+
+    size_t current_index = 0;
+    size_t plan_size = bucket_scan_save_point->PlanSize();
+
+    BucketScanPlan plan = bucket_scan_save_point->PickPlan(current_index);
+    std::vector<txservice::ScanBatchTuple> debug_scan_batch;
+    std::vector<std::pair<uint32_t, size_t>> shard_code_and_sizes;
+
+    while (current_index < plan_size)
+    {
+        LOG(INFO) << "==RedisService::ExecuteCommand: current index = "
+                  << current_index;
+        ScanBatchTxRequest scan_batch_req(scan_alias,
+                                          *redis_table_name,
+                                          &debug_scan_batch,
+                                          nullptr,
+                                          nullptr,
+                                          txm,
+                                          static_cast<int32_t>(cmd->obj_type_),
+                                          cmd->pattern_.StringView(),
+                                          &plan,
+                                          &shard_code_and_sizes);
+        success = SendTxRequestAndWaitResult(txm, &scan_batch_req, output);
+        if (!success)
+        {
+            // The output must have been set if it's not nullptr and
+            // error occurs.
+            if (auto_commit)
+            {
+                AbortTx(txm);
+            }
+            return false;
+        }
+
+        if (debug_scan_batch.empty())
+        {
+            current_index++;
+            if (current_index < plan_size)
+            {
+                plan = bucket_scan_save_point->PickPlan(current_index);
+                LOG(INFO) << "==RedisService::ExecuteCommand: update plan, "
+                             "plan index = "
+                          << current_index;
+            }
+        }
+        else
+        {
+            LOG(INFO) << "==RedisService::ExecuteCommand: data cnt = "
+                      << debug_scan_batch.empty();
+        }
+    }
+
+    LOG(INFO) << "Wihle::True";
+    while (true)
+    {
+        // TOOD(lokax): debug
+    }
 
     std::unique_ptr<txservice::store::DataStoreScanner> storage_scanner =
         nullptr;
