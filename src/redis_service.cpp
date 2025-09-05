@@ -1363,128 +1363,16 @@ bool RedisServiceImpl::Init(brpc::Server &brpc_server)
             dss_config_file_path,
             eloq_dss_data_path + "/DSMigrateLog",
             std::move(ds_factory));
-        std::vector<uint32_t> dss_shards = ds_config.GetShardsForThisNode();
-        std::unordered_map<uint32_t, std::unique_ptr<EloqDS::DataStore>>
-            dss_shards_map;
-        // setup rocksdb cloud data store
-        for (int shard_id : dss_shards)
-        {
-#if defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB_CLOUD_S3) ||                       \
-    defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB_CLOUD_GCS)
-            // TODO(lzx): move setup datastore to data_store_service
-            auto ds = std::make_unique<EloqDS::RocksDBCloudDataStore>(
-                rocksdb_cloud_config,
-                rocksdb_config,
-                (FLAGS_bootstrap || is_single_node),
-                enable_cache_replacement_,
-                shard_id,
-                data_store_service_.get());
-#elif defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB)
-            // TODO(lzx): move setup datastore to data_store_service
-            auto ds = std::make_unique<EloqDS::RocksDBDataStore>(
-                rocksdb_config,
-                (FLAGS_bootstrap || is_single_node),
-                enable_cache_replacement_,
-                shard_id,
-                data_store_service_.get());
 
-#elif defined(DATA_STORE_TYPE_ELOQDSS_ELOQSTORE)
-            ::eloqstore::KvOptions store_config;
-            store_config.num_threads = eloq_store_config.worker_count_;
-            store_config.store_path.emplace_back()
-                .append(eloq_store_config.storage_path_)
-                .append("/ds_")
-                .append(std::to_string(shard_id));
-            store_config.fd_limit = eloq_store_config.open_files_limit_;
-            if (!eloq_store_config.cloud_store_path_.empty())
-            {
-                store_config.cloud_store_path
-                    .append(eloq_store_config.cloud_store_path_)
-                    .append("/ds_")
-                    .append(std::to_string(shard_id));
-            }
-            store_config.num_gc_threads = eloq_store_config.gc_threads_;
-            store_config.rclone_threads = eloq_store_config.cloud_worker_count_;
-            store_config.data_page_restart_interval =
-                eloq_store_config.data_page_restart_interval_;
-            store_config.index_page_restart_interval =
-                eloq_store_config.index_page_restart_interval_;
-            store_config.init_page_count = eloq_store_config.init_page_count_;
-            store_config.skip_verify_checksum =
-                eloq_store_config.skip_verify_checksum_;
-            store_config.index_buffer_pool_size =
-                eloq_store_config.index_buffer_pool_size_;
-            store_config.manifest_limit = eloq_store_config.manifest_limit_;
-            store_config.io_queue_size = eloq_store_config.io_queue_size_;
-            store_config.max_inflight_write =
-                eloq_store_config.max_inflight_write_;
-            store_config.max_write_batch_pages =
-                eloq_store_config.max_write_batch_pages_;
-            store_config.buf_ring_size = eloq_store_config.buf_ring_size_;
-            store_config.coroutine_stack_size =
-                eloq_store_config.coroutine_stack_size_;
-            store_config.num_retained_archives =
-                eloq_store_config.num_retained_archives_;
-            store_config.archive_interval_secs =
-                eloq_store_config.archive_interval_secs_;
-            store_config.max_archive_tasks =
-                eloq_store_config.max_archive_tasks_;
-            store_config.file_amplify_factor =
-                eloq_store_config.file_amplify_factor_;
-            store_config.local_space_limit =
-                eloq_store_config.local_space_limit_;
-            store_config.reserve_space_ratio =
-                eloq_store_config.reserve_space_ratio_;
-            store_config.data_page_size = eloq_store_config.data_page_size_;
-            store_config.pages_per_file_shift =
-                eloq_store_config.pages_per_file_shift_;
-            store_config.overflow_pointers =
-                eloq_store_config.overflow_pointers_;
-            store_config.data_append_mode = eloq_store_config.data_append_mode_;
-            if (eloq_store_config.comparator_ != nullptr)
-            {
-                store_config.comparator_ = eloq_store_config.comparator_;
-            }
-
-            DLOG(INFO) << "Create EloqStore storage with workers: "
-                       << store_config.num_threads
-                       << ", store path: " << store_config.store_path.front()
-                       << ", open files limit: " << store_config.fd_limit
-                       << ", cloud store path: "
-                       << store_config.cloud_store_path
-                       << ", gc threads: " << store_config.num_gc_threads
-                       << ", cloud worker count: "
-                       << store_config.rclone_threads
-                       << ", buffer pool size per shard: "
-                       << store_config.index_buffer_pool_size;
-            auto ds = std::make_unique<EloqDS::EloqStoreDataStore>(
-                shard_id, data_store_service_.get(), store_config);
-#endif
-            ds->Initialize();
-
-            // Start db if the shard status is not closed
-            if (ds_config.FetchDSShardStatus(shard_id) !=
-                EloqDS::DSShardStatus::Closed)
-            {
-                bool ret = ds->StartDB();
-                if (!ret)
-                {
-                    LOG(ERROR)
-                        << "Failed to start db instance in data store service";
-                    return false;
-                }
-            }
-            dss_shards_map[shard_id] = std::move(ds);
-        }
-
-        // setup local data store service
-        bool ret = data_store_service_->StartService();
+        // Start data store service. (Also create datastore in StartService() if
+        // needed)
+        bool ret = data_store_service_->StartService(
+            (FLAGS_bootstrap || is_single_node));
         if (!ret)
         {
             LOG(ERROR) << "Failed to start data store service";
             return false;
         }
-        data_store_service_->ConnectDataStore(std::move(dss_shards_map));
         // setup data store service client
         store_hd_ = std::make_unique<EloqDS::DataStoreServiceClient>(
             ds_config, data_store_service_.get());
@@ -2350,7 +2238,6 @@ void RedisServiceImpl::Stop()
 #if ELOQDS
         if (data_store_service_ != nullptr)
         {
-            data_store_service_->DisconnectDataStore();
             data_store_service_ = nullptr;
         }
 #endif
