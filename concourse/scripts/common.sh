@@ -68,7 +68,7 @@ function run_tcl_tests()
   local test_to_run=$1
   local is_cluster=${3:-false}
   local cluster_mode="--tags -needs:cluster_mode"
-  if [[ $is_cluster = "false" ]]; then
+  if [[ $is_cluster = "true" ]]; then
     cluster_mode=""
   fi
   local fault_inject="--tags -needs:fault_inject"
