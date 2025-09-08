@@ -68,7 +68,7 @@ arm64 | aarch64) ARCH=arm64 ;;
 *) ARCH= $(uname -m) ;;
 esac
 
-if [ -n "${TAGGED}" ]; then
+if [ "${TAGGED}" = "true" ]; then
     TAGGED=$(git tag --sort=-v:refname | head -n 1)
     if [ -z "${TAGGED}" ]; then
         exit 1
@@ -89,19 +89,19 @@ copy_libraries() {
 S3_BUCKET="eloq-release"
 S3_PREFIX="s3://${S3_BUCKET}/eloqkv"
 
-# Normalize behavior for supported KV_TYPE values
-if [ "${KV_TYPE}" = "ROCKSDB" ]; then
-    KVS_ID="rocksdb"
-elif [ "${KV_TYPE}" = "ELOQDSS_ROCKSDB_CLOUD_S3" ]; then
+# Normalize behavior for supported DATA_STORE_TYPE values
+if [ "${DATA_STORE_TYPE}" = "ROCKSDB" ]; then
+    DATA_STORE_ID="rocksdb"
+elif [ "${DATA_STORE_TYPE}" = "ELOQDSS_ROCKSDB_CLOUD_S3" ]; then
     CMAKE_ARGS="${CMAKE_ARGS} -DUSE_ROCKSDB_LOG_STATE=ON -DWITH_ROCKSDB_CLOUD=S3 -DWITH_CLOUD_AZ_INFO=ON"
-    KVS_ID="rocks_s3"
-elif [ "${KV_TYPE}" = "ELOQDSS_ROCKSDB_CLOUD_GCS" ]; then
+    DATA_STORE_ID="rocks_s3"
+elif [ "${DATA_STORE_TYPE}" = "ELOQDSS_ROCKSDB_CLOUD_GCS" ]; then
     CMAKE_ARGS="${CMAKE_ARGS} -DUSE_ROCKSDB_LOG_STATE=ON -DWITH_ROCKSDB_CLOUD=GCS"
-    KVS_ID="rocks_gcs"
-elif [ "${KV_TYPE}" = "ELOQDSS_ROCKSDB" ]; then
-    KVS_ID="eloqdss_rocksdb"
+    DATA_STORE_ID="rocks_gcs"
+elif [ "${DATA_STORE_TYPE}" = "ELOQDSS_ROCKSDB" ]; then
+    DATA_STORE_ID="eloqdss_rocksdb"
 else
-    echo "Unsupported KV_TYPE: ${KV_TYPE}"
+    echo "Unsupported DATA_STORE_TYPE: ${DATA_STORE_TYPE}"
     exit 1
 fi
 
@@ -159,7 +159,7 @@ mv redis-cli ${DEST_DIR}/bin/eloqkv-cli
 # build eloqkv
 cd $ELOQKV_SRC
 mkdir build && cd build
-cmake .. -DCMAKE_BUILD_TYPE=$BUILD_TYPE -DWITH_DATA_STORE=$KV_TYPE $CMAKE_ARGS \
+cmake .. -DCMAKE_BUILD_TYPE=$BUILD_TYPE -DWITH_DATA_STORE=$DATA_STORE_TYPE $CMAKE_ARGS \
     -DWITH_LOG_SERVICE=ON -DDISABLE_CKPT_REPORT=ON -DDISABLE_CODE_LINE_IN_LOG=ON \
     -DWITH_ASAN=$ASAN -DOPEN_LOG_SERVICE=OFF -DFORK_HM_PROCESS=ON
 cmake --build . --config ${BUILD_TYPE} -j${NCORE}
@@ -168,7 +168,7 @@ mv eloqkv ${DEST_DIR}/bin/
 copy_libraries host_manager ${DEST_DIR}/lib
 mv host_manager ${DEST_DIR}/bin/
 
-if [ "${KV_TYPE}" = "ROCKSDB" ]; then
+if [ "${DATA_STORE_TYPE}" = "ROCKSDB" ]; then
     copy_libraries eloqkv_to_aof ${DEST_DIR}/lib
     mv eloqkv_to_aof ${DEST_DIR}/bin/
     copy_libraries eloqkv_to_rdb ${DEST_DIR}/lib
@@ -184,17 +184,17 @@ patchelf --set-rpath '$ORIGIN' ${DEST_DIR}/lib/librocksdb*
 cp ${ELOQKV_SRC}/concourse/artifact/eloqkv.ini ${DEST_DIR}/conf/
 tar -czvf eloqkv.tar.gz -C ${HOME} EloqKV
 
-if [ -n "${TAGGED}" ]; then
+if [ "${TAGGED}" = "true" ]; then
     TX_TARBALL="eloqkv-${TAGGED}-${OS_ID}-${ARCH}.tar.gz"
     eval ${INSTALL_PSQL}
-    SQL="INSERT INTO tx_release VALUES ('eloqkv', '${ARCH}', '${OS_ID}', '${KVS_ID}', $(echo ${TAGGED} | tr '.' ',')) ON CONFLICT DO NOTHING"
+    SQL="INSERT INTO tx_release VALUES ('eloqkv', '${ARCH}', '${OS_ID}', '${DATA_STORE_ID}', $(echo ${TAGGED} | tr '.' ',')) ON CONFLICT DO NOTHING"
     psql postgresql://${PG_CONN}/eloq_release?sslmode=require -c "${SQL}"
 else
     TX_TARBALL="eloqkv-${OUT_NAME}-${OS_ID}-${ARCH}.tar.gz"
 fi
-aws s3 cp eloqkv.tar.gz ${S3_PREFIX}/${KVS_ID}/${TX_TARBALL}
+aws s3 cp eloqkv.tar.gz ${S3_PREFIX}/${DATA_STORE_ID}/${TX_TARBALL}
 if [ -n "${CLOUDFRONT_DIST}" ]; then
-    aws cloudfront create-invalidation --distribution-id ${CLOUDFRONT_DIST} --paths "/eloqkv/${KVS_ID}/${TX_TARBALL}"
+    aws cloudfront create-invalidation --distribution-id ${CLOUDFRONT_DIST} --paths "/eloqkv/${DATA_STORE_ID}/${TX_TARBALL}"
 fi
 
 # clean up eloqkv tx build artifacts
@@ -227,7 +227,7 @@ build_upload_log_srv() {
     copy_libraries ${log_sv_src}/LogService/bin/launch_sv ${log_sv_src}/LogService/lib
     cd ${HOME}
     tar -czvf log_service.tar.gz -C ${log_sv_src} LogService
-    aws s3 cp log_service.tar.gz ${S3_PREFIX}/logservice/${KVS_ID}/${log_tarball}
+    aws s3 cp log_service.tar.gz ${S3_PREFIX}/logservice/${DATA_STORE_ID}/${log_tarball}
     #clean up
     rm -rf log_service.tar.gz
     cd "${log_sv_src}"
@@ -237,15 +237,15 @@ build_upload_log_srv() {
 
 if [ "${BUILD_LOG_SRV}" = true ]; then
     # make and build log_service
-    if [ -n "${TAGGED}" ]; then
+    if [ "${TAGGED}" = "true" ]; then
         LOG_TARBALL="log-service-${TAGGED}-${OS_ID}-${ARCH}.tar.gz"
     else
         LOG_TARBALL="log-service-${OUT_NAME}-${OS_ID}-${ARCH}.tar.gz"
     fi
 
-    build_upload_log_srv "${LOG_TARBALL}" "${KV_TYPE}"
+    build_upload_log_srv "${LOG_TARBALL}" "${DATA_STORE_TYPE}"
 
     if [ -n "${CLOUDFRONT_DIST}" ]; then
-        aws cloudfront create-invalidation --distribution-id ${CLOUDFRONT_DIST} --paths "/eloqkv/logservice/${LOG_TARBALL}"
+        aws cloudfront create-invalidation --distribution-id ${CLOUDFRONT_DIST} --paths "/eloqkv/logservice/${DATA_STORE_ID}/${LOG_TARBALL}"
     fi
 fi
