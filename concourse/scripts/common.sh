@@ -2205,6 +2205,7 @@ function run_eloqkv_cluster_tests() {
         --core_number=2 \
         --enable_wal=false \
         --enable_data_store=true \
+        --ip_port_list=127.0.0.1:6379,127.0.0.1:7379,127.0.0.1:8379 \
         --eloq_data_path="/tmp/redis_server_data_$index" \
         --eloq_dss_peer_node=$dss_server_ip_port \
         --maxclients=1000000 \
