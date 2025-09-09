@@ -6117,14 +6117,8 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
 
     uint64_t schema_version = catalog_rec.SchemaTs();
 
-    const EloqKey key(cmd->cursor_.StringView());
-    const EloqKey *start_key =
-        (cmd->count_ < 0 || cmd->cursor_.StringView() == "0")
-            ? EloqKey::NegativeInfinity()
-            : &key;
-
+    const EloqKey *start_key = EloqKey::NegativeInfinity();
     TxKey start_tx_key(start_key);
-
     bool start_inclusive = false;
     bool end_inclusive = true;
     bool is_ckpt = false;
@@ -6136,8 +6130,13 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
     bool is_require_sort = true;
     bool is_read_local = false;
 
-    auto bucket_scan_save_point =
-        std::make_unique<txservice::BucketScanSavePoint>();
+    std::unique_ptr<BucketScanSavePoint> save_point_owner = nullptr;
+    if (cmd->cursor_ == 0)
+    {
+        assert(cmd->save_point_ == nullptr);
+        save_point_owner = std::make_unique<BucketScanSavePoint>();
+        cmd->save_point_ = save_point_owner.get();
+    }
 
     ScanOpenTxRequest scan_open(redis_table_name,
                                 schema_version,
@@ -6160,7 +6159,7 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
                                 txm,
                                 static_cast<int32_t>(cmd->obj_type_),
                                 cmd->pattern_.StringView(),
-                                bucket_scan_save_point.get());
+                                cmd->save_point_);
 
     bool success = SendTxRequestAndWaitResult(txm, &scan_open, output);
     if (!success)
@@ -6177,20 +6176,18 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
     uint64_t scan_alias = scan_open.Result();
     assert(scan_alias != UINT64_MAX);
 
-    bucket_scan_save_point->Debug();
+    cmd->save_point_->Debug();
 
     size_t current_index = 0;
-    size_t plan_size = bucket_scan_save_point->PlanSize();
+    size_t plan_size = cmd->save_point_->PlanSize();
 
-    BucketScanPlan plan = bucket_scan_save_point->PickPlan(current_index);
+    BucketScanPlan plan = cmd->save_point_->PickPlan(current_index);
     std::vector<txservice::ScanBatchTuple> scan_batch;
     std::vector<std::string> &vct_rst = cmd->result_.vct_key_;
     const EloqKey *result_key = nullptr;
     int64_t obj_cnt = 0;
     std::vector<txservice::UnlockTuple> unlock_batch;
     bool is_scan_end = true;
-
-    std::vector<std::pair<uint32_t, size_t>> shard_code_and_sizes;
 
     size_t debug_total_cnt = 0;
 
@@ -6208,8 +6205,7 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
                                           txm,
                                           static_cast<int32_t>(cmd->obj_type_),
                                           cmd->pattern_.StringView(),
-                                          &plan,
-                                          &shard_code_and_sizes);
+                                          &plan);
         success = SendTxRequestAndWaitResult(txm, &scan_batch_req, output);
         if (!success)
         {
@@ -6249,26 +6245,44 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
             vct_rst.emplace_back(sv);
             obj_cnt++;
 
-            // TODO(lokax): create cursor
             if (cmd->count_ > 0 && obj_cnt >= cmd->count_)
             {
-                assert(false && "TODO");
-                // end_key = sv;
+                is_scan_end = false;
                 break;
             }
         }
 
         if (scan_batch_idx < scan_batch.size())
         {
+            cmd->save_point_->cache_.clear();
             for (size_t idx = scan_batch_idx; idx < scan_batch.size(); ++idx)
             {
                 const ScanBatchTuple &tuple = scan_batch[idx];
                 unlock_batch.emplace_back(
                     tuple.cce_addr_, tuple.version_ts_, tuple.status_);
+                result_key = tuple.key_.GetKey<EloqKey>();
+                const std::string_view sv = result_key->StringView();
+                // TODO(lokax): check the pattern inside BackfillFetchBucketData
+                // function
+                if (tuple.cce_addr_.Empty())
+                {
+                    if (cmd->pattern_.Length() > 0 &&
+                        stringmatchlen(cmd->pattern_.Data(),
+                                       cmd->pattern_.Length(),
+                                       sv.data(),
+                                       sv.size(),
+                                       0) == 0)
+                    {
+                        continue;
+                    }
+                }
+
+                cmd->save_point_->cache_.emplace_back(sv);
             }
 
-            assert(false && "TODO");
-            // TODO(lokax): cache data
+            cmd->save_point_->prev_pause_idx_ = current_index;
+            cmd->save_point_->pause_position_ =
+                std::move(plan.CurrentPosition());
             break;
         }
 
@@ -6278,29 +6292,36 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
             current_index++;
             if (current_index < plan_size)
             {
-                plan = bucket_scan_save_point->PickPlan(current_index);
-                LOG(INFO) << "==RedisService::ExecuteCommand: update plan, "
-                             "plan index = "
-                          << current_index;
+                plan = cmd->save_point_->PickPlan(current_index);
             }
         }
     }
 
-    LOG(INFO) << "== vct ret size = " << vct_rst.size();
-    LOG(INFO) << "Wihle::True";
-    while (true)
-    {
-        // TOOD(lokax): debug
-    }
+    // LOG(INFO) << "== vct ret size = " << vct_rst.size();
 
     txm->CloseTxScan(scan_alias, *redis_table_name, unlock_batch);
     if (is_scan_end)
     {
-        // cmd->result_.last_key_ = "0";
+        ctx->RemoveBucketScanCursor();
+        cmd->result_.cursor_id_ = 0;
+        LOG(INFO) << "== ExecuteScanCommand: scan end";
     }
     else
     {
-        // cmd->result_.last_key_ = std::move(end_key);
+        if (cmd->cursor_ == 0)
+        {
+            cmd->result_.cursor_id_ = ctx->CreateBucketScanCursor(
+                vct_rst.back(), std::move(save_point_owner));
+            LOG(INFO) << "== ExecuteScanCommand: create cursor " << cmd->cursor_
+                      << ", new cursor id = " << cmd->result_.cursor_id_;
+        }
+        else
+        {
+            cmd->result_.cursor_id_ =
+                ctx->UpdateBucketScanCursor(vct_rst.back());
+            LOG(INFO) << "== ExecuteScanCommand: cursor id = " << cmd->cursor_
+                      << ", new cursor id = " << cmd->result_.cursor_id_;
+        }
     }
 
     if (output != nullptr)
