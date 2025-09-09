@@ -24,9 +24,11 @@
 #include <list>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <utility>
 
+#include "redis_command.h"
 #include "redis_service.h"
 #include "tx_util.h"
 
@@ -151,6 +153,71 @@ std::pair<bool, const std::string *> RedisConnectionContext::FindScanCursor(
         return {true, &cursor_content};
     }
     return {false, nullptr};
+}
+
+uint64_t RedisConnectionContext::CreateBucketScanCursor(
+    std::string_view cursor_content,
+    std::unique_ptr<txservice::BucketScanSavePoint> save_point)
+{
+    // FNV-1a hash algorithm.
+    uint64_t hash = 14695981039346656037ULL;
+    for (size_t i = 0; i < cursor_content.size(); ++i)
+    {
+        hash ^= cursor_content[i];
+        hash *= 1099511628211ULL;
+    }
+
+    auto [iter, inserted] =
+        bucket_scan_cursors.try_emplace(db_id, hash, nullptr);
+    if (inserted)
+    {
+        iter->second.second = std::move(save_point);
+    }
+    else
+    {
+        // update
+        iter->second.first = hash;
+        iter->second.second = std::move(save_point);
+    }
+
+    return hash;
+}
+
+void RedisConnectionContext::RemoveBucketScanCursor()
+{
+    bucket_scan_cursors.erase(db_id);
+}
+
+uint64_t RedisConnectionContext::UpdateBucketScanCursor(
+    std::string_view cursor_content)
+{
+    // FNV-1a hash algorithm.
+    uint64_t hash = 14695981039346656037ULL;
+    for (size_t i = 0; i < cursor_content.size(); ++i)
+    {
+        hash ^= cursor_content[i];
+        hash *= 1099511628211ULL;
+    }
+
+    bucket_scan_cursors.at(db_id).first = hash;
+    return hash;
+}
+
+BucketScanSavePoint *RedisConnectionContext::FindBucketScanCursor(
+    uint64_t cursor_id)
+{
+    auto iter = bucket_scan_cursors.find(db_id);
+    if (iter != bucket_scan_cursors.end())
+    {
+        return nullptr;
+    }
+
+    if (iter->second.first != cursor_id)
+    {
+        return nullptr;
+    }
+
+    return iter->second.second.get();
 }
 
 }  // namespace EloqKV

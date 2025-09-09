@@ -114,6 +114,20 @@ public:
     std::list<std::pair<const uint64_t, std::pair<std::string, int>> *>
         scan_cursor_list{};
 
+    uint64_t CreateBucketScanCursor(
+        std::string_view cursor_content,
+        std::unique_ptr<txservice::BucketScanSavePoint> save_point);
+
+    void RemoveBucketScanCursor();
+    uint64_t UpdateBucketScanCursor(std::string_view cursor_content);
+
+    txservice::BucketScanSavePoint *FindBucketScanCursor(uint64_t cursor_id);
+    // <db_id, <cursor_id, cursor>
+    std::unordered_map<
+        int,
+        std::pair<uint64_t, std::unique_ptr<txservice::BucketScanSavePoint>>>
+        bucket_scan_cursors;
+
     butil::Arena arena;
     brpc::RedisReply output;
 

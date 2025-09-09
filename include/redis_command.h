@@ -484,8 +484,8 @@ struct RedisScanResult : public RedisCommandResult
         abort();
     }
 
-    std::string last_key_;  // The last key to scan this time, it will be start
-                            // key next time.
+    uint64_t cursor_id_{0};  // The last key to scan this time, it will be start
+                             // key next time.
     std::vector<std::string> vct_key_;  // All key return to client
 };
 
@@ -6853,7 +6853,8 @@ struct ScanCommand : public CustomCommand
     // This constructor is used for "KEYS" command
     explicit ScanCommand(std::string_view pattern);
     // This constructor is used for "SCAN" command
-    ScanCommand(std::string_view cursor,
+    ScanCommand(txservice::BucketScanSavePoint *save_point,
+                uint64_t cursor,
                 std::string_view pattern,
                 int64_t count,
                 RedisObjectType obj_type);
@@ -6880,7 +6881,8 @@ struct ScanCommand : public CustomCommand
         return count_ == -1;
     }
 
-    EloqString cursor_;
+    txservice::BucketScanSavePoint *save_point_{nullptr};
+    uint64_t cursor_;
     EloqString pattern_;
     int64_t count_{0};
     RedisObjectType obj_type_;
