@@ -6183,16 +6183,26 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
     size_t plan_size = bucket_scan_save_point->PlanSize();
 
     BucketScanPlan plan = bucket_scan_save_point->PickPlan(current_index);
-    std::vector<txservice::ScanBatchTuple> debug_scan_batch;
+    std::vector<txservice::ScanBatchTuple> scan_batch;
+    std::vector<std::string> &vct_rst = cmd->result_.vct_key_;
+    const EloqKey *result_key = nullptr;
+    int64_t obj_cnt = 0;
+    std::vector<txservice::UnlockTuple> unlock_batch;
+    bool is_scan_end = true;
+
     std::vector<std::pair<uint32_t, size_t>> shard_code_and_sizes;
+
+    size_t debug_total_cnt = 0;
 
     while (current_index < plan_size)
     {
+        scan_batch.clear();
+
         LOG(INFO) << "==RedisService::ExecuteCommand: current index = "
                   << current_index;
         ScanBatchTxRequest scan_batch_req(scan_alias,
                                           *redis_table_name,
-                                          &debug_scan_batch,
+                                          &scan_batch,
                                           nullptr,
                                           nullptr,
                                           txm,
@@ -6212,7 +6222,58 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
             return false;
         }
 
-        if (debug_scan_batch.empty())
+        debug_total_cnt += scan_batch.size();
+
+        size_t scan_batch_idx = 0;
+        for (; scan_batch_idx < scan_batch.size(); ++scan_batch_idx)
+        {
+            const ScanBatchTuple &tuple = scan_batch[scan_batch_idx];
+            result_key = tuple.key_.GetKey<EloqKey>();
+            const std::string_view sv = result_key->StringView();
+
+            // TODO(lokax): check the pattern inside BackfillFetchBucketData
+            // function
+            if (tuple.cce_addr_.Empty())
+            {
+                if (cmd->pattern_.Length() > 0 &&
+                    stringmatchlen(cmd->pattern_.Data(),
+                                   cmd->pattern_.Length(),
+                                   sv.data(),
+                                   sv.size(),
+                                   0) == 0)
+                {
+                    continue;
+                }
+            }
+
+            vct_rst.emplace_back(sv);
+            obj_cnt++;
+
+            // TODO(lokax): create cursor
+            if (cmd->count_ > 0 && obj_cnt >= cmd->count_)
+            {
+                assert(false && "TODO");
+                // end_key = sv;
+                break;
+            }
+        }
+
+        if (scan_batch_idx < scan_batch.size())
+        {
+            for (size_t idx = scan_batch_idx; idx < scan_batch.size(); ++idx)
+            {
+                const ScanBatchTuple &tuple = scan_batch[idx];
+                unlock_batch.emplace_back(
+                    tuple.cce_addr_, tuple.version_ts_, tuple.status_);
+            }
+
+            assert(false && "TODO");
+            // TODO(lokax): cache data
+            break;
+        }
+
+        // current plan is finished, move to next plan
+        if (scan_batch_req.Result())
         {
             current_index++;
             if (current_index < plan_size)
@@ -6223,19 +6284,38 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
                           << current_index;
             }
         }
-        else
-        {
-            LOG(INFO) << "==RedisService::ExecuteCommand: data cnt = "
-                      << debug_scan_batch.empty();
-        }
     }
 
+    LOG(INFO) << "== vct ret size = " << vct_rst.size();
     LOG(INFO) << "Wihle::True";
     while (true)
     {
         // TOOD(lokax): debug
     }
 
+    txm->CloseTxScan(scan_alias, *redis_table_name, unlock_batch);
+    if (is_scan_end)
+    {
+        // cmd->result_.last_key_ = "0";
+    }
+    else
+    {
+        // cmd->result_.last_key_ = std::move(end_key);
+    }
+
+    if (output != nullptr)
+    {
+        cmd->OutputResult(output, ctx);
+    }
+
+    if (auto_commit)
+    {
+        CommitTx(txm);
+    }
+
+    return true;
+
+    /*
     std::unique_ptr<txservice::store::DataStoreScanner> storage_scanner =
         nullptr;
     if (store_hd_ != nullptr && !skip_kv_)
@@ -6299,7 +6379,9 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
             return false;
         }
     }
+    */
 
+    /*
     std::vector<txservice::ScanBatchTuple> scan_batch;
     size_t scan_batch_idx{UINT64_MAX};
     const EloqKey *result_key = nullptr;
@@ -6520,7 +6602,9 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
     {
         CommitTx(txm);
     }
+
     return true;
+    */
 }
 
 const TableName *RedisServiceImpl::RedisTableName(int db_id) const
