@@ -34,7 +34,7 @@
 #include "redis_service.h"
 
 DEFINE_string(config, "", "Configuration");
-constexpr char VERSION[] = "0.8.19";
+constexpr char VERSION[] = "0.8.20";
 
 // Global variable defined in redis_service.cpp
 extern brpc::Acceptor *EloqKV::server_acceptor;
