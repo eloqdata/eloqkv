@@ -67,6 +67,10 @@ function run_tcl_tests()
 {
   local test_to_run=$1
   local is_cluster=${3:-false}
+  local cluster_mode="--tags -needs:cluster_mode"
+  if [[ $is_cluster = "true" ]]; then
+    cluster_mode=""
+  fi
   local fault_inject="--tags -needs:fault_inject"
   if [[ $2 = "Debug" ]]; then
     fault_inject=""
@@ -95,6 +99,7 @@ function run_tcl_tests()
     --tags -needs:support_cmd_later \
     $fault_inject \
     $no_evicted \
+    $cluster_mode \
     --single /unit/mono/"
   local files=$(find ${eloqkv_base_path}/tests/unit/mono -maxdepth 2 -type f)
 
@@ -2200,6 +2205,7 @@ function run_eloqkv_cluster_tests() {
         --core_number=2 \
         --enable_wal=false \
         --enable_data_store=true \
+        --ip_port_list=127.0.0.1:6379,127.0.0.1:7379,127.0.0.1:8379 \
         --eloq_data_path="/tmp/redis_server_data_$index" \
         --eloq_dss_peer_node=$dss_server_ip_port \
         --maxclients=1000000 \
