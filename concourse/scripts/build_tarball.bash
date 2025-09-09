@@ -100,6 +100,8 @@ elif [ "${DATA_STORE_TYPE}" = "ELOQDSS_ROCKSDB_CLOUD_GCS" ]; then
     DATA_STORE_ID="rocks_gcs"
 elif [ "${DATA_STORE_TYPE}" = "ELOQDSS_ROCKSDB" ]; then
     DATA_STORE_ID="eloqdss_rocksdb"
+elif [ "${DATA_STORE_TYPE}" = "ELOQDSS_ELOQSTORE" ]; then
+    DATA_STORE_ID="eloqdss_eloqstore"
 else
     echo "Unsupported DATA_STORE_TYPE: ${DATA_STORE_TYPE}"
     exit 1
@@ -167,6 +169,25 @@ copy_libraries eloqkv ${DEST_DIR}/lib
 mv eloqkv ${DEST_DIR}/bin/
 copy_libraries host_manager ${DEST_DIR}/lib
 mv host_manager ${DEST_DIR}/bin/
+
+# build dss_server and include in tarball
+# Map DATA_STORE_TYPE to DSS-compatible values (any ELOQDSS_* builds DSS; others skip)
+if [[ "${DATA_STORE_TYPE}" == ELOQDSS_* ]]; then
+    DSS_TYPE="${DATA_STORE_TYPE}"
+else
+    DSS_TYPE=""
+fi
+
+if [ -n "${DSS_TYPE}" ]; then
+    DSS_SRC_DIR="${ELOQKV_SRC}/store_handler/eloq_data_store_service"
+    cd "${DSS_SRC_DIR}"
+    mkdir -p build && cd build
+    cmake .. -DCMAKE_BUILD_TYPE=${BUILD_TYPE} -DWITH_DATA_STORE=${DSS_TYPE} -DUSE_ONE_ELOQDSS_PARTITION_ENABLED=ON
+    cmake --build . --config ${BUILD_TYPE} -j${NCORE}
+    copy_libraries dss_server ${DEST_DIR}/lib
+    mv dss_server ${DEST_DIR}/bin/
+    cd "${ELOQKV_SRC}"
+fi
 
 if [ "${DATA_STORE_TYPE}" = "ROCKSDB" ]; then
     copy_libraries eloqkv_to_aof ${DEST_DIR}/lib
