@@ -445,6 +445,17 @@ endif()
 
 add_subdirectory(tx_service/abseil-cpp)
 
+# Add usearch dependency for vector indexing
+include(FetchContent)
+FetchContent_Declare(
+    usearch
+    GIT_REPOSITORY https://github.com/unum-cloud/usearch.git
+    GIT_TAG        v2.21.0
+)
+FetchContent_MakeAvailable(usearch)
+set(USEARCH_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/bld/_deps/usearch-src/include)
+include_directories(${USEARCH_INCLUDE_DIR})
+
 INCLUDE(build_tx_service.cmake)
 
 if(WITH_LOG_SERVICE)
@@ -486,6 +497,7 @@ SET(RESELOQ_RESOURCES
     src/redis_string_match.cpp
     src/redis_connection_context.cpp
     src/redis_stats.cpp
+    src/vector/hnsw_vector_index.cpp
 )
 
 SET(INI_SOURCES src/ini.c src/INIReader.cpp)
@@ -580,6 +592,7 @@ set(INCLUDE_DIRS
     ${PROJECT_SOURCE_DIR}/tx_service/include/store
     ${PROJECT_SOURCE_DIR}/tx_service/tx-log-protos
     ${PROJECT_SOURCE_DIR}/store_handler/eloq_data_store_service
+    ${PROJECT_SOURCE_DIR}/src/vector
 )
 
 if(WITH_LOG_SERVICE)
@@ -604,7 +617,7 @@ add_subdirectory(fpconv)
 
 # add_executable(redis_press redis_press.cpp)
 add_executable(eloqkv src/redis_server.cpp ${RESELOQ_RESOURCES})
-target_link_libraries(eloqkv ${DYNAMIC_LIB} ${RESELOQ_LIBRARY} ${ABSEIL} lua fpconv)
+target_link_libraries(eloqkv ${DYNAMIC_LIB} ${RESELOQ_LIBRARY} ${ABSEIL} lua fpconv usearch)
 
 option(WITH_BOOST_STACKTRACE "With boost stack trace." OFF)
 message("WITH_BOOST_STACKTRACE: " ${WITH_BOOST_STACKTRACE})
