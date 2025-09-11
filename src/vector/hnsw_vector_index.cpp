@@ -8,7 +8,7 @@
  * @date 2025
  */
 
-#include "hnsw_vector_index.h"
+#include "vector/hnsw_vector_index.h"
 #include <usearch/index.hpp>
 #include <usearch/index_dense.hpp>
 #include <usearch/index_plugins.hpp>
