@@ -12,24 +12,37 @@
 
 #pragma once
 
+#include <algorithm>
 #include <cstdint>
 #include <functional>
 #include <memory>
 #include <optional>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace EloqVec
 {
 
 /**
+ * @brief Vector index algorithm types
+ */
+enum class Algorithm
+{
+    // Hierarchical Navigable Small World
+    HNSW,
+    UNKNOWN
+};
+
+/**
  * @brief Distance metric types for vector similarity calculations
  */
 enum class DistanceMetric
 {
-    L2SQ,   ///< Squared Euclidean
-    IP,     ///< Inner product (dot product)
-    COSINE  ///< Cosine similarity
+    L2SQ,    ///< Squared Euclidean
+    IP,      ///< Inner product (dot product)
+    COSINE,  ///< Cosine similarity
+    UNKNOWN
 };
 
 /**
@@ -67,7 +80,59 @@ inline DistanceMetric string_to_distance_metric(const std::string &str)
         return DistanceMetric::IP;
     if (str == "COSINE")
         return DistanceMetric::COSINE;
-    return DistanceMetric::L2SQ;  // Default fallback
+    return DistanceMetric::UNKNOWN;
+}
+
+/**
+ * @brief Convert string to distance metric enum
+ *
+ * @param sv String view representation of the metric
+ * @return Distance metric enum value, defaults to L2 if string is invalid
+ */
+inline DistanceMetric string_to_distance_metric(const std::string_view &sv)
+{
+    std::string metric_str(sv);
+    std::transform(
+        metric_str.begin(), metric_str.end(), metric_str.begin(), ::toupper);
+    if (metric_str == "L2SQ")
+        return DistanceMetric::L2SQ;
+    if (metric_str == "IP")
+        return DistanceMetric::IP;
+    if (metric_str == "COSINE")
+        return DistanceMetric::COSINE;
+    return DistanceMetric::UNKNOWN;
+}
+
+/**
+ * @brief Convert algorithm enum to string representation
+ *
+ * @param algorithm The algorithm enum value
+ * @return String representation of the algorithm
+ */
+inline std::string algorithm_to_string(Algorithm algorithm)
+{
+    switch (algorithm)
+    {
+    case Algorithm::HNSW:
+        return "HNSW";
+    default:
+        return "UNKNOWN";
+    }
+}
+
+/**
+ * @brief Convert string to algorithm enum
+ *
+ * @param sv String view representation of the algorithm
+ * @return Algorithm enum value, defaults to HNSW if string is invalid
+ */
+inline Algorithm string_to_algorithm(const std::string_view &sv)
+{
+    std::string alg_str(sv);
+    std::transform(alg_str.begin(), alg_str.end(), alg_str.begin(), ::toupper);
+    if (alg_str == "HNSW")
+        return Algorithm::HNSW;
+    return Algorithm::UNKNOWN;
 }
 
 /**
@@ -153,11 +218,11 @@ public:
      * @param filter Optional filter function to apply to results
      * @return SearchResult containing IDs, distances, and optionally vectors
      */
-    virtual SearchResult search(const std::vector<float> &query_vector,
-                                size_t k,
-                                bool exact = false,
-                                std::optional<std::function<bool(uint64_t)>>
-                                    filter = std::nullopt) = 0;
+    virtual SearchResult search(
+        const std::vector<float> &query_vector,
+        size_t k,
+        bool exact = false,
+        std::optional<std::function<bool(uint64_t)>> filter = std::nullopt) = 0;
 
     /**
      * @brief Add a vector to the index
@@ -254,7 +319,8 @@ public:
      * @param params Index type specific parameters
      * @return true if parameter setting successful, false otherwise
      */
-    virtual bool set_update_params(std::unordered_map<std::string, std::string> params) = 0;
+    virtual bool set_update_params(
+        std::unordered_map<std::string, std::string> params) = 0;
 };
 
 /**

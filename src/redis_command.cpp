@@ -252,6 +252,8 @@ const std::vector<std::pair<const char *, RedisCommandType>> command_types{{
     {"unsubscribe", RedisCommandType::UNSUBSCRIBE},
     {"psubscribe", RedisCommandType::PSUBSCRIBE},
     {"punsubscribe", RedisCommandType::PUNSUBSCRIBE},
+    {"eloqvec.create", RedisCommandType::ELOQVEC_CREATE},
+    {"eloqvec.info", RedisCommandType::ELOQVEC_INFO},
 }};
 
 /*
@@ -9991,6 +9993,30 @@ ParseMultiCommand(RedisServiceImpl *redis_impl,
                 DirectRequest(
                     ctx, std::make_unique<PublishCommand>(std::move(cmd)))};
     }
+    case RedisCommandType::ELOQVEC_CREATE:
+    {
+        auto [success, cmd] = ParseCreateVecIndexCommand(args, output);
+        if (!success)
+        {
+            return {false, CustomCommandRequest{}};
+        }
+        return {success,
+                CustomCommandRequest(
+                    redis_impl->RedisTableName(ctx->db_id),
+                    std::make_unique<CreateVecIndexCommand>(std::move(cmd)))};
+    }
+    case RedisCommandType::ELOQVEC_INFO:
+    {
+        auto [success, cmd] = ParseInfoVecIndexCommand(args, output);
+        if (!success)
+        {
+            return {false, CustomCommandRequest{}};
+        }
+        return {success,
+                CustomCommandRequest(
+                    redis_impl->RedisTableName(ctx->db_id),
+                    std::make_unique<InfoVecIndexCommand>(std::move(cmd)))};
+    }
     default:
         LOG(WARNING) << "Unsupported command in MULTI " << args[0];
         output->OnError("Unsupported command in MULTI");
@@ -19709,4 +19735,276 @@ std::tuple<bool, TimeCommand> ParseTimeCommand(
     }
     return {true, TimeCommand()};
 }
+
+std::tuple<bool, CreateVecIndexCommand> ParseCreateVecIndexCommand(
+    const std::vector<std::string_view> &args, OutputHandler *output)
+{
+    assert(args[0] == "eloqvec.create" || args[0] == "ELOQVEC.CREATE");
+
+    // Minimum required parameters: ELOQVEC.CREATE <index_name> ON
+    // <hash_set_name> COLUMN <vector_column_name> DIMENSIONS <dimensions>
+    // METRIC <metric_type> ALGORITHM <algorithm> That's 12 arguments minimum
+    // (including the command)
+    if (args.size() < 12)
+    {
+        output->OnError(
+            "ERR wrong number of arguments for 'eloqvec.create' command");
+        return {false, CreateVecIndexCommand()};
+    }
+
+    // Variables to hold parsed parameters
+    std::string_view index_name;
+    std::string_view hash_set_name;
+    std::string_view vector_column_name;
+    uint64_t dimensions;
+    EloqVec::Algorithm algorithm;
+    EloqVec::DistanceMetric metric_type;
+    std::unordered_map<std::string, std::string> alg_params;
+
+    size_t pos = 1;
+
+    // Parse index_name
+    index_name = args[pos++];
+
+    // Parse ON keyword and hash_set_name
+    if (!stringcomp("on", args[pos], 1))
+    {
+        output->OnError("ERR syntax error: expected 'ON' keyword");
+        return {false, CreateVecIndexCommand()};
+    }
+    pos++;
+    hash_set_name = args[pos++];
+
+    // Parse COLUMN keyword and vector_column_name
+    if (!stringcomp("column", args[pos], 1))
+    {
+        output->OnError("ERR syntax error: expected 'COLUMN' keyword");
+        return {false, CreateVecIndexCommand()};
+    }
+    pos++;
+    vector_column_name = args[pos++];
+
+    // Parse DIMENSIONS keyword and dimensions value
+    if (!stringcomp("dimensions", args[pos], 1))
+    {
+        output->OnError("ERR syntax error: expected 'DIMENSIONS' keyword");
+        return {false, CreateVecIndexCommand()};
+    }
+    pos++;
+    if (!string2ull(args[pos].data(), args[pos].size(), dimensions))
+    {
+        output->OnError(
+            "ERR invalid value for DIMENSIONS: must be a positive integer");
+        return {false, CreateVecIndexCommand()};
+    }
+    pos++;
+
+    // Parse METRIC keyword and metric_type
+    if (!stringcomp("metric", args[pos], 1))
+    {
+        output->OnError("ERR syntax error: expected 'METRIC' keyword");
+        return {false, CreateVecIndexCommand()};
+    }
+    pos++;
+    // Convert metric string to proper format for string_to_distance_metric
+    metric_type = EloqVec::string_to_distance_metric(args[pos]);
+    if (metric_type == EloqVec::DistanceMetric::UNKNOWN)
+    {
+        output->OnError(
+            "ERR unsupported algorithm: only COSINE, L2SQ and IP are "
+            "supported");
+        return {false, CreateVecIndexCommand()};
+    }
+    pos++;
+
+    // Parse ALGORITHM keyword and algorithm
+    if (!stringcomp("algorithm", args[pos], 1))
+    {
+        output->OnError("ERR syntax error: expected 'ALGORITHM' keyword");
+        return {false, CreateVecIndexCommand()};
+    }
+    pos++;
+    algorithm = EloqVec::string_to_algorithm(args[pos]);
+    if (algorithm == EloqVec::Algorithm::UNKNOWN)
+    {
+        output->OnError("ERR unsupported algorithm: only HNSW are supported");
+        return {false, CreateVecIndexCommand()};
+    }
+    pos++;
+
+    // Parse optional parameters
+    while (pos < args.size())
+    {
+        if (pos + 1 >= args.size())
+        {
+            output->OnError("ERR syntax error: parameter missing value");
+            return {false, CreateVecIndexCommand()};
+        }
+
+        std::string_view param = args[pos];
+        std::string_view value = args[pos + 1];
+
+        if (stringcomp("connectivity", param, 1))
+        {
+            int64_t connectivity;
+            if (!string2ll(value.data(), value.size(), connectivity) ||
+                connectivity <= 0)
+            {
+                output->OnError(
+                    "ERR invalid value for CONNECTIVITY: must be a positive "
+                    "integer");
+                return {false, CreateVecIndexCommand()};
+            }
+            alg_params["connectivity"] = std::string(value);
+        }
+        else if (stringcomp("ef_construct", param, 1))
+        {
+            int64_t ef_construct;
+            if (!string2ll(value.data(), value.size(), ef_construct) ||
+                ef_construct <= 0)
+            {
+                output->OnError(
+                    "ERR invalid value for EF_CONSTRUCT: must be a positive "
+                    "integer");
+                return {false, CreateVecIndexCommand()};
+            }
+            alg_params["ef_construct"] = std::string(value);
+        }
+        else if (stringcomp("ef_search", param, 1))
+        {
+            int64_t ef_search;
+            if (!string2ll(value.data(), value.size(), ef_search) ||
+                ef_search <= 0)
+            {
+                output->OnError(
+                    "ERR invalid value for EF_SEARCH: must be a positive "
+                    "integer");
+                return {false, CreateVecIndexCommand()};
+            }
+            alg_params["ef_search"] = std::string(value);
+        }
+        else if (stringcomp("scalar_type", param, 1))
+        {
+            std::string scalar_type_str = std::string(value);
+            std::transform(scalar_type_str.begin(),
+                           scalar_type_str.end(),
+                           scalar_type_str.begin(),
+                           ::tolower);
+            if (scalar_type_str != "f32" && scalar_type_str != "f64" &&
+                scalar_type_str != "i8" && scalar_type_str != "i16" &&
+                scalar_type_str != "i32")
+            {
+                output->OnError(
+                    "ERR unsupported scalar type: supported types are f32, "
+                    "f64, i8, i16, i32");
+                return {false, CreateVecIndexCommand()};
+            }
+            alg_params["scalar_type"] = scalar_type_str;
+        }
+        else
+        {
+            output->OnError("ERR unknown parameter: " + std::string(param));
+            return {false, CreateVecIndexCommand()};
+        }
+
+        pos += 2;
+    }
+
+    // Create command with all parsed parameters using constructor
+    return {true,
+            CreateVecIndexCommand(index_name,
+                                  hash_set_name,
+                                  vector_column_name,
+                                  dimensions,
+                                  algorithm,
+                                  metric_type,
+                                  std::move(alg_params))};
+}
+
+bool CreateVecIndexCommand::Execute(RedisServiceImpl *redis_impl,
+                                    RedisConnectionContext *ctx,
+                                    const txservice::TableName *table,
+                                    txservice::TransactionExecution *txm,
+                                    OutputHandler *output,
+                                    bool auto_commit)
+{
+    return redis_impl->ExecuteCommand(
+        ctx, txm, table, this, output, auto_commit);
+}
+
+void CreateVecIndexCommand::OutputResult(OutputHandler *reply,
+                                         RedisConnectionContext *ctx) const
+{
+    // TODO: Implement vector index creation result output
+    // This should output either:
+    // - Success message on successful index creation
+    // - Error message on failure
+    if (result_.err_code_ == RD_OK)
+    {
+        reply->OnString("OK");
+    }
+    else
+    {
+        reply->OnError(redis_get_error_messages(result_.err_code_));
+    }
+}
+
+std::tuple<bool, InfoVecIndexCommand> ParseInfoVecIndexCommand(
+    const std::vector<std::string_view> &args, OutputHandler *output)
+{
+    assert(args[0] == "eloqvec.info" || args[0] == "ELOQVEC.INFO");
+
+    // ELOQVEC.INFO <index_name>
+    if (args.size() != 2)
+    {
+        output->OnError(
+            "ERR wrong number of arguments for 'eloqvec.info' command");
+        return {false, InfoVecIndexCommand()};
+    }
+
+    std::string_view index_name = args[1];
+
+    // Create command with parsed parameter
+    return {true, InfoVecIndexCommand(index_name)};
+}
+
+bool InfoVecIndexCommand::Execute(RedisServiceImpl *redis_impl,
+                                  RedisConnectionContext *ctx,
+                                  const txservice::TableName *table,
+                                  txservice::TransactionExecution *txm,
+                                  OutputHandler *output,
+                                  bool auto_commit)
+{
+    return redis_impl->ExecuteCommand(
+        ctx, txm, table, this, output, auto_commit);
+}
+
+void InfoVecIndexCommand::OutputResult(OutputHandler *reply,
+                                       RedisConnectionContext *ctx) const
+{
+    // TODO: Implement vector index info result output
+    // This should output index information such as:
+    // - Index name, hash set, vector column
+    // - Dimensions, algorithm, metric type
+    // - Index statistics (number of vectors, etc.)
+    if (result_.err_code_ == RD_OK)
+    {
+        // For now, return a simple placeholder response
+        reply->OnArrayStart(8);
+        reply->OnString("index_name");
+        reply->OnString(index_name_.StringView());
+        reply->OnString("status");
+        reply->OnString("ready");
+        reply->OnString("algorithm");
+        reply->OnString("HNSW");
+        reply->OnString("metric");
+        reply->OnString("cosine");
+        reply->OnArrayEnd();
+    }
+    else
+    {
+        reply->OnError(redis_get_error_messages(result_.err_code_));
+    }
+}
+
 }  // namespace EloqKV

@@ -34,6 +34,7 @@
 #include <string>
 #include <string_view>
 #include <tuple>
+#include <unordered_map>
 #include <unordered_set>
 #include <utility>
 #include <vector>
@@ -48,6 +49,7 @@
 #include "tx_command.h"
 #include "tx_key.h"
 #include "tx_request.h"
+#include "vector_index.h"
 
 /*
  * Copyright (c) 2009-2012, Salvatore Sanfilippo <antirez at gmail dot com>
@@ -300,6 +302,10 @@ enum struct RedisCommandType
     UNSUBSCRIBE,
     PSUBSCRIBE,
     PUNSUBSCRIBE,
+
+    // vector index commands
+    ELOQVEC_CREATE,
+    ELOQVEC_INFO,
 };
 
 enum RedisResultType
@@ -6887,6 +6893,99 @@ struct ScanCommand : public CustomCommand
     RedisScanResult result_;
 };
 
+struct CreateVecIndexCommand : public CustomCommand
+{
+    CreateVecIndexCommand() = default;
+
+    // Constructor with required parameters
+    CreateVecIndexCommand(
+        std::string_view index_name,
+        std::string_view hash_set_name,
+        std::string_view vector_column_name,
+        uint32_t dimensions,
+        EloqVec::Algorithm algorithm,
+        EloqVec::DistanceMetric metric_type,
+        std::unordered_map<std::string, std::string> &&alg_params)
+        : index_name_(index_name),
+          hash_set_name_(hash_set_name),
+          vector_column_name_(vector_column_name),
+          dimensions_(dimensions),
+          algorithm_(algorithm),
+          metric_type_(metric_type),
+          alg_params_(std::move(alg_params))
+    {
+    }
+
+    CreateVecIndexCommand(const CreateVecIndexCommand &rhs) = delete;
+    CreateVecIndexCommand(CreateVecIndexCommand &&rhs) = default;
+    CreateVecIndexCommand &operator=(const CreateVecIndexCommand &rhs) = delete;
+    CreateVecIndexCommand &operator=(CreateVecIndexCommand &&rhs) = delete;
+    ~CreateVecIndexCommand() = default;
+
+    bool Execute(RedisServiceImpl *redis_impl,
+                 RedisConnectionContext *ctx,
+                 const txservice::TableName *table,
+                 txservice::TransactionExecution *txm,
+                 OutputHandler *output,
+                 bool auto_commit) override;
+
+    void OutputResult(OutputHandler *reply,
+                      RedisConnectionContext *ctx) const override;
+
+    // Name of the vector index
+    EloqString index_name_;
+    // Name of the primary hash set to index
+    EloqString hash_set_name_;
+    // Column containing vector embeddings
+    EloqString vector_column_name_;
+    // Number of dimensions in the vectors
+    uint32_t dimensions_;
+    // HNSW or IVF (currently only HNSW supported)
+    EloqVec::Algorithm algorithm_;
+    // Distance metric (cosine, l2sq, ip)
+    EloqVec::DistanceMetric metric_type_;
+
+    // Algorithm specific parameters (such as for HNSW: connectivity,
+    // ef_construct, ef_search, scalar_type, etc.)
+    std::unordered_map<std::string, std::string> alg_params_;
+
+    // Result storage
+    RedisCommandResult result_;
+};
+
+struct InfoVecIndexCommand : public CustomCommand
+{
+    InfoVecIndexCommand() = default;
+
+    // Constructor with required parameters
+    explicit InfoVecIndexCommand(std::string_view index_name)
+        : index_name_(index_name)
+    {
+    }
+
+    InfoVecIndexCommand(const InfoVecIndexCommand &rhs) = delete;
+    InfoVecIndexCommand(InfoVecIndexCommand &&rhs) = default;
+    InfoVecIndexCommand &operator=(const InfoVecIndexCommand &rhs) = delete;
+    InfoVecIndexCommand &operator=(InfoVecIndexCommand &&rhs) = delete;
+    ~InfoVecIndexCommand() = default;
+
+    bool Execute(RedisServiceImpl *redis_impl,
+                 RedisConnectionContext *ctx,
+                 const txservice::TableName *table,
+                 txservice::TransactionExecution *txm,
+                 OutputHandler *output,
+                 bool auto_commit) override;
+
+    void OutputResult(OutputHandler *reply,
+                      RedisConnectionContext *ctx) const override;
+
+    // Name of the vector index to get info for
+    EloqString index_name_;
+
+    // Result storage
+    RedisCommandResult result_;
+};
+
 struct DumpCommand : public RedisCommand
 {
     std::unique_ptr<txservice::TxRecord> CreateObject(
@@ -7956,4 +8055,11 @@ std::tuple<bool, EloqKey, GetExCommand> ParseGetExCommand(
 
 std::tuple<bool, TimeCommand> ParseTimeCommand(
     const std::vector<std::string_view> &args, OutputHandler *output);
+
+std::tuple<bool, CreateVecIndexCommand> ParseCreateVecIndexCommand(
+    const std::vector<std::string_view> &args, OutputHandler *output);
+
+std::tuple<bool, InfoVecIndexCommand> ParseInfoVecIndexCommand(
+    const std::vector<std::string_view> &args, OutputHandler *output);
+
 }  // namespace EloqKV

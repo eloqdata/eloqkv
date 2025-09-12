@@ -390,6 +390,21 @@ public:
                         ScanCommand *cmd,
                         OutputHandler *output,
                         bool auto_commit);
+
+    bool ExecuteCommand(RedisConnectionContext *ctx,
+                        TransactionExecution *txm,
+                        const TableName *table,
+                        CreateVecIndexCommand *cmd,
+                        OutputHandler *output,
+                        bool auto_commit);
+
+    bool ExecuteCommand(RedisConnectionContext *ctx,
+                        TransactionExecution *txm,
+                        const TableName *table,
+                        InfoVecIndexCommand *cmd,
+                        OutputHandler *output,
+                        bool auto_commit);
+
 #ifdef WITH_FAULT_INJECT
     bool ExecuteCommand(RedisConnectionContext *ctx,
                         TransactionExecution *txm,

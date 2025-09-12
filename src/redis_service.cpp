@@ -3065,6 +3065,14 @@ void RedisServiceImpl::AddHandlers()
     auto &keys_hd = hd_vec_.emplace_back(std::make_unique<KeysHandler>(this));
     AddCommandHandler("keys", keys_hd.get());
 
+    auto &create_vec_index_hd =
+        hd_vec_.emplace_back(std::make_unique<CreateVecIndexHandler>(this));
+    AddCommandHandler("eloqvec.create", create_vec_index_hd.get());
+
+    auto &info_vec_index_hd =
+        hd_vec_.emplace_back(std::make_unique<InfoVecIndexHandler>(this));
+    AddCommandHandler("eloqvec.info", info_vec_index_hd.get());
+
     auto &dump_hd = hd_vec_.emplace_back(std::make_unique<DumpHandler>(this));
     AddCommandHandler("dump", dump_hd.get());
 
@@ -5423,6 +5431,26 @@ void RedisServiceImpl::GenericCommand(RedisConnectionContext *ctx,
         }
         break;
     }
+    case RedisCommandType::ELOQVEC_CREATE:
+    {
+        auto [success, cmd] = ParseCreateVecIndexCommand(cmd_arg_list, output);
+        if (success)
+        {
+            ExecuteCommand(
+                ctx, txm, RedisTableName(ctx->db_id), &cmd, output, false);
+        }
+        break;
+    }
+    case RedisCommandType::ELOQVEC_INFO:
+    {
+        auto [success, cmd] = ParseInfoVecIndexCommand(cmd_arg_list, output);
+        if (success)
+        {
+            ExecuteCommand(
+                ctx, txm, RedisTableName(ctx->db_id), &cmd, output, false);
+        }
+        break;
+    }
     default:
         LOG(WARNING) << "Lua unsupported command type: " << cmd_arg_list[0];
         output->OnError("Unknown Redis command called from script");
@@ -6397,6 +6425,41 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
         CommitTx(txm);
     }
 
+    return true;
+}
+
+bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
+                                      TransactionExecution *txm,
+                                      const TableName *table,
+                                      CreateVecIndexCommand *cmd,
+                                      OutputHandler *output,
+                                      bool auto_commit)
+{
+    // TODO: Implement vector index creation logic
+    // This should:
+    // 1. Validate the hash set exists
+    // 2. Create vector index metadata
+    // 3. Initialize vector index structure
+    // 4. Store index configuration
+    cmd->result_.err_code_ = RD_OK;
+    cmd->OutputResult(output, ctx);
+    return true;
+}
+
+bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
+                                      TransactionExecution *txm,
+                                      const TableName *table,
+                                      InfoVecIndexCommand *cmd,
+                                      OutputHandler *output,
+                                      bool auto_commit)
+{
+    // TODO: Implement vector index info logic
+    // This should:
+    // 1. Validate the index exists
+    // 2. Retrieve index metadata
+    // 3. Gather index statistics
+    cmd->result_.err_code_ = RD_OK;
+    cmd->OutputResult(output, ctx);
     return true;
 }
 

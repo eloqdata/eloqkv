@@ -592,7 +592,7 @@ set(INCLUDE_DIRS
     ${PROJECT_SOURCE_DIR}/tx_service/include/store
     ${PROJECT_SOURCE_DIR}/tx_service/tx-log-protos
     ${PROJECT_SOURCE_DIR}/store_handler/eloq_data_store_service
-    ${PROJECT_SOURCE_DIR}/src/vector
+    ${PROJECT_SOURCE_DIR}/include/vector
 )
 
 if(WITH_LOG_SERVICE)

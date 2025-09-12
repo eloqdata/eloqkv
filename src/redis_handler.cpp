@@ -32,6 +32,7 @@
 #include <string_view>
 #include <unordered_map>
 #include <utility>
+#include <vector>
 
 #include "cc_protocol.h"
 #include "eloq_key.h"
@@ -5260,6 +5261,56 @@ brpc::RedisCommandHandlerResult TimeCommandHandler::Run(
     {
         redis_impl_->ExecuteCommand(ctx, &cmd, &reply);
     }
+    return brpc::REDIS_CMD_HANDLED;
+}
+
+brpc::RedisCommandHandlerResult CreateVecIndexHandler::Run(
+    RedisConnectionContext *ctx,
+    const std::vector<butil::StringPiece> &args,
+    brpc::RedisReply *output,
+    bool /*flush_batched*/)
+{
+    assert(args[0] == "eloqvec.create" || args[0] == "ELOQVEC.CREATE");
+
+    RedisReplier reply(output);
+    std::vector<std::string_view> cmd_arg_list = Transform(args);
+    auto [success, cmd] = ParseCreateVecIndexCommand(cmd_arg_list, &reply);
+
+    if (success)
+    {
+        bool in_tx = ctx->txm != nullptr;
+        TransactionExecution *txm =
+            in_tx ? ctx->txm : redis_impl_->NewTxm(iso_level_, cc_protocol_);
+        const TableName *table = redis_impl_->RedisTableName(ctx->db_id);
+        redis_impl_->ExecuteCommand(
+            ctx, txm, table, &cmd, &reply, in_tx ? false : auto_commit_);
+    }
+
+    return brpc::REDIS_CMD_HANDLED;
+}
+
+brpc::RedisCommandHandlerResult InfoVecIndexHandler::Run(
+    RedisConnectionContext *ctx,
+    const std::vector<butil::StringPiece> &args,
+    brpc::RedisReply *output,
+    bool /*flush_batched*/)
+{
+    assert(args[0] == "eloqvec.info" || args[0] == "ELOQVEC.INFO");
+
+    RedisReplier reply(output);
+    std::vector<std::string_view> cmd_arg_list = Transform(args);
+    auto [success, cmd] = ParseInfoVecIndexCommand(cmd_arg_list, &reply);
+
+    if (success)
+    {
+        bool in_tx = ctx->txm != nullptr;
+        TransactionExecution *txm =
+            in_tx ? ctx->txm : redis_impl_->NewTxm(iso_level_, cc_protocol_);
+        const TableName *table = redis_impl_->RedisTableName(ctx->db_id);
+        redis_impl_->ExecuteCommand(
+            ctx, txm, table, &cmd, &reply, in_tx ? false : auto_commit_);
+    }
+
     return brpc::REDIS_CMD_HANDLED;
 }
 
