@@ -180,6 +180,11 @@ uint64_t RedisConnectionContext::CreateBucketScanCursor(
         iter->second.second = std::move(save_point);
     }
 
+    LOG(INFO) << "==CreateBucketScanCursor: new cursor id = " << hash
+              << ", save point addr = " << iter->second.second.get()
+              << ", cursors size = " << bucket_scan_cursors.size()
+              << ", db id = " << db_id << ", this = this";
+
     return hash;
 }
 
@@ -207,13 +212,17 @@ BucketScanSavePoint *RedisConnectionContext::FindBucketScanCursor(
     uint64_t cursor_id)
 {
     auto iter = bucket_scan_cursors.find(db_id);
-    if (iter != bucket_scan_cursors.end())
+    if (iter == bucket_scan_cursors.end())
     {
+        LOG(INFO) << "== FindBucketScanCursor: db id not found, db id = "
+                  << db_id << ", bucket_scan_cursor size = "
+                  << bucket_scan_cursors.size() << ", this = " << this;
         return nullptr;
     }
 
     if (iter->second.first != cursor_id)
     {
+        LOG(INFO) << "== FindBucketScanCursor: cursor id mismatch";
         return nullptr;
     }
 
