@@ -18813,6 +18813,12 @@ std::tuple<bool, ScanCommand> ParseScanCommand(
         if (cursor_id != 0)
         {
             save_point = ctx->FindBucketScanCursor(cursor_id);
+            if (save_point == nullptr)
+            {
+                output->OnError(
+                    redis_get_error_messages(RD_ERR_INVALID_CURSOR));
+                return {false, ScanCommand()};
+            }
         }
 
         LOG(INFO) << "==ParseScanCommand: cursor id = " << cursor_id
