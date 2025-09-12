@@ -498,6 +498,7 @@ SET(RESELOQ_RESOURCES
     src/redis_connection_context.cpp
     src/redis_stats.cpp
     src/vector/hnsw_vector_index.cpp
+    src/vector/vector_handler.cpp
 )
 
 SET(INI_SOURCES src/ini.c src/INIReader.cpp)
