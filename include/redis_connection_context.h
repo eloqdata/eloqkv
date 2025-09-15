@@ -35,11 +35,25 @@
 
 #include "absl/container/flat_hash_set.h"
 #include "redis_handler.h"
+#include "redis_object.h"
 #include "redis_stats.h"
 
 namespace EloqKV
 {
 class PubSubManager;
+
+struct BucketScanCursor
+{
+    BucketScanCursor() = default;
+
+    uint64_t cursor_id_{0};
+    RedisObjectType obj_type_{RedisObjectType::Unknown};
+    std::string cmd_pattern_{};
+
+    size_t cache_idx_{0};
+    std::vector<std::string> cache_;
+    txservice::BucketScanSavePoint save_point_;
+};
 
 class RedisConnectionContext : public brpc::ConnectionContext
 {
@@ -116,16 +130,14 @@ public:
 
     uint64_t CreateBucketScanCursor(
         std::string_view cursor_content,
-        std::unique_ptr<txservice::BucketScanSavePoint> save_point);
+        std::unique_ptr<BucketScanCursor> save_point);
 
     void RemoveBucketScanCursor();
     uint64_t UpdateBucketScanCursor(std::string_view cursor_content);
 
-    txservice::BucketScanSavePoint *FindBucketScanCursor(uint64_t cursor_id);
+    BucketScanCursor *FindBucketScanCursor(uint64_t cursor_id);
     // <db_id, <cursor_id, cursor>
-    std::unordered_map<
-        int,
-        std::pair<uint64_t, std::unique_ptr<txservice::BucketScanSavePoint>>>
+    std::unordered_map<int, std::unique_ptr<BucketScanCursor>>
         bucket_scan_cursors;
 
     butil::Arena arena;

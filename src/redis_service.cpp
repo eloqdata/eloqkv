@@ -44,6 +44,7 @@
 #include "eloq_metrics/include/metrics.h"
 #include "error_messages.h"
 #include "kv_store.h"
+#include "redis_errors.h"
 #include "sharder.h"
 #include "tx_key.h"
 #if defined(DATA_STORE_TYPE_DYNAMODB) ||                                       \
@@ -6084,41 +6085,6 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
                                       OutputHandler *output,
                                       bool auto_commit)
 {
-    // Fetch catalog and acquire read lock on catalog table
-    CatalogKey catalog_key(*redis_table_name);
-    TxKey cat_tx_key(&catalog_key);
-    CatalogRecord catalog_rec;
-    ReadTxRequest read_req(&txservice::catalog_ccm_name,
-                           0,
-                           &cat_tx_key,
-                           &catalog_rec,
-                           false,
-                           false,
-                           true,
-                           0,
-                           false,
-                           false,
-                           false,
-                           nullptr,
-                           nullptr,
-                           txm);
-    txm->Execute(&read_req);
-    read_req.Wait();
-    if (read_req.IsError())
-    {
-        if (auto_commit)
-        {
-            AbortTx(txm);
-        }
-        if (output != nullptr)
-        {
-            output->OnError(read_req.ErrorMsg());
-        }
-        return false;
-    }
-
-    uint64_t schema_version = catalog_rec.SchemaTs();
-
     const EloqKey *start_key = EloqKey::NegativeInfinity();
     TxKey start_tx_key(start_key);
     bool start_inclusive = false;
@@ -6135,37 +6101,88 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
     bool is_scan_end = true;
     std::vector<std::string> &vct_rst = cmd->result_.vct_key_;
     int64_t obj_cnt = 0;
-    std::unique_ptr<BucketScanSavePoint> save_point_owner = nullptr;
-    if (cmd->cursor_ == 0)
+    std::unique_ptr<BucketScanCursor> scan_cursor_owner = nullptr;
+    if (cmd->scan_cursor_ == 0)
     {
-        assert(cmd->save_point_ == nullptr);
-        save_point_owner = std::make_unique<BucketScanSavePoint>();
-        cmd->save_point_ = save_point_owner.get();
+        scan_cursor_owner = std::make_unique<BucketScanCursor>();
+        cmd->scan_cursor_ = scan_cursor_owner.get();
     }
     else
     {
-        assert(cmd->save_point_ != nullptr);
-        size_t &cache_idx = cmd->save_point_->cache_idx_;
-        for (; cache_idx < cmd->save_point_->cache_.size(); ++cache_idx)
+        assert(cmd->scan_cursor_ != nullptr);
+        if (cmd->scan_cursor_->obj_type_ != cmd->obj_type_ ||
+            cmd->scan_cursor_->cmd_pattern_ != cmd->pattern_.StringView())
+        {
+            if (auto_commit)
+            {
+                AbortTx(txm);
+            }
+            if (output != nullptr)
+            {
+                output->OnError(
+                    redis_get_error_messages(RD_ERR_INVALID_CURSOR));
+            }
+            return false;
+        }
+
+        size_t &cache_idx = cmd->scan_cursor_->cache_idx_;
+        for (; cache_idx < cmd->scan_cursor_->cache_.size(); ++cache_idx)
         {
             if (cmd->count_ > 0 && obj_cnt >= cmd->count_)
             {
                 break;
             }
 
-            vct_rst.emplace_back(cmd->save_point_->cache_[cache_idx]);
+            vct_rst.emplace_back(cmd->scan_cursor_->cache_[cache_idx]);
             obj_cnt++;
 
             LOG(INFO) << "== ExecuteCommand: get key = " << vct_rst.back()
                       << ", from cache idx = " << cache_idx
-                      << ", cache size = " << cmd->save_point_->cache_.size()
+                      << ", cache size = " << cmd->scan_cursor_->cache_.size()
                       << ", cmd count = " << cmd->count_
                       << ", obj cnt = " << obj_cnt;
         }
     }
 
+    BucketScanSavePoint *save_point = &cmd->scan_cursor_->save_point_;
+
     if (cmd->count_ < 0 || obj_cnt < cmd->count_)
     {
+        // Fetch catalog and acquire read lock on catalog table
+        CatalogKey catalog_key(*redis_table_name);
+        TxKey cat_tx_key(&catalog_key);
+        CatalogRecord catalog_rec;
+        ReadTxRequest read_req(&txservice::catalog_ccm_name,
+                               0,
+                               &cat_tx_key,
+                               &catalog_rec,
+                               false,
+                               false,
+                               true,
+                               0,
+                               false,
+                               false,
+                               false,
+                               nullptr,
+                               nullptr,
+                               txm);
+        txm->Execute(&read_req);
+        read_req.Wait();
+        if (read_req.IsError())
+        {
+            if (auto_commit)
+            {
+                AbortTx(txm);
+            }
+            if (output != nullptr)
+            {
+                output->OnError(read_req.ErrorMsg());
+            }
+            return false;
+        }
+
+        uint64_t schema_version = catalog_rec.SchemaTs();
+
         ScanOpenTxRequest scan_open(redis_table_name,
                                     schema_version,
                                     ScanIndexType::Primary,
@@ -6187,14 +6204,14 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
                                     txm,
                                     static_cast<int32_t>(cmd->obj_type_),
                                     cmd->pattern_.StringView(),
-                                    cmd->save_point_);
+                                    save_point);
 
         bool success = SendTxRequestAndWaitResult(txm, &scan_open, output);
         if (!success)
         {
             if (scan_open.tx_result_.ErrorCode() == TxErrorCode::INVALID_CURSOR)
             {
-                if (cmd->cursor_ != 0)
+                if (cmd->scan_cursor_->cursor_id_ != 0)
                 {
                     ctx->RemoveBucketScanCursor();
                 }
@@ -6212,17 +6229,17 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
         uint64_t scan_alias = scan_open.Result();
         assert(scan_alias != UINT64_MAX);
 
-        cmd->save_point_->Debug();
+        save_point->Debug();
 
         size_t current_index = 0;
-        if (cmd->save_point_->prev_pause_idx_ != UINT64_MAX)
+        if (save_point->prev_pause_idx_ != UINT64_MAX)
         {
-            current_index = cmd->save_point_->prev_pause_idx_;
+            current_index = save_point->prev_pause_idx_;
         }
 
-        size_t plan_size = cmd->save_point_->PlanSize();
+        size_t plan_size = save_point->PlanSize();
 
-        BucketScanPlan plan = cmd->save_point_->PickPlan(current_index);
+        BucketScanPlan plan = save_point->PickPlan(current_index);
         std::vector<txservice::ScanBatchTuple> scan_batch;
         std::vector<txservice::UnlockTuple> unlock_batch;
 
@@ -6252,7 +6269,7 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
                 if (scan_batch_req.tx_result_.ErrorCode() ==
                     TxErrorCode::INVALID_CURSOR)
                 {
-                    if (cmd->cursor_ != 0)
+                    if (cmd->scan_cursor_->cursor_id_ != 0)
                     {
                         ctx->RemoveBucketScanCursor();
                     }
@@ -6312,8 +6329,8 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
 
             if (scan_batch_idx < scan_batch.size())
             {
-                cmd->save_point_->cache_idx_ = 0;
-                cmd->save_point_->cache_.clear();
+                cmd->scan_cursor_->cache_idx_ = 0;
+                cmd->scan_cursor_->cache_.clear();
                 for (size_t idx = scan_batch_idx; idx < scan_batch.size();
                      ++idx)
                 {
@@ -6337,12 +6354,11 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
                         }
                     }
 
-                    cmd->save_point_->cache_.emplace_back(sv);
+                    cmd->scan_cursor_->cache_.emplace_back(sv);
                 }
 
-                cmd->save_point_->prev_pause_idx_ = current_index;
-                cmd->save_point_->pause_position_ =
-                    std::move(plan.CurrentPosition());
+                save_point->prev_pause_idx_ = current_index;
+                save_point->pause_position_ = std::move(plan.CurrentPosition());
                 break;
             }
 
@@ -6352,7 +6368,7 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
                 current_index++;
                 if (current_index < plan_size)
                 {
-                    plan = cmd->save_point_->PickPlan(current_index);
+                    plan = save_point->PickPlan(current_index);
                 }
             }
         }
@@ -6363,11 +6379,10 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
     }
     else
     {
-        if (cmd->save_point_->prev_pause_idx_ + 1 ==
-            cmd->save_point_->PlanSize())
+        if (save_point->prev_pause_idx_ + 1 == save_point->PlanSize())
         {
             for (const auto &[node_group_id, shard_pos] :
-                 cmd->save_point_->pause_position_)
+                 save_point->pause_position_)
             {
                 for (const auto &[core_idx, pos] : shard_pos)
                 {
@@ -6389,31 +6404,34 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
     if (is_scan_end)
     {
         LOG(INFO) << "== ExecuteScanCommand: scan end, cache idx = "
-                  << cmd->save_point_->cache_idx_
-                  << ", cache size = " << cmd->save_point_->cache_.size();
+                  << cmd->scan_cursor_->cache_idx_
+                  << ", cache size = " << cmd->scan_cursor_->cache_.size();
         ctx->RemoveBucketScanCursor();
         cmd->result_.cursor_id_ = 0;
-        cmd->save_point_ = nullptr;
+        cmd->scan_cursor_ = nullptr;
     }
     else
     {
-        if (cmd->cursor_ == 0)
+        if (cmd->scan_cursor_->cursor_id_ == 0)
         {
+            scan_cursor_owner->obj_type_ = cmd->obj_type_;
+            scan_cursor_owner->cmd_pattern_ = cmd->pattern_.String();
             cmd->result_.cursor_id_ = ctx->CreateBucketScanCursor(
-                vct_rst.back(), std::move(save_point_owner));
-            LOG(INFO) << "== ExecuteScanCommand: create cursor " << cmd->cursor_
+                vct_rst.back(), std::move(scan_cursor_owner));
+            LOG(INFO) << "== ExecuteScanCommand: create cursor " << 0
                       << ", new cursor id = " << cmd->result_.cursor_id_
-                      << ", cahce idx = " << cmd->save_point_->cache_idx_
-                      << ", cache size = " << cmd->save_point_->cache_.size();
+                      << ", cahce idx = " << cmd->scan_cursor_->cache_idx_
+                      << ", cache size = " << cmd->scan_cursor_->cache_.size();
         }
         else
         {
             cmd->result_.cursor_id_ =
                 ctx->UpdateBucketScanCursor(vct_rst.back());
-            LOG(INFO) << "== ExecuteScanCommand: cursor id = " << cmd->cursor_
+            LOG(INFO) << "== ExecuteScanCommand: cursor id = "
+                      << cmd->scan_cursor_->cursor_id_
                       << ", new cursor id = " << cmd->result_.cursor_id_
-                      << ", cache idx = " << cmd->save_point_->cache_idx_
-                      << ", cache size = " << cmd->save_point_->cache_.size();
+                      << ", cache idx = " << cmd->scan_cursor_->cache_idx_
+                      << ", cache size = " << cmd->scan_cursor_->cache_.size();
         }
     }
 

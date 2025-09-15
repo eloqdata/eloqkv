@@ -157,7 +157,7 @@ std::pair<bool, const std::string *> RedisConnectionContext::FindScanCursor(
 
 uint64_t RedisConnectionContext::CreateBucketScanCursor(
     std::string_view cursor_content,
-    std::unique_ptr<txservice::BucketScanSavePoint> save_point)
+    std::unique_ptr<BucketScanCursor> scan_cursor)
 {
     // FNV-1a hash algorithm.
     uint64_t hash = 14695981039346656037ULL;
@@ -167,23 +167,17 @@ uint64_t RedisConnectionContext::CreateBucketScanCursor(
         hash *= 1099511628211ULL;
     }
 
-    auto [iter, inserted] =
-        bucket_scan_cursors.try_emplace(db_id, hash, nullptr);
-    if (inserted)
+    scan_cursor->cursor_id_ = hash;
+
+    auto iter = bucket_scan_cursors.find(db_id);
+    if (iter == bucket_scan_cursors.end())
     {
-        iter->second.second = std::move(save_point);
+        bucket_scan_cursors.emplace(db_id, std::move(scan_cursor));
     }
     else
     {
-        // update
-        iter->second.first = hash;
-        iter->second.second = std::move(save_point);
+        iter->second = std::move(scan_cursor);
     }
-
-    LOG(INFO) << "==CreateBucketScanCursor: new cursor id = " << hash
-              << ", save point addr = " << iter->second.second.get()
-              << ", cursors size = " << bucket_scan_cursors.size()
-              << ", db id = " << db_id << ", this = this";
 
     return hash;
 }
@@ -204,11 +198,11 @@ uint64_t RedisConnectionContext::UpdateBucketScanCursor(
         hash *= 1099511628211ULL;
     }
 
-    bucket_scan_cursors.at(db_id).first = hash;
+    bucket_scan_cursors.at(db_id)->cursor_id_ = hash;
     return hash;
 }
 
-BucketScanSavePoint *RedisConnectionContext::FindBucketScanCursor(
+BucketScanCursor *RedisConnectionContext::FindBucketScanCursor(
     uint64_t cursor_id)
 {
     auto iter = bucket_scan_cursors.find(db_id);
@@ -220,13 +214,13 @@ BucketScanSavePoint *RedisConnectionContext::FindBucketScanCursor(
         return nullptr;
     }
 
-    if (iter->second.first != cursor_id)
+    if (iter->second->cursor_id_ != cursor_id)
     {
         LOG(INFO) << "== FindBucketScanCursor: cursor id mismatch";
         return nullptr;
     }
 
-    return iter->second.second.get();
+    return iter->second.get();
 }
 
 }  // namespace EloqKV

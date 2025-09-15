@@ -345,6 +345,7 @@ struct HostNetworkInfo;
 struct SlotInfo;
 class RedisServiceImpl;
 class RedisConnectionContext;
+struct BucketScanCursor;
 struct SlowLogEntry
 {
     SlowLogEntry() = default;
@@ -6853,8 +6854,7 @@ struct ScanCommand : public CustomCommand
     // This constructor is used for "KEYS" command
     explicit ScanCommand(std::string_view pattern);
     // This constructor is used for "SCAN" command
-    ScanCommand(txservice::BucketScanSavePoint *save_point,
-                uint64_t cursor,
+    ScanCommand(BucketScanCursor *scan_cursor,
                 std::string_view pattern,
                 int64_t count,
                 RedisObjectType obj_type);
@@ -6881,8 +6881,7 @@ struct ScanCommand : public CustomCommand
         return count_ == -1;
     }
 
-    txservice::BucketScanSavePoint *save_point_{nullptr};
-    uint64_t cursor_;
+    BucketScanCursor *scan_cursor_{nullptr};
     EloqString pattern_;
     int64_t count_{0};
     RedisObjectType obj_type_;
