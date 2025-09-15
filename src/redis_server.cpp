@@ -38,7 +38,7 @@ constexpr char VERSION[] = "0.8.20";
 
 // Global variable defined in redis_service.cpp
 extern brpc::Acceptor *EloqKV::server_acceptor;
-extern butil::EndPoint EloqKV::listen_addr;
+extern std::string EloqKV::redis_ip_port;
 
 void PrintHelloText()
 {
@@ -92,7 +92,7 @@ int main(int argc, char *argv[])
     // Notice: redis_service_impl will be deleted in server's destructor.
     server_options.redis_service = redis_service_impl.release();
     server_options.has_builtin_services = false;
-    if (server.Start(listen_addr, &server_options) != 0)
+    if (server.Start(redis_ip_port.c_str(), &server_options) != 0)
     {
         LOG(ERROR) << "Failed to start EloqKV server.";
         redis_service_ptr->Stop();
@@ -104,11 +104,11 @@ int main(int argc, char *argv[])
 
     if (!FLAGS_alsologtostderr)
     {
-        std::cout << "EloqKV Server Started, listening on "
-                  << butil::endpoint2str(listen_addr) << std::endl;
+        std::cout << "EloqKV Server Started, listening on " << redis_ip_port
+                  << std::endl;
     }
-    LOG(INFO) << "==== EloqKV Server Started, listening on "
-              << butil::endpoint2str(listen_addr) << "====";
+    LOG(INFO) << "==== EloqKV Server Started, listening on " << redis_ip_port
+              << "====";
 
     EloqKV::server_acceptor = server.GetAcceptor();
 

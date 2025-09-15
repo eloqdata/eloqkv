@@ -342,7 +342,7 @@ const auto NUM_VCPU = std::thread::hardware_concurrency();
 
 int databases;
 std::string requirepass;
-butil::EndPoint listen_addr;
+std::string redis_ip_port;
 brpc::Acceptor *server_acceptor = nullptr;
 
 // The maximum size of a object.
@@ -676,15 +676,14 @@ bool RedisServiceImpl::Init(brpc::Server &brpc_server)
     // Change(lzx): change the "local.port" and "cluster.ip_port_list" to the
     // address of local redis and cluster instead of txservice. The port of
     // txservice is set as redis port add "10000". eg.6379->16379
-    std::string redis_ip_port = local_ip + ":" + std::to_string(redis_port_);
-    butil::ip_t redis_ip;
-    if (butil::str2ip(local_ip.c_str(), &redis_ip) == -1)
+    if (bind_all)
     {
-        LOG(ERROR) << "Invalid redis address " << redis_ip_port;
-        return false;
+        redis_ip_port = "0.0.0.0:" + std::to_string(redis_port_);
     }
-    listen_addr = bind_all ? butil::EndPoint(butil::IP_ANY, redis_port_)
-                           : butil::EndPoint(redis_ip, redis_port_);
+    else
+    {
+        redis_ip_port = local_ip + ":" + std::to_string(redis_port_);
+    }
 
     uint32_t tx_ng_replica_num =
         !CheckCommandLineFlagIsDefault("tx_nodegroup_replica_num")
