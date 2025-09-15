@@ -96,7 +96,7 @@ namespace EloqKV
 {
 extern int databases;
 extern std::string requirepass;
-extern butil::EndPoint listen_addr;
+extern std::string redis_ip_port;
 extern brpc::Acceptor *server_acceptor;
 
 enum struct HostStatus : uint8_t
