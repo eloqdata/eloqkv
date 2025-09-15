@@ -15266,21 +15266,18 @@ void HScanCommand::OutputResult(OutputHandler *reply) const
 }
 
 ScanCommand::ScanCommand(std::string_view pattern)
-    : save_point_(nullptr),
-      cursor_(0),
+    : scan_cursor_(nullptr),
       pattern_(pattern),
       count_(-1),
       obj_type_(RedisObjectType::Unknown)
 {
 }
 
-ScanCommand::ScanCommand(BucketScanSavePoint *save_point,
-                         uint64_t cursor,
+ScanCommand::ScanCommand(BucketScanCursor *scan_cursor,
                          std::string_view pattern,
                          int64_t count,
                          RedisObjectType obj_type)
-    : save_point_(save_point),
-      cursor_(cursor),
+    : scan_cursor_(scan_cursor),
       pattern_(pattern),
       count_(count),
       obj_type_(obj_type)
@@ -18801,7 +18798,7 @@ std::tuple<bool, ScanCommand> ParseScanCommand(
     std::string_view pattern;
     int64_t count = 1000000;
     RedisObjectType obj_type = RedisObjectType::Unknown;
-    BucketScanSavePoint *save_point = nullptr;
+    BucketScanCursor *scan_cursor = nullptr;
     uint64_t cursor_id = 0;
     {
         if (!string2ull(args[1].data(), args[1].size(), cursor_id))
@@ -18812,8 +18809,8 @@ std::tuple<bool, ScanCommand> ParseScanCommand(
 
         if (cursor_id != 0)
         {
-            save_point = ctx->FindBucketScanCursor(cursor_id);
-            if (save_point == nullptr)
+            scan_cursor = ctx->FindBucketScanCursor(cursor_id);
+            if (scan_cursor == nullptr)
             {
                 output->OnError(
                     redis_get_error_messages(RD_ERR_INVALID_CURSOR));
@@ -18822,7 +18819,7 @@ std::tuple<bool, ScanCommand> ParseScanCommand(
         }
 
         LOG(INFO) << "==ParseScanCommand: cursor id = " << cursor_id
-                  << ", save point = " << save_point;
+                  << ", save point = " << scan_cursor;
     }
 
     size_t pos = 2;
@@ -18889,7 +18886,7 @@ std::tuple<bool, ScanCommand> ParseScanCommand(
         pos += 2;
     }
 
-    return {true, ScanCommand(save_point, cursor_id, pattern, count, obj_type)};
+    return {true, ScanCommand(scan_cursor, pattern, count, obj_type)};
 }
 
 std::tuple<bool, ScanCommand> ParseKeysCommand(
