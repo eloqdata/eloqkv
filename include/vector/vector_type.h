@@ -19,8 +19,18 @@
 #include <unordered_map>
 #include <vector>
 
+#include "type.h"
+
 namespace EloqVec
 {
+
+constexpr static std::string_view vector_index_meta_table_name_sv{
+    "__vector_index_meta_table"};
+
+inline static txservice::TableName vector_index_meta_table{
+    vector_index_meta_table_name_sv,
+    txservice::TableType::Primary,
+    txservice::TableEngine::InternalHash};
 
 /**
  * @brief Vector index algorithm types
@@ -72,7 +82,7 @@ inline std::string distance_metric_to_string(DistanceMetric metric)
  */
 inline DistanceMetric string_to_distance_metric(const std::string &str)
 {
-    if (str == "L2SQ")
+    if (str == "L2SQ" || str == "L2")
         return DistanceMetric::L2SQ;
     if (str == "IP")
         return DistanceMetric::IP;
@@ -92,7 +102,7 @@ inline DistanceMetric string_to_distance_metric(const std::string_view &sv)
     std::string metric_str(sv);
     std::transform(
         metric_str.begin(), metric_str.end(), metric_str.begin(), ::toupper);
-    if (metric_str == "L2SQ")
+    if (metric_str == "L2SQ" || metric_str == "L2")
         return DistanceMetric::L2SQ;
     if (metric_str == "IP")
         return DistanceMetric::IP;
@@ -188,6 +198,7 @@ enum class VectorOpResult
     SUCCEED,
     INDEX_EXISTED,
     INDEX_NOT_EXIST,
+    INDEX_META_OP_FAILED,
     UNKNOWN,
 };
 
