@@ -63,8 +63,10 @@ static const int RD_ERR_OBJECT_TOO_BIG = RD_ERR_FIRST + 35;
 static const int RD_ERR_TTL_NOT_EXIST_ON_KEY = RD_ERR_FIRST + 36;
 static const int RD_ERR_ClUSTER_IS_SHUTTING_DOWN = RD_ERR_FIRST + 37;
 static const int RD_ERR_LEADER_IS_FAILING_OVER = RD_ERR_FIRST + 38;
+static const int RD_ERR_VECTOR_INDX_CREATE_FAILED = RD_ERR_FIRST + 39;
+static const int RD_ERR_VECTOR_INDX_INFO_FAILED = RD_ERR_FIRST + 40;
 
-static const int RD_ERR_LAST = RD_ERR_LEADER_IS_FAILING_OVER;
+static const int RD_ERR_LAST = RD_ERR_VECTOR_INDX_INFO_FAILED;
 
 extern const char *redis_error_messages[];
 extern const char *redis_get_error_messages(int nr);

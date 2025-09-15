@@ -19811,8 +19811,7 @@ std::tuple<bool, CreateVecIndexCommand> ParseCreateVecIndexCommand(
     if (metric_type == EloqVec::DistanceMetric::UNKNOWN)
     {
         output->OnError(
-            "ERR unsupported algorithm: only COSINE, L2SQ and IP are "
-            "supported");
+            "ERR unsupported metric: only COSINE, L2SQ and IP are supported");
         return {false, CreateVecIndexCommand()};
     }
     pos++;
@@ -19990,15 +19989,30 @@ void InfoVecIndexCommand::OutputResult(OutputHandler *reply,
     if (result_.err_code_ == RD_OK)
     {
         // For now, return a simple placeholder response
-        reply->OnArrayStart(8);
+        auto &alg_params = metadata_.VecAlgParams();
+        size_t len = (7 + alg_params.size()) * 2;
+        reply->OnArrayStart(len);
         reply->OnString("index_name");
         reply->OnString(index_name_.StringView());
         reply->OnString("status");
         reply->OnString("ready");
         reply->OnString("algorithm");
-        reply->OnString("HNSW");
+        reply->OnString(EloqVec::algorithm_to_string(metadata_.VecAlgorithm()));
         reply->OnString("metric");
-        reply->OnString("cosine");
+        reply->OnString(
+            EloqVec::distance_metric_to_string(metadata_.VecMetric()));
+        // algorithm parameters
+        for (const auto &param : alg_params)
+        {
+            reply->OnString(param.first);
+            reply->OnString(param.second);
+        }
+        reply->OnString("size");
+        reply->OnString(std::to_string(metadata_.Size()));
+        reply->OnString("created_ts");
+        reply->OnString(std::to_string(metadata_.CreatedTs()));
+        reply->OnString("last_persist_ts");
+        reply->OnString(std::to_string(metadata_.LastPersistTs()));
         reply->OnArrayEnd();
     }
     else

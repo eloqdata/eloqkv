@@ -49,6 +49,7 @@
 #include "tx_command.h"
 #include "tx_key.h"
 #include "tx_request.h"
+#include "vector_handler.h"
 #include "vector_index.h"
 
 /*
@@ -6981,6 +6982,9 @@ struct InfoVecIndexCommand : public CustomCommand
 
     // Name of the vector index to get info for
     EloqString index_name_;
+
+    // Vector metadata
+    EloqVec::VectorMetadata metadata_;
 
     // Result storage
     RedisCommandResult result_;

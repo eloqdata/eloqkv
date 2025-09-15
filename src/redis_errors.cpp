@@ -67,6 +67,8 @@ const char *redis_error_messages[] = {
     "ERR the key has no associated expiration time",
     "ERR cluster is shutting down",
     "ERR cluster leader is doing failover",
+    "ERR create vector index failed",
+    "ERR get vector index info failed",
 };
 
 extern const char *redis_get_error_messages(int nr)
