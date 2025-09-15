@@ -260,7 +260,7 @@ VectorOpResult VectorHandler::Create(const IndexConfig &idx_spec,
     // There is no need to check the schema ts of the internal table.
     TxErrorCode err_code = txm->TxUpsert(vector_index_meta_table,
                                          0,
-                                         tx_key.GetShallowCopy(),
+                                         std::move(tx_key),
                                          std::move(h_record),
                                          OperationType::Insert);
     if (err_code != TxErrorCode::NO_ERROR)
@@ -312,7 +312,7 @@ VectorOpResult VectorHandler::Drop(const std::string &name,
     // 3. The index exists, delete it using OperationType::Delete
     TxErrorCode err_code = txm->TxUpsert(vector_index_meta_table,
                                          0,
-                                         tx_key.GetShallowCopy(),
+                                         std::move(tx_key),
                                          nullptr,
                                          OperationType::Delete);
     if (err_code != TxErrorCode::NO_ERROR)
