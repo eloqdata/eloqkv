@@ -3,16 +3,13 @@ set -exo pipefail
 
 source "$(dirname "$0")/common.sh"
 
-CASS_HOST=${1:?usage: $0 cass_host}
-
 CWDIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ls
 export WORKSPACE=$PWD
-export CASS_HOST=$CASS_HOST
 
-MINIO_ENDPOINT=${2:?usage: $0 cass_host minio_endpoint minio_access_key minio_secret_key}
-MINIO_ACCESS_KEY=${3:?usage: $0 cass_host minio_endpoint minio_access_key minio_secret_key}
-MINIO_SECRET_KEY=${4:?usage: $0 cass_host minio_endpoint minio_access_key minio_secret_key}
+MINIO_ENDPOINT=${1:?usage: $0 minio_endpoint minio_access_key minio_secret_key}
+MINIO_ACCESS_KEY=${2:?usage: $0 minio_endpoint minio_access_key minio_secret_key}
+MINIO_SECRET_KEY=${3:?usage: $0 minio_endpoint minio_access_key minio_secret_key}
 
 MINIO_ENDPOINT_ESCAPE=$(sed 's/\//\\\//g' <<< $MINIO_ENDPOINT)
 export ROCKSDB_CLOUD_S3_ENDPOINT=${MINIO_ENDPOINT}

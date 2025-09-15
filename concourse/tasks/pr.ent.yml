@@ -8,4 +8,4 @@ inputs:
   - name: raft_host_manager_src
 run:
   path: redis_pr/concourse/scripts/pr.ent.bash
-  args: ["((cass-host))", "((minio-endpoint))", "((minio-access-key))", "((minio-secret-key))", "((git-ssh-key))"]
+  args: ["((minio-endpoint))", "((minio-access-key))", "((minio-secret-key))", "((git-ssh-key))"]
