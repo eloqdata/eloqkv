@@ -534,6 +534,8 @@ elseif((WITH_DATA_STORE STREQUAL "ELOQDSS_ROCKSDB_CLOUD_S3") OR
         store_handler/eloq_data_store_service/rocksdb_cloud_data_store.cpp
         store_handler/eloq_data_store_service/ds_request.pb.cc
         store_handler/eloq_data_store_service/rocksdb_config.cpp
+	store_handler/eloq_data_store_service/purger_event_listener.cpp
+	store_handler/eloq_data_store_service/purger_sliding_window.cpp
     )
 elseif(WITH_DATA_STORE STREQUAL "ELOQDSS_ROCKSDB")
     SET(RESELOQ_RESOURCES ${RESELOQ_RESOURCES}
