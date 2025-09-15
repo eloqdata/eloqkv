@@ -3,17 +3,15 @@ set -exo pipefail
 
 source "$(dirname "$0")/common.sh"
 
-CASS_HOST=${1:?usage: $0 cass_host}
 
 CWDIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ls
 export WORKSPACE=$PWD
-export CASS_HOST=$CASS_HOST
 
-MINIO_ENDPOINT=${2:?usage: $0 cass_host minio_endpoint minio_access_key minio_secret_key git_ssh_key}
-MINIO_ACCESS_KEY=${3:?usage: $0 cass_host minio_endpoint minio_access_key minio_secret_key git_ssh_key}
-MINIO_SECRET_KEY=${4:?usage: $0 cass_host minio_endpoint minio_access_key minio_secret_key git_ssh_key}
-GIT_SSH_KEY=${5:?usage: $0 cass_host minio_endpoint minio_access_key minio_secret_key git_ssh_key}
+MINIO_ENDPOINT=${1:?usage: $0 minio_endpoint minio_access_key minio_secret_key git_ssh_key}
+MINIO_ACCESS_KEY=${2:?usage: $0 minio_endpoint minio_access_key minio_secret_key git_ssh_key}
+MINIO_SECRET_KEY=${3:?usage: $0 minio_endpoint minio_access_key minio_secret_key git_ssh_key}
+GIT_SSH_KEY=${4:?usage: $0 minio_endpoint minio_access_key minio_secret_key git_ssh_key}
 
 mkdir -p ~/.ssh
 echo "$GIT_SSH_KEY" > ~/.ssh/id_rsa
