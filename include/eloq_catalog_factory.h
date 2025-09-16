@@ -230,8 +230,6 @@ public:
         txservice::CcShard *shard,
         txservice::NodeGroupId ng_id) override;
 
-    // TODO(lokax): create hash part scanner base
-
     std::unique_ptr<txservice::CcScanner> CreatePkCcmScanner(
         txservice::ScanDirection direction,
         const txservice::KeySchema *key_schema) override;

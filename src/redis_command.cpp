@@ -18817,9 +18817,6 @@ std::tuple<bool, ScanCommand> ParseScanCommand(
                 return {false, ScanCommand()};
             }
         }
-
-        LOG(INFO) << "==ParseScanCommand: cursor id = " << cursor_id
-                  << ", save point = " << scan_cursor;
     }
 
     size_t pos = 2;

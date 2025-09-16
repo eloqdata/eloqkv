@@ -208,15 +208,11 @@ BucketScanCursor *RedisConnectionContext::FindBucketScanCursor(
     auto iter = bucket_scan_cursors.find(db_id);
     if (iter == bucket_scan_cursors.end())
     {
-        LOG(INFO) << "== FindBucketScanCursor: db id not found, db id = "
-                  << db_id << ", bucket_scan_cursor size = "
-                  << bucket_scan_cursors.size() << ", this = " << this;
         return nullptr;
     }
 
     if (iter->second->cursor_id_ != cursor_id)
     {
-        LOG(INFO) << "== FindBucketScanCursor: cursor id mismatch";
         return nullptr;
     }
 

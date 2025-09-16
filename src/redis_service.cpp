@@ -6138,12 +6138,6 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
 
             vct_rst.emplace_back(cmd->scan_cursor_->cache_[cache_idx]);
             obj_cnt++;
-
-            LOG(INFO) << "== ExecuteCommand: get key = " << vct_rst.back()
-                      << ", from cache idx = " << cache_idx
-                      << ", cache size = " << cmd->scan_cursor_->cache_.size()
-                      << ", cmd count = " << cmd->count_
-                      << ", obj cnt = " << obj_cnt;
         }
     }
 
@@ -6232,7 +6226,7 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
         uint64_t scan_alias = scan_open.Result();
         assert(scan_alias != UINT64_MAX);
 
-        save_point->Debug();
+        // save_point->Debug();
 
         size_t current_index = 0;
         if (save_point->prev_pause_idx_ != UINT64_MAX)
@@ -6251,11 +6245,6 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
         while (current_index < plan_size)
         {
             scan_batch.clear();
-
-            LOG(INFO) << "==RedisService::ExecuteCommand: current index = "
-                      << current_index;
-            auto scan_batch_start_time =
-                std::chrono::high_resolution_clock::now();
             ScanBatchTxRequest scan_batch_req(
                 scan_alias,
                 *redis_table_name,
@@ -6286,14 +6275,6 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
                 }
                 return false;
             }
-
-            auto scan_batch_stop_time =
-                std::chrono::high_resolution_clock::now();
-
-            LOG(INFO) << "== ExecuteCommand:: sacn batch finished, time = "
-                      << std::chrono::duration_cast<std::chrono::microseconds>(
-                             scan_batch_stop_time - scan_batch_start_time)
-                             .count();
 
             debug_total_cnt += scan_batch.size();
 
@@ -6375,8 +6356,6 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
             }
         }
 
-        LOG(INFO) << "== vct ret size = " << vct_rst.size();
-
         txm->CloseTxScan(scan_alias, *redis_table_name, unlock_batch);
     }
     else
@@ -6399,15 +6378,10 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
         {
             is_scan_end = false;
         }
-
-        LOG(INFO) << "==ExecuteCommand: check is scan end = " << is_scan_end;
     }
 
     if (is_scan_end)
     {
-        LOG(INFO) << "== ExecuteScanCommand: scan end, cache idx = "
-                  << cmd->scan_cursor_->cache_idx_
-                  << ", cache size = " << cmd->scan_cursor_->cache_.size();
         ctx->RemoveBucketScanCursor();
         cmd->result_.cursor_id_ = 0;
         cmd->scan_cursor_ = nullptr;
@@ -6420,20 +6394,11 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
             scan_cursor_owner->cmd_pattern_ = cmd->pattern_.String();
             cmd->result_.cursor_id_ = ctx->CreateBucketScanCursor(
                 vct_rst.back(), std::move(scan_cursor_owner));
-            LOG(INFO) << "== ExecuteScanCommand: create cursor " << 0
-                      << ", new cursor id = " << cmd->result_.cursor_id_
-                      << ", cahce idx = " << cmd->scan_cursor_->cache_idx_
-                      << ", cache size = " << cmd->scan_cursor_->cache_.size();
         }
         else
         {
             cmd->result_.cursor_id_ =
                 ctx->UpdateBucketScanCursor(vct_rst.back());
-            LOG(INFO) << "== ExecuteScanCommand: cursor id = "
-                      << cmd->scan_cursor_->cursor_id_
-                      << ", new cursor id = " << cmd->result_.cursor_id_
-                      << ", cache idx = " << cmd->scan_cursor_->cache_idx_
-                      << ", cache size = " << cmd->scan_cursor_->cache_.size();
         }
     }
 
