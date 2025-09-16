@@ -6087,8 +6087,11 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
 {
     const EloqKey *start_key = EloqKey::NegativeInfinity();
     TxKey start_tx_key(start_key);
+    const EloqKey *end_key = EloqKey::PositiveInfinity();
+    TxKey end_tx_key(end_key);
+
     bool start_inclusive = false;
-    bool end_inclusive = true;
+    bool end_inclusive = false;
     bool is_ckpt = false;
     bool is_for_write = false;
     bool is_for_share = false;
@@ -6188,7 +6191,7 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
                                     ScanIndexType::Primary,
                                     &start_tx_key,
                                     start_inclusive,
-                                    nullptr,
+                                    &end_tx_key,
                                     end_inclusive,
                                     ScanDirection::Forward,
                                     is_ckpt,
@@ -6249,8 +6252,8 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
         {
             scan_batch.clear();
 
-            // LOG(INFO) << "==RedisService::ExecuteCommand: current index = "
-            //          << current_index;
+            LOG(INFO) << "==RedisService::ExecuteCommand: current index = "
+                      << current_index;
             auto scan_batch_start_time =
                 std::chrono::high_resolution_clock::now();
             ScanBatchTxRequest scan_batch_req(
@@ -6287,11 +6290,10 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
             auto scan_batch_stop_time =
                 std::chrono::high_resolution_clock::now();
 
-            // LOG(INFO) << "== ExecuteCommand:: sacn batch finished, time = "
-            //          <<
-            //          std::chrono::duration_cast<std::chrono::microseconds>(
-            //                 scan_batch_stop_time - scan_batch_start_time)
-            //                 .count();
+            LOG(INFO) << "== ExecuteCommand:: sacn batch finished, time = "
+                      << std::chrono::duration_cast<std::chrono::microseconds>(
+                             scan_batch_stop_time - scan_batch_start_time)
+                             .count();
 
             debug_total_cnt += scan_batch.size();
 
@@ -6381,12 +6383,12 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
     {
         if (save_point->prev_pause_idx_ + 1 == save_point->PlanSize())
         {
-            for (const auto &[node_group_id, shard_pos] :
+            for (const auto &[node_group_id, bucket_scan_progress] :
                  save_point->pause_position_)
             {
-                for (const auto &[core_idx, pos] : shard_pos)
+                for (const auto &[core_idx, progress] : bucket_scan_progress)
                 {
-                    if (!pos.second)
+                    if (!progress.AllFinished())
                     {
                         is_scan_end = false;
                     }
