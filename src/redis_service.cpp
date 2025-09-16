@@ -33,6 +33,7 @@
 #include <sys/types.h>
 
 #include <atomic>
+#include <chrono>
 #include <cstddef>
 #include <functional>
 #include <optional>
@@ -6078,6 +6079,7 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
                                       OutputHandler *output,
                                       bool auto_commit)
 {
+    auto start_time = std::chrono::high_resolution_clock::now();
     // Fetch catalog and acquire read lock on catalog table
     CatalogKey catalog_key(*redis_table_name);
     TxKey cat_tx_key(&catalog_key);
@@ -6433,6 +6435,12 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
         unlock_batch.emplace_back(
             tuple.cce_addr_, tuple.version_ts_, tuple.status_);
     }
+
+    auto stop_time = std::chrono::high_resolution_clock::now();
+    int64_t time = std::chrono::duration_cast<std::chrono::microseconds>(
+                       stop_time - start_time)
+                       .count();
+    LOG(INFO) << "== scan time = " << time << " us";
 
     txm->CloseTxScan(scan_alias, *redis_table_name, unlock_batch);
     if (is_scan_end)
