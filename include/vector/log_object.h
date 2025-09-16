@@ -144,9 +144,9 @@ public:
                        txservice::TransactionExecution *txm);
 
     /**
-     * @brief Append a new log item to the tail
+     * @brief Append new log items to the tail
      *
-     * Adds a new log item to the end of the log. The sequence_id in the
+     * Adds new log items to the end of the log. The sequence_id in the
      * item will be automatically assigned if not set.
      *
      * @param log_name Name of the log object
