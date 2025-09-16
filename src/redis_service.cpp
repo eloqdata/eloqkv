@@ -6359,7 +6359,7 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
                            .count();
         LOG(INFO) << "== scan time = " << time
                   << " us, res size = " << vct_rst.size();
-
+        assert(false);
         txm->CloseTxScan(scan_alias, *redis_table_name, unlock_batch);
     }
     else
