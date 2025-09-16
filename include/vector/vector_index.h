@@ -72,13 +72,15 @@ public:
      *
      * @param query_vector The query vector to search for
      * @param k Number of nearest neighbors to return
+     * @param result SearchResult containing IDs, distances, and optionally vectors
      * @param exact Whether to return exact matches
      * @param filter Optional filter function to apply to results
-     * @return SearchResult containing IDs, distances, and optionally vectors
+     * @return IndexOpResult 
      */
-    virtual SearchResult search(
+    virtual IndexOpResult search(
         const std::vector<float> &query_vector,
         size_t k,
+        SearchResult &result,
         bool exact = false,
         std::optional<std::function<bool(uint64_t)>> filter = std::nullopt) = 0;
 
@@ -87,36 +89,36 @@ public:
      *
      * @param vector The vector to add
      * @param id Unique identifier for the vector
-     * @return true if addition successful, false otherwise
+     * @return IndexOpResult
      */
-    virtual bool add(const std::vector<float> &vector, uint64_t id) = 0;
+    virtual IndexOpResult add(const std::vector<float> &vector, uint64_t id) = 0;
 
     /**
      * @brief Add multiple vectors to the index in batch
      *
      * @param vectors Vector of vectors to add
      * @param ids Vector of unique identifiers
-     * @return true if batch addition successful, false otherwise
+     * @return IndexOpResult
      */
-    virtual bool add_batch(const std::vector<std::vector<float>> &vectors,
+    virtual IndexOpResult add_batch(const std::vector<std::vector<float>> &vectors,
                            const std::vector<uint64_t> &ids) = 0;
 
     /**
      * @brief Delete a vector from the index
      *
      * @param id Unique identifier of the vector to delete
-     * @return true if deletion successful, false otherwise
+     * @return IndexOpResult
      */
-    virtual bool remove(uint64_t id) = 0;
+    virtual IndexOpResult remove(uint64_t id) = 0;
 
     /**
      * @brief Update an existing vector in the index
      *
      * @param vector The new vector data
      * @param id Unique identifier of the vector to update
-     * @return true if update successful, false otherwise
+     * @return IndexOpResult
      */
-    virtual bool update(const std::vector<float> &vector, uint64_t id) = 0;
+    virtual IndexOpResult update(const std::vector<float> &vector, uint64_t id) = 0;
 
     /**
      * @brief Get the current memory usage of the index

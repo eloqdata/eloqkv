@@ -10,6 +10,7 @@
  */
 
 #include "vector_handler.h"
+#include "log_object.h"
 
 #include <algorithm>
 #include <utility>
@@ -268,6 +269,13 @@ VectorOpResult VectorHandler::Create(const IndexConfig &idx_spec,
         return VectorOpResult::INDEX_META_OP_FAILED;
     }
 
+    // 3. create the log object
+    LogError log_err = LogObject::create_log("vector_index:" + idx_spec.name, txm);
+    if (log_err != LogError::SUCCESS)
+    {
+        return VectorOpResult::INDEX_META_OP_FAILED;
+    }
+
     // TODO(ysw): create the vector index object in memory.
 
     return VectorOpResult::SUCCEED;
@@ -316,6 +324,13 @@ VectorOpResult VectorHandler::Drop(const std::string &name,
                                          nullptr,
                                          OperationType::Delete);
     if (err_code != TxErrorCode::NO_ERROR)
+    {
+        return VectorOpResult::INDEX_META_OP_FAILED;
+    }
+
+    // 4. delete the log object
+    LogError log_err = LogObject::remove_log("vector_index:" + name, txm);
+    if (log_err != LogError::SUCCESS)
     {
         return VectorOpResult::INDEX_META_OP_FAILED;
     }

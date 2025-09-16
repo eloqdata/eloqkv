@@ -38,7 +38,7 @@ bool HNSWVectorIndex::initialize(const IndexConfig& config) {
 
 bool HNSWVectorIndex::load(const std::string& path) {
     std::lock_guard<std::shared_mutex> lock(index_mutex_);
-    
+ 
     if (path.empty()) {
         return false;
     }
@@ -46,14 +46,14 @@ bool HNSWVectorIndex::load(const std::string& path) {
     if (initialized_) {
         return false;
     }
-    
+ 
     try {
         // Load the index from file using usearch API
         auto load_result = usearch_index_.load(path.c_str());
         if (!load_result) {
             return false;
         }
-        
+
         // Update state
         initialized_ = true;
         
@@ -96,7 +96,7 @@ bool HNSWVectorIndex::validate_config(const IndexConfig& config) const {
     if (config.dimension == 0) {
         return false;
     }
-    
+ 
     if (config.max_elements == 0) {
         return false;
     }
@@ -169,25 +169,23 @@ metric_kind_t HNSWVectorIndex::convert_metric(DistanceMetric metric) const {
     }
 }
 
-// Placeholder implementations for other methods
-SearchResult HNSWVectorIndex::search(
+IndexOpResult HNSWVectorIndex::search(
     const std::vector<float>& query_vector,
     size_t k,
+    SearchResult &result,
     bool exact,
     std::optional<std::function<bool(uint64_t)>> filter
 ) {
     std::shared_lock<std::shared_mutex> lock(index_mutex_);
     if (!initialized_) {
-        return SearchResult{};
+        return IndexOpResult(VectorOpResult::INDEX_NOT_EXIST, "Index not initialized");
     }
     
     if (query_vector.size() != config_.dimension) {
-        return SearchResult{};
+        return IndexOpResult(VectorOpResult::VECTOR_DIMENSION_MISMATCH, "Query vector dimension mismatch");
     }
     
     try {
-        SearchResult result;
-        
         if (filter) {
             // Use filtered search with predicate
             auto search_result = usearch_index_.filtered_search(
@@ -199,7 +197,7 @@ SearchResult HNSWVectorIndex::search(
             );
             
             if (search_result.error) {
-                return SearchResult{};
+                return IndexOpResult(VectorOpResult::INDEX_INTERNAL_ERROR, search_result.error.what());
             }
             
             // Extract results
@@ -216,7 +214,7 @@ SearchResult HNSWVectorIndex::search(
             );
             
             if (search_result.error) {
-                return SearchResult{};
+                return IndexOpResult(VectorOpResult::INDEX_INTERNAL_ERROR, search_result.error.what());
             }
             
             // Extract results
@@ -225,98 +223,95 @@ SearchResult HNSWVectorIndex::search(
             search_result.dump_to(result.ids.data(), result.distances.data());
         }
         
-        return result;
+        return IndexOpResult(VectorOpResult::SUCCEED, "");
     } catch (const std::exception& e) {
-        return SearchResult{};
+        return IndexOpResult(VectorOpResult::INDEX_INTERNAL_ERROR, e.what());
     }
 }
 
-bool HNSWVectorIndex::add(const std::vector<float>& vector, uint64_t id) {
+IndexOpResult HNSWVectorIndex::add(const std::vector<float>& vector, uint64_t id) {
     std::shared_lock<std::shared_mutex> lock(index_mutex_);
     
     if (!initialized_) {
-        return false;
+        return IndexOpResult(VectorOpResult::INDEX_NOT_EXIST, "Index not initialized");
     }
     
     if (vector.size() != config_.dimension) {
-        return false;
+        return IndexOpResult(VectorOpResult::VECTOR_DIMENSION_MISMATCH, "Vector dimension mismatch");
     }
     
     try {
         // Add vector to usearch index
         auto add_result = usearch_index_.add(id, vector.data(), 0, true);
         if (add_result.error) {
-            return false;
+            return IndexOpResult(VectorOpResult::INDEX_INTERNAL_ERROR, add_result.error.what());
         }
         
-        return true;
+        return IndexOpResult(VectorOpResult::SUCCEED, "");
     } catch (const std::exception& e) {
-        return false;
+        return IndexOpResult(VectorOpResult::INDEX_INTERNAL_ERROR, e.what());
     }
 }
 
-bool HNSWVectorIndex::add_batch(
+IndexOpResult HNSWVectorIndex::add_batch(
     const std::vector<std::vector<float>>& vectors,
     const std::vector<uint64_t>& ids
 ) {
     std::shared_lock<std::shared_mutex> lock(index_mutex_);
     
+    assert(vectors.size() == ids.size());
     if (!initialized_) {
-        return false;
-    }
-    
-    if (vectors.size() != ids.size()) {
-        return false;
+        return IndexOpResult(VectorOpResult::INDEX_NOT_EXIST, "Index not initialized");
     }
     
     try {
         // Add vectors one by one (usearch doesn't have native batch add)
         for (size_t i = 0; i < vectors.size(); ++i) {
             if (vectors[i].size() != config_.dimension) {
-                return false;
+                return IndexOpResult(VectorOpResult::VECTOR_DIMENSION_MISMATCH, "Vector dimension mismatch");
             }
             
             auto add_result = usearch_index_.add(ids[i], vectors[i].data(), 0, true);
             if (add_result.error) {
-                return false;
+                return IndexOpResult(VectorOpResult::UNKNOWN, add_result.error.what());
             }
         }
         
-        return true;
+        return IndexOpResult(VectorOpResult::SUCCEED, "");
     } catch (const std::exception& e) {
-        return false;
+        return IndexOpResult(VectorOpResult::INDEX_INTERNAL_ERROR, e.what());
     }
 }
 
-bool HNSWVectorIndex::remove(uint64_t id) {
+IndexOpResult HNSWVectorIndex::remove(uint64_t id) {
     std::shared_lock<std::shared_mutex> lock(index_mutex_);
     
     if (!initialized_) {
-        return false;
+        return IndexOpResult(VectorOpResult::INDEX_NOT_EXIST, "Index not initialized");
     }
     
     try {
         // Remove vector from usearch index
         auto remove_result = usearch_index_.remove(id);
         if (remove_result.error) {
-            return false;
+            return IndexOpResult(VectorOpResult::INDEX_INTERNAL_ERROR, remove_result.error.what());
         }
         
-        return true;
+        return IndexOpResult(VectorOpResult::SUCCEED, "");
     } catch (const std::exception& e) {
-        return false;
+        return IndexOpResult(VectorOpResult::INDEX_INTERNAL_ERROR, e.what());
     }
 }
 
-bool HNSWVectorIndex::update(const std::vector<float>& vector, uint64_t id) {
+IndexOpResult HNSWVectorIndex::update(const std::vector<float>& vector, uint64_t id) {
     std::shared_lock<std::shared_mutex> lock(index_mutex_);
     
     if (!initialized_) {
-        return false;
+        return IndexOpResult(VectorOpResult::INDEX_NOT_EXIST, "Index not initialized");
     }
     
     if (vector.size() != config_.dimension) {
-        return false;
+        return IndexOpResult(VectorOpResult::VECTOR_DIMENSION_MISMATCH, "Vector dimension mismatch");
     }
     
     try {
@@ -328,12 +323,12 @@ bool HNSWVectorIndex::update(const std::vector<float>& vector, uint64_t id) {
         // Add the new vector
         auto add_result = usearch_index_.add(id, vector.data(), 0, true);
         if (add_result.error) {
-            return false;
+            return IndexOpResult(VectorOpResult::INDEX_INTERNAL_ERROR, add_result.error.what());
         }
         
-        return true;
+        return IndexOpResult(VectorOpResult::SUCCEED, "");
     } catch (const std::exception& e) {
-        return false;
+        return IndexOpResult(VectorOpResult::INDEX_INTERNAL_ERROR, e.what());
     }
 }
 

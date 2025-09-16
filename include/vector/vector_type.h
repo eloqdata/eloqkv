@@ -12,9 +12,6 @@
 
 #include <algorithm>
 #include <cstdint>
-#include <functional>
-#include <memory>
-#include <optional>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -199,7 +196,19 @@ enum class VectorOpResult
     INDEX_EXISTED,
     INDEX_NOT_EXIST,
     INDEX_META_OP_FAILED,
+    VECTOR_DIMENSION_MISMATCH,
+    INDEX_INTERNAL_ERROR,
     UNKNOWN,
+};
+
+struct IndexOpResult
+{
+    VectorOpResult error = VectorOpResult::SUCCEED;  ///< Error flag
+    std::string error_message = "";  ///< Error message
+    IndexOpResult(VectorOpResult error, std::string error_message)
+        : error(error), error_message(std::move(error_message))
+    {
+    }
 };
 
 }  // namespace EloqVec

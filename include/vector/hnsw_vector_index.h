@@ -45,20 +45,21 @@ public:
     bool load(const std::string& path) override;
     bool save(const std::string& path) override;
     
-    SearchResult search(
+    IndexOpResult search(
         const std::vector<float>& query_vector,
         size_t k,
+        SearchResult &result,
         bool exact = false,
         std::optional<std::function<bool(uint64_t)>> filter = std::nullopt
     ) override;
     
-    bool add(const std::vector<float>& vector, uint64_t id) override;
-    bool add_batch(
+    IndexOpResult add(const std::vector<float>& vector, uint64_t id) override;
+    IndexOpResult add_batch(
         const std::vector<std::vector<float>>& vectors,
         const std::vector<uint64_t>& ids
     ) override;
-    bool remove(uint64_t id) override;
-    bool update(const std::vector<float>& vector, uint64_t id) override;
+    IndexOpResult remove(uint64_t id) override;
+    IndexOpResult update(const std::vector<float>& vector, uint64_t id) override;
     size_t memory_usage() override;
     bool is_ready() override;
     size_t get_dimension() override;
