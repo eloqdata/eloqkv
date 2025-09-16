@@ -78,8 +78,6 @@ bool HNSWVectorIndex::load(const std::string& path) {
         initialized_ = false;
         return false;
     }
-
-    return true;
 }
 
 bool HNSWVectorIndex::save(const std::string& path) {
