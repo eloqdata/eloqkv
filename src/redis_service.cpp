@@ -6141,6 +6141,7 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
 
     if (cmd->count_ < 0 || obj_cnt < cmd->count_)
     {
+        auto start_time = std::chrono::high_resolution_clock::now();
         // Fetch catalog and acquire read lock on catalog table
         CatalogKey catalog_key(*redis_table_name);
         TxKey cat_tx_key(&catalog_key);
@@ -6351,6 +6352,13 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
                 }
             }
         }
+
+        auto stop_time = std::chrono::high_resolution_clock::now();
+        int64_t time = std::chrono::duration_cast<std::chrono::microseconds>(
+                           stop_time - start_time)
+                           .count();
+        LOG(INFO) << "== scan time = " << time
+                  << " us, res size = " << vct_rst.size();
 
         txm->CloseTxScan(scan_alias, *redis_table_name, unlock_batch);
     }
