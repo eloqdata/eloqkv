@@ -183,6 +183,9 @@ DEFINE_bool(raft_log_async_fsync,
             "Whether raft log fsync is performed asynchronously (blocking the "
             "bthread) instead of blocking the worker thread");
 DEFINE_int32(core_number, 4, "Number of TxProcessors");
+DEFINE_int32(vector_index_worker_num,
+             1,
+             "Number of Vector Index worker threads");
 DEFINE_bool(
     bind_all,
     false,
@@ -1645,6 +1648,18 @@ bool RedisServiceImpl::Init(brpc::Server &brpc_server)
             : config_reader.GetBoolean(
                   "local", "retry_on_occ_error", FLAGS_retry_on_occ_error);
 
+    int vector_index_worker_num =
+        !CheckCommandLineFlagIsDefault("vector_index_worker_num")
+            ? FLAGS_vector_index_worker_num
+            : config_reader.GetInteger("local",
+                                       "vector_index_worker_num",
+                                       FLAGS_vector_index_worker_num);
+    if (vector_index_worker_num > 0)
+    {
+        vector_index_worker_pool_ =
+            std::make_unique<txservice::TxWorkerPool>(vector_index_worker_num);
+    }
+
     return true;
 }
 
@@ -1974,6 +1989,14 @@ bool RedisServiceImpl::InitTxLogService(
 
 void RedisServiceImpl::Stop()
 {
+    if (vector_index_worker_pool_ != nullptr)
+    {
+        LOG(INFO) << "Shutting down the vector index worker pool.";
+        vector_index_worker_pool_->Shutdown();
+        vector_index_worker_pool_ = nullptr;
+        LOG(INFO) << "Vector index worker pool shut down.";
+    }
+
     if (tx_service_ != nullptr)
     {
         LOG(INFO) << "Shutting down the tx service.";
@@ -6440,14 +6463,37 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
                                       OutputHandler *output,
                                       bool auto_commit)
 {
-    EloqVec::IndexConfig index_config(cmd->index_name_.String(),
-                                      cmd->dimensions_,
-                                      cmd->algorithm_,
-                                      cmd->metric_type_,
-                                      FLAGS_eloq_data_path,
-                                      std::move(cmd->alg_params_));
-    EloqVec::VectorOpResult res =
-        EloqVec::VectorHandler::Instance().Create(index_config, txm);
+    if (vector_index_worker_pool_ == nullptr)
+    {
+        output->OnError("ERR Vector Index not enabled");
+        return false;
+    }
+    EloqVec::VectorOpResult res = EloqVec::VectorOpResult::SUCCEED;
+    bthread::Mutex mux;
+    bthread::ConditionVariable cv;
+    bool finished = false;
+    {
+        std::unique_lock<bthread::Mutex> lk(mux);
+        vector_index_worker_pool_->SubmitWork(
+            [cmd, txm, &res, &mux, &cv, &finished]()
+            {
+                EloqVec::IndexConfig index_config(cmd->index_name_.String(),
+                                                  cmd->dimensions_,
+                                                  cmd->algorithm_,
+                                                  cmd->metric_type_,
+                                                  FLAGS_eloq_data_path,
+                                                  std::move(cmd->alg_params_));
+                res = EloqVec::VectorHandler::Instance().Create(index_config,
+                                                                txm);
+                std::unique_lock<bthread::Mutex> lk(mux);
+                finished = true;
+                cv.notify_one();
+            });
+        while (!finished)
+        {
+            cv.wait(lk);
+        }
+    }
     if (res == EloqVec::VectorOpResult::SUCCEED)
     {
         if (auto_commit)
@@ -6475,8 +6521,31 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
                                       OutputHandler *output,
                                       bool auto_commit)
 {
-    EloqVec::VectorOpResult res = EloqVec::VectorHandler::Instance().Info(
-        cmd->index_name_.String(), txm, cmd->metadata_);
+    if (vector_index_worker_pool_ == nullptr)
+    {
+        output->OnError("ERR Vector Index not enabled");
+        return false;
+    }
+    EloqVec::VectorOpResult res = EloqVec::VectorOpResult::SUCCEED;
+    bthread::Mutex mux;
+    bthread::ConditionVariable cv;
+    bool finished = false;
+    {
+        std::unique_lock<bthread::Mutex> lk(mux);
+        vector_index_worker_pool_->SubmitWork(
+            [cmd, txm, &res, &mux, &cv, &finished]()
+            {
+                res = EloqVec::VectorHandler::Instance().Info(
+                    cmd->index_name_.String(), txm, cmd->metadata_);
+                std::unique_lock<bthread::Mutex> lk(mux);
+                finished = true;
+                cv.notify_one();
+            });
+        while (!finished)
+        {
+            cv.wait(lk);
+        }
+    }
     if (res == EloqVec::VectorOpResult::SUCCEED)
     {
         if (auto_commit)

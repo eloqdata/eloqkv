@@ -11,13 +11,13 @@
  */
 
 #include "vector/log_object.h"
-#include "vector/vector_type.h"
 
 #include <cstring>
 
 #include "eloq_string_key_record.h"
 #include "tx_execution.h"
 #include "tx_request.h"
+#include "vector/vector_type.h"
 
 namespace EloqVec
 {
@@ -49,7 +49,8 @@ void LogObject::serialize_metadata(const log_metadata_t &meta,
     return;
 }
 
-log_metadata_t LogObject::deserialize_metadata(const char *data, size_t data_size)
+log_metadata_t LogObject::deserialize_metadata(const char *data,
+                                               size_t data_size)
 {
     log_metadata_t meta;
     size_t offset = 0;
@@ -64,18 +65,16 @@ log_metadata_t LogObject::deserialize_metadata(const char *data, size_t data_siz
     // Deserialize head_item_sequence_id (uint64_t)
     if (offset + sizeof(uint64_t) <= data_size)
     {
-        std::memcpy(&meta.head_item_sequence_id,
-                    data + offset,
-                    sizeof(uint64_t));
+        std::memcpy(
+            &meta.head_item_sequence_id, data + offset, sizeof(uint64_t));
         offset += sizeof(uint64_t);
     }
 
     // Deserialize tail_item_sequence_id (uint64_t)
     if (offset + sizeof(uint64_t) <= data_size)
     {
-        std::memcpy(&meta.tail_item_sequence_id,
-                    data + offset,
-                    sizeof(uint64_t));
+        std::memcpy(
+            &meta.tail_item_sequence_id, data + offset, sizeof(uint64_t));
         offset += sizeof(uint64_t);
     }
 
@@ -191,14 +190,18 @@ std::string LogObject::get_log_item_key(const std::string &log_name,
 /**
  * @brief Creates a new log metadata record for the named log.
  *
- * Ensures a transaction execution context is provided, verifies the log does not already exist,
- * and inserts an initial zeroed metadata record into storage.
+ * Ensures a transaction execution context is provided, verifies the log does
+ * not already exist, and inserts an initial zeroed metadata record into
+ * storage.
  *
  * @param log_name Name of the log to create.
- * @note The transaction execution pointer parameter is a service/client and is not documented here.
+ * @note The transaction execution pointer parameter is a service/client and is
+ * not documented here.
  *
- * @return LogError::INVALID_PARAMETER if the transaction execution context is null.
- * @return LogError::LOG_ALREADY_EXISTS if metadata for the given log_name already exists.
+ * @return LogError::INVALID_PARAMETER if the transaction execution context is
+ * null.
+ * @return LogError::LOG_ALREADY_EXISTS if metadata for the given log_name
+ * already exists.
  * @return LogError::STORAGE_ERROR on underlying storage/read/upsert failures.
  * @return LogError::SUCCESS on successful creation.
  */
@@ -214,7 +217,8 @@ LogError LogObject::create_log(const std::string &log_name,
 
     // Create key for metadata
     std::string meta_key = get_metadata_key(log_name);
-    txservice::TxKey tx_key = txservice::EloqStringKey::Create(meta_key.c_str(), meta_key.size());
+    txservice::TxKey tx_key =
+        txservice::EloqStringKey::Create(meta_key.c_str(), meta_key.size());
 
     // Create record to read into
     txservice::EloqStringRecord record;
@@ -233,7 +237,7 @@ LogError LogObject::create_log(const std::string &log_name,
                                       false,
                                       nullptr,
                                       nullptr,
-                                      txm);
+                                      nullptr);
     txm->Execute(&read_req);
     read_req.Wait();
 
@@ -269,27 +273,21 @@ LogError LogObject::create_log(const std::string &log_name,
         serialized_meta.size());
 
     // Create and execute upsert request
-    // txservice::UpsertTxRequest upsert_req(&table_name_obj,
-    //                                       std::move(tx_key),
-    //                                       std::move(record_ptr),
-    //                                       txservice::OperationType::Insert,
-    //                                       nullptr,
-    //                                       nullptr);
-    // txm->Execute(&upsert_req);
-    // LOG(INFO) << "Execute upsert request for log object " << log_name;
-    // upsert_req.Wait();
-    // LOG(INFO) << "Wait for upsert request for log object " << log_name;
-
-    txservice::TxErrorCode err_code = txm->TxUpsert(vector_index_meta_table,
-                                         0,
-                                         std::move(tx_key),
-                                         std::move(record_ptr),
-                                         txservice::OperationType::Insert);
+    txservice::UpsertTxRequest upsert_req(&vector_index_meta_table,
+                                          std::move(tx_key),
+                                          std::move(record_ptr),
+                                          txservice::OperationType::Insert,
+                                          nullptr,
+                                          nullptr);
+    txm->Execute(&upsert_req);
+    upsert_req.Wait();
 
     // Check for errors
-    if (err_code != txservice::TxErrorCode::NO_ERROR)
+    if (upsert_req.ErrorCode() != txservice::TxErrorCode::NO_ERROR)
     {
-        LOG(ERROR) << "Upsert request for log object " << log_name << " failed with error " << static_cast<int>(err_code);
+        LOG(ERROR) << "Upsert request for log object " << log_name
+                   << " failed with error "
+                   << static_cast<int>(upsert_req.ErrorCode());
         return LogError::STORAGE_ERROR;
     }
 
@@ -331,7 +329,7 @@ bool LogObject::exists(const std::string &log_name,
                                       false,
                                       nullptr,
                                       nullptr,
-                                      txm);
+                                      nullptr);
     txm->Execute(&read_req);
     read_req.Wait();
 
@@ -347,19 +345,25 @@ bool LogObject::exists(const std::string &log_name,
 /**
  * @brief Appends one or more log items to the named log.
  *
- * Assigns consecutive sequence IDs to the provided items (starting at the log's current next_id),
- * persists each item and updates the log metadata (total_items, next_id, tail_item_sequence_id).
- * Requires an active transaction execution context.
+ * Assigns consecutive sequence IDs to the provided items (starting at the log's
+ * current next_id), persists each item and updates the log metadata
+ * (total_items, next_id, tail_item_sequence_id). Requires an active transaction
+ * execution context.
  *
  * @param log_name Name of the log to append to.
- * @param items Vector of log items to append; each item's sequence_id will be set in-place.
- * @param[out] log_id Set to the sequence_id of the last appended item on success.
- * @param[out] log_count Set to the updated total number of items in the log on success.
+ * @param items Vector of log items to append; each item's sequence_id will be
+ * set in-place.
+ * @param[out] log_id Set to the sequence_id of the last appended item on
+ * success.
+ * @param[out] log_count Set to the updated total number of items in the log on
+ * success.
  *
- * @return LogError::INVALID_PARAMETER if the transaction execution pointer is null.
+ * @return LogError::INVALID_PARAMETER if the transaction execution pointer is
+ * null.
  * @return LogError::LOG_NOT_FOUND if the log metadata does not exist.
  * @return LogError::STORAGE_ERROR on any storage read/write failure.
- * @return LogError::SUCCESS if items were appended (or if the input vector is empty).
+ * @return LogError::SUCCESS if items were appended (or if the input vector is
+ * empty).
  */
 LogError LogObject::append_log(const std::string &log_name,
                                std::vector<log_item_t> &items,
@@ -381,7 +385,8 @@ LogError LogObject::append_log(const std::string &log_name,
 
     // Read current metadata to get next sequence ID
     std::string meta_key = get_metadata_key(log_name);
-    txservice::TxKey meta_tx_key = txservice::EloqStringKey::Create(meta_key.c_str(), meta_key.size());
+    txservice::TxKey meta_tx_key =
+        txservice::EloqStringKey::Create(meta_key.c_str(), meta_key.size());
 
     txservice::EloqStringRecord meta_record;
     txservice::ReadTxRequest meta_read_req(&vector_index_meta_table,
@@ -440,7 +445,8 @@ LogError LogObject::append_log(const std::string &log_name,
 
         // Create and execute upsert request
         std::string item_key = get_log_item_key(log_name, items[i].sequence_id);
-        txservice::TxKey item_tx_key = txservice::EloqStringKey::Create(item_key.c_str(), item_key.size());
+        txservice::TxKey item_tx_key =
+            txservice::EloqStringKey::Create(item_key.c_str(), item_key.size());
         // TODO(liunyl): impl batch upsert request
         txservice::UpsertTxRequest item_upsert_req(
             &vector_index_meta_table,
@@ -498,15 +504,17 @@ LogError LogObject::append_log(const std::string &log_name,
 /**
  * @brief Removes a log and all its stored items.
  *
- * Reads the log's metadata to determine the stored sequence ID range, deletes every log item
- * with sequence IDs from head_item_sequence_id through tail_item_sequence_id (inclusive),
- * then deletes the metadata record.
+ * Reads the log's metadata to determine the stored sequence ID range, deletes
+ * every log item with sequence IDs from head_item_sequence_id through
+ * tail_item_sequence_id (inclusive), then deletes the metadata record.
  *
  * @param log_name Logical name/identifier of the log to remove.
- * @return LogError::INVALID_PARAMETER if the transaction execution context is null.
+ * @return LogError::INVALID_PARAMETER if the transaction execution context is
+ * null.
  * @return LogError::LOG_NOT_FOUND if the log metadata does not exist.
  * @return LogError::STORAGE_ERROR on any storage/read/write/delete failure.
- * @return LogError::SUCCESS if the log and all its items were removed successfully.
+ * @return LogError::SUCCESS if the log and all its items were removed
+ * successfully.
  */
 LogError LogObject::remove_log(const std::string &log_name,
                                txservice::TransactionExecution *txm)
@@ -519,7 +527,8 @@ LogError LogObject::remove_log(const std::string &log_name,
 
     // Read metadata to get sequence ID range
     std::string meta_key = get_metadata_key(log_name);
-    txservice::TxKey meta_tx_key = txservice::EloqStringKey::Create(meta_key.c_str(), meta_key.size());
+    txservice::TxKey meta_tx_key =
+        txservice::EloqStringKey::Create(meta_key.c_str(), meta_key.size());
 
     txservice::EloqStringRecord meta_record;
     txservice::ReadTxRequest meta_read_req(&vector_index_meta_table,
@@ -561,7 +570,8 @@ LogError LogObject::remove_log(const std::string &log_name,
          ++seq_id)
     {
         std::string item_key = get_log_item_key(log_name, seq_id);
-        txservice::TxKey item_tx_key = txservice::EloqStringKey::Create(item_key.c_str(), item_key.size());
+        txservice::TxKey item_tx_key =
+            txservice::EloqStringKey::Create(item_key.c_str(), item_key.size());
 
         auto item_record_ptr = std::make_unique<txservice::EloqStringRecord>();
         txservice::UpsertTxRequest item_delete_req(
@@ -600,23 +610,27 @@ LogError LogObject::remove_log(const std::string &log_name,
 }
 
 /**
- * @brief Truncates a log by deleting log items from the head up to a target sequence id.
+ * @brief Truncates a log by deleting log items from the head up to a target
+ * sequence id.
  *
- * Deletes every log item with sequence id in [head_item_sequence_id, to_id] (inclusive),
- * updates the log's metadata (head_item_sequence_id and total_items), and returns the
- * updated total item count via log_count.
+ * Deletes every log item with sequence id in [head_item_sequence_id, to_id]
+ * (inclusive), updates the log's metadata (head_item_sequence_id and
+ * total_items), and returns the updated total item count via log_count.
  *
- * @param to_id Target sequence id to truncate up to (inclusive). If greater than the
- *              current tail sequence id it will be clamped to the tail. If less than
- *              the current head sequence id the call fails with INVALID_PARAMETER.
- * @param log_count Out parameter set to the remaining total_items after truncation.
+ * @param to_id Target sequence id to truncate up to (inclusive). If greater
+ * than the current tail sequence id it will be clamped to the tail. If less
+ * than the current head sequence id the call fails with INVALID_PARAMETER.
+ * @param log_count Out parameter set to the remaining total_items after
+ * truncation.
  *
  * Note: txm (transaction execution) must be non-null.
  *
  * @return LogError::SUCCESS on success.
- * @return LogError::INVALID_PARAMETER if txm is null or to_id < head_item_sequence_id.
+ * @return LogError::INVALID_PARAMETER if txm is null or to_id <
+ * head_item_sequence_id.
  * @return LogError::LOG_NOT_FOUND if the named log does not exist.
- * @return LogError::STORAGE_ERROR on underlying storage read/write/delete failures.
+ * @return LogError::STORAGE_ERROR on underlying storage read/write/delete
+ * failures.
  */
 LogError LogObject::truncate_log(const std::string &log_name,
                                  uint64_t to_id,
@@ -631,7 +645,8 @@ LogError LogObject::truncate_log(const std::string &log_name,
 
     // Read metadata to get sequence ID range
     std::string meta_key = get_metadata_key(log_name);
-    txservice::TxKey meta_tx_key = txservice::EloqStringKey::Create(meta_key.c_str(), meta_key.size());
+    txservice::TxKey meta_tx_key =
+        txservice::EloqStringKey::Create(meta_key.c_str(), meta_key.size());
 
     txservice::EloqStringRecord meta_record;
     txservice::ReadTxRequest meta_read_req(&vector_index_meta_table,
@@ -682,7 +697,8 @@ LogError LogObject::truncate_log(const std::string &log_name,
          ++seq_id)
     {
         std::string item_key = get_log_item_key(log_name, seq_id);
-        txservice::TxKey item_tx_key = txservice::EloqStringKey::Create(item_key.c_str(), item_key.size());
+        txservice::TxKey item_tx_key =
+            txservice::EloqStringKey::Create(item_key.c_str(), item_key.size());
 
         auto item_record_ptr = std::make_unique<txservice::EloqStringRecord>();
         txservice::UpsertTxRequest item_delete_req(
@@ -733,23 +749,25 @@ LogError LogObject::truncate_log(const std::string &log_name,
 }
 
 /**
- * @brief Reads log entries from the head up to a specified sequence ID into a vector.
+ * @brief Reads log entries from the head up to a specified sequence ID into a
+ * vector.
  *
- * Reads the log's metadata to determine the valid sequence range, then batch-reads
- * each log item from the current head sequence ID through `to_id` (inclusive),
- * deserializes them, and appends them to `items`.
+ * Reads the log's metadata to determine the valid sequence range, then
+ * batch-reads each log item from the current head sequence ID through `to_id`
+ * (inclusive), deserializes them, and appends them to `items`.
  *
- * @param to_id Upper bound sequence ID (inclusive). If greater than the log's tail
- *              sequence ID it is clamped to the tail. Must be >= head sequence ID.
- * @param items Output vector that will be populated with the deserialized log items
- *              in ascending sequence order.
+ * @param to_id Upper bound sequence ID (inclusive). If greater than the log's
+ * tail sequence ID it is clamped to the tail. Must be >= head sequence ID.
+ * @param items Output vector that will be populated with the deserialized log
+ * items in ascending sequence order.
  *
- * The transaction execution context (`txm`) must be provided and is used for all
- * storage reads; it is intentionally omitted from @param documentation as a service.
+ * The transaction execution context (`txm`) must be provided and is used for
+ * all storage reads; it is intentionally omitted from @param documentation as a
+ * service.
  *
  * @return LogError::SUCCESS on success.
- * @return LogError::INVALID_PARAMETER if `txm` is null or `to_id` is less than the
- *         log's head sequence ID.
+ * @return LogError::INVALID_PARAMETER if `txm` is null or `to_id` is less than
+ * the log's head sequence ID.
  * @return LogError::LOG_NOT_FOUND if the named log does not exist.
  * @return LogError::STORAGE_ERROR on storage/read failures.
  */
@@ -865,7 +883,8 @@ LogError LogObject::scan_log(const std::string &log_name,
  * default-constructed log_metadata_t (all fields zero) is returned.
  *
  * @param log_name Name of the log to query.
- * @return log_metadata_t Deserialized log metadata on success; default metadata on error or if not found.
+ * @return log_metadata_t Deserialized log metadata on success; default metadata
+ * on error or if not found.
  */
 log_metadata_t LogObject::get_stats(const std::string &log_name,
                                     txservice::TransactionExecution *txm)
@@ -889,7 +908,7 @@ log_metadata_t LogObject::get_stats(const std::string &log_name,
                                            false,
                                            nullptr,
                                            nullptr,
-                                           txm);
+                                           nullptr);
     txm->Execute(&meta_read_req);
     meta_read_req.Wait();
 

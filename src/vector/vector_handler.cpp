@@ -10,11 +10,11 @@
  */
 
 #include "vector_handler.h"
-#include "log_object.h"
 
 #include <algorithm>
 #include <utility>
 
+#include "log_object.h"
 #include "tx_request.h"
 #include "tx_util.h"
 
@@ -216,13 +216,15 @@ VectorHandler &VectorHandler::Instance()
 }
 
 /**
- * @brief Create a new vector index metadata entry and initialize its lifecycle log.
+ * @brief Create a new vector index metadata entry and initialize its lifecycle
+ * log.
  *
  * Creates metadata for the vector index described by idx_spec in the internal
  * metadata table and adds a corresponding log object. If an index with the
  * same name already exists this function does not modify state.
  *
- * @param idx_spec Index configuration (name, dimension, algorithm, storage path, etc.).
+ * @param idx_spec Index configuration (name, dimension, algorithm, storage
+ * path, etc.).
  *
  * @return VectorOpResult indicating the outcome:
  *   - SUCCEED: metadata and log were created successfully.
@@ -249,7 +251,7 @@ VectorOpResult VectorHandler::Create(const IndexConfig &idx_spec,
                            false,
                            nullptr,
                            nullptr,
-                           txm);
+                           nullptr);
     txm->Execute(&read_req);
     read_req.Wait();
     if (read_req.IsError())
@@ -273,18 +275,22 @@ VectorOpResult VectorHandler::Create(const IndexConfig &idx_spec,
         encoded_str.size());
     // 2. upsert the metadata to the internal table
     // There is no need to check the schema ts of the internal table.
-    TxErrorCode err_code = txm->TxUpsert(vector_index_meta_table,
-                                         0,
-                                         std::move(tx_key),
-                                         std::move(h_record),
-                                         OperationType::Insert);
-    if (err_code != TxErrorCode::NO_ERROR)
+    txservice::UpsertTxRequest upsert_req(&vector_index_meta_table,
+                                          std::move(tx_key),
+                                          std::move(h_record),
+                                          OperationType::Insert,
+                                          nullptr,
+                                          nullptr);
+    txm->Execute(&upsert_req);
+    upsert_req.Wait();
+    if (upsert_req.IsError())
     {
         return VectorOpResult::INDEX_META_OP_FAILED;
     }
 
     // 3. create the log object
-    LogError log_err = LogObject::create_log("vector_index:" + idx_spec.name, txm);
+    LogError log_err =
+        LogObject::create_log("vector_index:" + idx_spec.name, txm);
     if (log_err != LogError::SUCCESS)
     {
         return VectorOpResult::INDEX_META_OP_FAILED;
@@ -331,7 +337,7 @@ VectorOpResult VectorHandler::Drop(const std::string &name,
                            false,
                            nullptr,
                            nullptr,
-                           txm);
+                           nullptr);
     txm->Execute(&read_req);
     read_req.Wait();
     if (read_req.IsError())
@@ -390,7 +396,7 @@ VectorOpResult VectorHandler::Info(const std::string &name,
                            false,
                            nullptr,
                            nullptr,
-                           txm);
+                           nullptr);
     txm->Execute(&read_req);
     read_req.Wait();
     if (read_req.IsError())
@@ -442,7 +448,7 @@ VectorOpResult VectorHandler::Search(
                            false,
                            nullptr,
                            nullptr,
-                           txm);
+                           nullptr);
     txm->Execute(&read_req);
     read_req.Wait();
     if (read_req.IsError())

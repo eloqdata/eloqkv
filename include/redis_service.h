@@ -619,6 +619,9 @@ private:
     metrics::CommonLabels redis_common_labels_{};
     std::unique_ptr<metrics::Meter> redis_meter_{nullptr};
 
+    // Vector index related
+    std::unique_ptr<txservice::TxWorkerPool> vector_index_worker_pool_{nullptr};
+
     mutable std::vector<std::vector<std::size_t>> redis_cmd_current_rounds_{};
     const metrics::Map<std::string_view, std::string_view> cmd_access_types_{
         {"append", "write"},

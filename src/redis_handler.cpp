@@ -5279,8 +5279,9 @@ brpc::RedisCommandHandlerResult CreateVecIndexHandler::Run(
     if (success)
     {
         bool in_tx = ctx->txm != nullptr;
-        TransactionExecution *txm =
-            in_tx ? ctx->txm : redis_impl_->NewTxm(iso_level_, cc_protocol_);
+        // todo(ysw): new txm in vector handler
+        TransactionExecution *txm = redis_impl_->GetTxService()->NewTx();
+        txm->InitTx(iso_level_, cc_protocol_);
         const TableName *table = redis_impl_->RedisTableName(ctx->db_id);
         redis_impl_->ExecuteCommand(
             ctx, txm, table, &cmd, &reply, in_tx ? false : auto_commit_);
@@ -5304,8 +5305,9 @@ brpc::RedisCommandHandlerResult InfoVecIndexHandler::Run(
     if (success)
     {
         bool in_tx = ctx->txm != nullptr;
-        TransactionExecution *txm =
-            in_tx ? ctx->txm : redis_impl_->NewTxm(iso_level_, cc_protocol_);
+        // txm should not be bound to core since it is used in vector index worker pool
+        TransactionExecution *txm = redis_impl_->GetTxService()->NewTx();
+        txm->InitTx(iso_level_, cc_protocol_);
         const TableName *table = redis_impl_->RedisTableName(ctx->db_id);
         redis_impl_->ExecuteCommand(
             ctx, txm, table, &cmd, &reply, in_tx ? false : auto_commit_);
