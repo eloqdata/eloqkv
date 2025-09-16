@@ -485,8 +485,7 @@ struct RedisScanResult : public RedisCommandResult
         abort();
     }
 
-    uint64_t cursor_id_{0};  // The last key to scan this time, it will be start
-                             // key next time.
+    uint64_t cursor_id_{0};
     std::vector<std::string> vct_key_;  // All key return to client
 };
 
