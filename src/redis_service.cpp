@@ -6244,6 +6244,7 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
         {
             loop_cnt++;
             scan_batch.clear();
+            auto start_time = std::chrono::high_resolution_clock::now();
             ScanBatchTxRequest scan_batch_req(
                 scan_alias,
                 *redis_table_name,
@@ -6274,6 +6275,12 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
                 }
                 return false;
             }
+
+            auto stop_time = std::chrono::high_resolution_clock::now();
+            LOG(INFO) << "== redis scan batch time = "
+                      << std::chrono::duration_cast<std::chrono::microseconds>(
+                             stop_time - start_time)
+                             .count();
 
             debug_total_cnt += scan_batch.size();
 
