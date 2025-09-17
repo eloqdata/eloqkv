@@ -648,12 +648,12 @@ RedisCatalogFactory::CreateTableStatistics(
     return nullptr;
 }
 
-txservice::TxKey RedisCatalogFactory::NegativeInfKey()
+txservice::TxKey RedisCatalogFactory::NegativeInfKey() const
 {
     return txservice::TxKey(EloqKey::NegativeInfinity());
 }
 
-txservice::TxKey RedisCatalogFactory::PositiveInfKey()
+txservice::TxKey RedisCatalogFactory::PositiveInfKey() const
 {
     return txservice::TxKey(EloqKey::PositiveInfinity());
 }
@@ -664,6 +664,27 @@ size_t RedisCatalogFactory::KeyHash(
     const txservice::KeySchema *key_schema) const
 {
     return EloqKey::HashFromSerializedKey(buf, offset);
+}
+
+txservice::TxKey RedisCatalogFactory::CreateTxKey() const
+{
+    return txservice::TxKey(std::make_unique<EloqKey>());
+}
+
+txservice::TxKey RedisCatalogFactory::CreateTxKey(const char *data,
+                                                  size_t size) const
+{
+    return txservice::TxKey(std::make_unique<EloqKey>(data, size));
+}
+
+const txservice::TxKey *RedisCatalogFactory::PackedNegativeInfinity() const
+{
+    return EloqKey::PackedNegativeInfinityTxKey();
+}
+
+std::unique_ptr<txservice::TxRecord> RedisCatalogFactory::CreateTxRecord() const
+{
+    return RedisEloqObject::Create();
 }
 
 }  // namespace EloqKV

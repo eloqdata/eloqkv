@@ -264,12 +264,20 @@ public:
         return nullptr;
     }
 
-    txservice::TxKey NegativeInfKey() override;
+    txservice::TxKey NegativeInfKey() const override;
 
-    txservice::TxKey PositiveInfKey() override;
+    txservice::TxKey PositiveInfKey() const override;
 
     size_t KeyHash(const char *buf,
                    size_t offset,
                    const txservice::KeySchema *key_schema) const override;
+
+    txservice::TxKey CreateTxKey() const override;
+
+    txservice::TxKey CreateTxKey(const char *data, size_t size) const override;
+
+    const txservice::TxKey *PackedNegativeInfinity() const override;
+
+    std::unique_ptr<txservice::TxRecord> CreateTxRecord() const override;
 };
 }  // namespace EloqKV
