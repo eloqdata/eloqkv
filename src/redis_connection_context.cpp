@@ -198,7 +198,14 @@ uint64_t RedisConnectionContext::UpdateBucketScanCursor(
         hash *= 1099511628211ULL;
     }
 
-    bucket_scan_cursors.at(db_id)->cursor_id_ = hash;
+    auto it = bucket_scan_cursors.find(db_id);
+    if (it == bucket_scan_cursors.end())
+    {
+        assert(false);
+        // No cursor to update for this DB. Avoid throwing; signal caller.
+        return 0;
+    }
+    it->second->cursor_id_ = hash;
     return hash;
 }
 
