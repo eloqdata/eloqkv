@@ -1660,6 +1660,9 @@ bool RedisServiceImpl::Init(brpc::Server &brpc_server)
             std::make_unique<txservice::TxWorkerPool>(vector_index_worker_num);
     }
 
+    // Initialize vector handler
+    EloqVec::VectorHandler::InitHandlerInstance(tx_service_.get());
+
     return true;
 }
 
@@ -6475,7 +6478,7 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
     {
         std::unique_lock<bthread::Mutex> lk(mux);
         vector_index_worker_pool_->SubmitWork(
-            [cmd, txm, &res, &mux, &cv, &finished]()
+            [cmd, &res, &mux, &cv, &finished]()
             {
                 EloqVec::IndexConfig index_config(cmd->index_name_.String(),
                                                   cmd->dimensions_,
@@ -6483,8 +6486,7 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
                                                   cmd->metric_type_,
                                                   FLAGS_eloq_data_path,
                                                   std::move(cmd->alg_params_));
-                res = EloqVec::VectorHandler::Instance().Create(index_config,
-                                                                txm);
+                res = EloqVec::VectorHandler::Instance().Create(index_config);
                 std::unique_lock<bthread::Mutex> lk(mux);
                 finished = true;
                 cv.notify_one();

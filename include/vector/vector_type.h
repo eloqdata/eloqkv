@@ -198,13 +198,19 @@ enum class VectorOpResult
     INDEX_META_OP_FAILED,
     VECTOR_DIMENSION_MISMATCH,
     INDEX_INTERNAL_ERROR,
+    INDEX_VERSION_MISMATCH,
+    INDEX_INIT_FAILED,
+    INDEX_LOAD_FAILED,
+    INDEX_ADD_FAILED,
+    INDEX_UPDATE_FAILED,
+    INDEX_DELETE_FAILED,
     UNKNOWN,
 };
 
 struct IndexOpResult
 {
     VectorOpResult error = VectorOpResult::SUCCEED;  ///< Error flag
-    std::string error_message = "";  ///< Error message
+    std::string error_message = "";                  ///< Error message
     IndexOpResult(VectorOpResult error, std::string error_message)
         : error(error), error_message(std::move(error_message))
     {
