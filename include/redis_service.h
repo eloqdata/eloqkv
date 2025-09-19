@@ -392,16 +392,40 @@ public:
                         bool auto_commit);
 
     bool ExecuteCommand(RedisConnectionContext *ctx,
-                        TransactionExecution *txm,
-                        const TableName *table,
                         CreateVecIndexCommand *cmd,
+                        OutputHandler *output);
+
+    bool ExecuteCommand(RedisConnectionContext *ctx,
+                        TransactionExecution *txm,
+                        InfoVecIndexCommand *cmd,
+                        OutputHandler *output,
+                        bool auto_commit);
+
+    bool ExecuteCommand(RedisConnectionContext *ctx,
+                        DropVecIndexCommand *cmd,
+                        OutputHandler *output);
+
+    bool ExecuteCommand(RedisConnectionContext *ctx,
+                        TransactionExecution *txm,
+                        AddVecIndexCommand *cmd,
                         OutputHandler *output,
                         bool auto_commit);
 
     bool ExecuteCommand(RedisConnectionContext *ctx,
                         TransactionExecution *txm,
-                        const TableName *table,
-                        InfoVecIndexCommand *cmd,
+                        UpdateVecIndexCommand *cmd,
+                        OutputHandler *output,
+                        bool auto_commit);
+
+    bool ExecuteCommand(RedisConnectionContext *ctx,
+                        TransactionExecution *txm,
+                        DeleteVecIndexCommand *cmd,
+                        OutputHandler *output,
+                        bool auto_commit);
+
+    bool ExecuteCommand(RedisConnectionContext *ctx,
+                        TransactionExecution *txm,
+                        SearchVecIndexCommand *cmd,
                         OutputHandler *output,
                         bool auto_commit);
 

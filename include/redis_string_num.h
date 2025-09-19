@@ -195,6 +195,32 @@ static inline bool string2double(const char *s, size_t slen, double &value)
 }
 
 /**
+ * This function will convert a string into a float with fixed size.
+ */
+static inline bool string2float(const char *s, size_t slen, float &value)
+{
+    std::string str(s, slen);
+    if (str == "-inf")
+    {
+        value = std::numeric_limits<float>::infinity() * -1;
+    }
+    else if (str == "+inf")
+    {
+        value = std::numeric_limits<float>::infinity();
+    }
+    else
+    {
+        const char *ptr = str.c_str();
+        char *eptr;
+        value = strtof(ptr, &eptr);
+        if (slen == 0 || isspace(s[0]) ||
+            static_cast<size_t>(eptr - ptr) != slen || std::isnan(value))
+            return false;
+    }
+    return true;
+}
+
+/**
  * Convert double to string
  */
 static inline std::string d2string(double value)

@@ -307,6 +307,11 @@ enum struct RedisCommandType
     // vector index commands
     ELOQVEC_CREATE,
     ELOQVEC_INFO,
+    ELOQVEC_DROP,
+    ELOQVEC_ADD,
+    ELOQVEC_UPDATE,
+    ELOQVEC_DELETE,
+    ELOQVEC_SEARCH,
 };
 
 enum RedisResultType
@@ -6901,15 +6906,11 @@ struct CreateVecIndexCommand : public CustomCommand
     // Constructor with required parameters
     CreateVecIndexCommand(
         std::string_view index_name,
-        std::string_view hash_set_name,
-        std::string_view vector_column_name,
         uint32_t dimensions,
         EloqVec::Algorithm algorithm,
         EloqVec::DistanceMetric metric_type,
         std::unordered_map<std::string, std::string> &&alg_params)
         : index_name_(index_name),
-          hash_set_name_(hash_set_name),
-          vector_column_name_(vector_column_name),
           dimensions_(dimensions),
           algorithm_(algorithm),
           metric_type_(metric_type),
@@ -6935,10 +6936,6 @@ struct CreateVecIndexCommand : public CustomCommand
 
     // Name of the vector index
     EloqString index_name_;
-    // Name of the primary hash set to index
-    EloqString hash_set_name_;
-    // Column containing vector embeddings
-    EloqString vector_column_name_;
     // Number of dimensions in the vectors
     uint32_t dimensions_;
     // HNSW or IVF (currently only HNSW supported)
@@ -6946,8 +6943,8 @@ struct CreateVecIndexCommand : public CustomCommand
     // Distance metric (cosine, l2sq, ip)
     EloqVec::DistanceMetric metric_type_;
 
-    // Algorithm specific parameters (such as for HNSW: connectivity,
-    // ef_construct, ef_search, scalar_type, etc.)
+    // Algorithm specific parameters (such as for HNSW: max_connectivity,
+    // ef_construction, ef_search, etc.)
     std::unordered_map<std::string, std::string> alg_params_;
 
     // Result storage
@@ -6985,6 +6982,194 @@ struct InfoVecIndexCommand : public CustomCommand
 
     // Vector metadata
     EloqVec::VectorMetadata metadata_;
+
+    // Result storage
+    RedisCommandResult result_;
+};
+
+struct DropVecIndexCommand : public CustomCommand
+{
+    DropVecIndexCommand() = default;
+
+    // Constructor with required parameters
+    explicit DropVecIndexCommand(std::string_view index_name)
+        : index_name_(index_name)
+    {
+    }
+
+    DropVecIndexCommand(const DropVecIndexCommand &rhs) = delete;
+    DropVecIndexCommand(DropVecIndexCommand &&rhs) = default;
+    DropVecIndexCommand &operator=(const DropVecIndexCommand &rhs) = delete;
+    DropVecIndexCommand &operator=(DropVecIndexCommand &&rhs) = delete;
+    ~DropVecIndexCommand() = default;
+
+    bool Execute(RedisServiceImpl *redis_impl,
+                 RedisConnectionContext *ctx,
+                 const txservice::TableName *table,
+                 txservice::TransactionExecution *txm,
+                 OutputHandler *output,
+                 bool auto_commit) override;
+
+    void OutputResult(OutputHandler *reply,
+                      RedisConnectionContext *ctx) const override;
+
+    // Name of the vector index to drop
+    EloqString index_name_;
+
+    // Result storage
+    RedisCommandResult result_;
+};
+
+struct AddVecIndexCommand : public CustomCommand
+{
+    AddVecIndexCommand() = default;
+
+    // Constructor with required parameters
+    AddVecIndexCommand(std::string_view index_name,
+                       uint64_t key,
+                       std::vector<float> &&vector)
+        : index_name_(index_name), key_(key), vector_(std::move(vector))
+    {
+    }
+
+    AddVecIndexCommand(const AddVecIndexCommand &rhs) = delete;
+    AddVecIndexCommand(AddVecIndexCommand &&rhs) = default;
+    AddVecIndexCommand &operator=(const AddVecIndexCommand &rhs) = delete;
+    AddVecIndexCommand &operator=(AddVecIndexCommand &&rhs) = delete;
+    ~AddVecIndexCommand() = default;
+
+    bool Execute(RedisServiceImpl *redis_impl,
+                 RedisConnectionContext *ctx,
+                 const txservice::TableName *table,
+                 txservice::TransactionExecution *txm,
+                 OutputHandler *output,
+                 bool auto_commit) override;
+
+    void OutputResult(OutputHandler *reply,
+                      RedisConnectionContext *ctx) const override;
+
+    // Name of the vector index
+    EloqString index_name_;
+    // Key/ID for the vector
+    uint64_t key_;
+    // Vector data
+    std::vector<float> vector_;
+
+    // Result storage
+    RedisCommandResult result_;
+};
+
+struct UpdateVecIndexCommand : public CustomCommand
+{
+    UpdateVecIndexCommand() = default;
+
+    // Constructor with required parameters
+    UpdateVecIndexCommand(std::string_view index_name,
+                          uint64_t key,
+                          std::vector<float> &&vector)
+        : index_name_(index_name), key_(key), vector_(std::move(vector))
+    {
+    }
+
+    UpdateVecIndexCommand(const UpdateVecIndexCommand &rhs) = delete;
+    UpdateVecIndexCommand(UpdateVecIndexCommand &&rhs) = default;
+    UpdateVecIndexCommand &operator=(const UpdateVecIndexCommand &rhs) = delete;
+    UpdateVecIndexCommand &operator=(UpdateVecIndexCommand &&rhs) = delete;
+    ~UpdateVecIndexCommand() = default;
+
+    bool Execute(RedisServiceImpl *redis_impl,
+                 RedisConnectionContext *ctx,
+                 const txservice::TableName *table,
+                 txservice::TransactionExecution *txm,
+                 OutputHandler *output,
+                 bool auto_commit) override;
+
+    void OutputResult(OutputHandler *reply,
+                      RedisConnectionContext *ctx) const override;
+
+    // Name of the vector index
+    EloqString index_name_;
+    // Key/ID for the vector
+    uint64_t key_;
+    // Vector data
+    std::vector<float> vector_;
+
+    // Result storage
+    RedisCommandResult result_;
+};
+
+struct DeleteVecIndexCommand : public CustomCommand
+{
+    DeleteVecIndexCommand() = default;
+
+    // Constructor with required parameters
+    DeleteVecIndexCommand(std::string_view index_name, uint64_t key)
+        : index_name_(index_name), key_(key)
+    {
+    }
+
+    DeleteVecIndexCommand(const DeleteVecIndexCommand &rhs) = delete;
+    DeleteVecIndexCommand(DeleteVecIndexCommand &&rhs) = default;
+    DeleteVecIndexCommand &operator=(const DeleteVecIndexCommand &rhs) = delete;
+    DeleteVecIndexCommand &operator=(DeleteVecIndexCommand &&rhs) = delete;
+    ~DeleteVecIndexCommand() = default;
+
+    bool Execute(RedisServiceImpl *redis_impl,
+                 RedisConnectionContext *ctx,
+                 const txservice::TableName *table,
+                 txservice::TransactionExecution *txm,
+                 OutputHandler *output,
+                 bool auto_commit) override;
+
+    void OutputResult(OutputHandler *reply,
+                      RedisConnectionContext *ctx) const override;
+
+    // Name of the vector index
+    EloqString index_name_;
+    // Key/ID for the vector to delete
+    uint64_t key_;
+
+    // Result storage
+    RedisCommandResult result_;
+};
+
+struct SearchVecIndexCommand : public CustomCommand
+{
+    SearchVecIndexCommand() = default;
+
+    // Constructor with required parameters
+    SearchVecIndexCommand(std::string_view index_name,
+                          std::vector<float> &&vector,
+                          size_t k_count)
+        : index_name_(index_name), vector_(std::move(vector)), k_count_(k_count)
+    {
+    }
+
+    SearchVecIndexCommand(const SearchVecIndexCommand &rhs) = delete;
+    SearchVecIndexCommand(SearchVecIndexCommand &&rhs) = default;
+    SearchVecIndexCommand &operator=(const SearchVecIndexCommand &rhs) = delete;
+    SearchVecIndexCommand &operator=(SearchVecIndexCommand &&rhs) = delete;
+    ~SearchVecIndexCommand() = default;
+
+    bool Execute(RedisServiceImpl *redis_impl,
+                 RedisConnectionContext *ctx,
+                 const txservice::TableName *table,
+                 txservice::TransactionExecution *txm,
+                 OutputHandler *output,
+                 bool auto_commit) override;
+
+    void OutputResult(OutputHandler *reply,
+                      RedisConnectionContext *ctx) const override;
+
+    // Name of the vector index
+    EloqString index_name_;
+    // Query vector
+    std::vector<float> vector_;
+    // Number of results to return
+    size_t k_count_;
+
+    // Search result storage
+    EloqVec::SearchResult search_res_;
 
     // Result storage
     RedisCommandResult result_;
@@ -8064,6 +8249,21 @@ std::tuple<bool, CreateVecIndexCommand> ParseCreateVecIndexCommand(
     const std::vector<std::string_view> &args, OutputHandler *output);
 
 std::tuple<bool, InfoVecIndexCommand> ParseInfoVecIndexCommand(
+    const std::vector<std::string_view> &args, OutputHandler *output);
+
+std::tuple<bool, DropVecIndexCommand> ParseDropVecIndexCommand(
+    const std::vector<std::string_view> &args, OutputHandler *output);
+
+std::tuple<bool, AddVecIndexCommand> ParseAddVecIndexCommand(
+    const std::vector<std::string_view> &args, OutputHandler *output);
+
+std::tuple<bool, UpdateVecIndexCommand> ParseUpdateVecIndexCommand(
+    const std::vector<std::string_view> &args, OutputHandler *output);
+
+std::tuple<bool, DeleteVecIndexCommand> ParseDeleteVecIndexCommand(
+    const std::vector<std::string_view> &args, OutputHandler *output);
+
+std::tuple<bool, SearchVecIndexCommand> ParseSearchVecIndexCommand(
     const std::vector<std::string_view> &args, OutputHandler *output);
 
 }  // namespace EloqKV

@@ -3104,6 +3104,26 @@ void RedisServiceImpl::AddHandlers()
         hd_vec_.emplace_back(std::make_unique<InfoVecIndexHandler>(this));
     AddCommandHandler("eloqvec.info", info_vec_index_hd.get());
 
+    auto &drop_vec_index_hd =
+        hd_vec_.emplace_back(std::make_unique<DropVecIndexHandler>(this));
+    AddCommandHandler("eloqvec.drop", drop_vec_index_hd.get());
+
+    auto &add_vec_index_hd =
+        hd_vec_.emplace_back(std::make_unique<AddVecIndexHandler>(this));
+    AddCommandHandler("eloqvec.add", add_vec_index_hd.get());
+
+    auto &update_vec_index_hd =
+        hd_vec_.emplace_back(std::make_unique<UpdateVecIndexHandler>(this));
+    AddCommandHandler("eloqvec.update", update_vec_index_hd.get());
+
+    auto &delete_vec_index_hd =
+        hd_vec_.emplace_back(std::make_unique<DeleteVecIndexHandler>(this));
+    AddCommandHandler("eloqvec.delete", delete_vec_index_hd.get());
+
+    auto &search_vec_index_hd =
+        hd_vec_.emplace_back(std::make_unique<SearchVecIndexHandler>(this));
+    AddCommandHandler("eloqvec.search", search_vec_index_hd.get());
+
     auto &dump_hd = hd_vec_.emplace_back(std::make_unique<DumpHandler>(this));
     AddCommandHandler("dump", dump_hd.get());
 
@@ -5462,26 +5482,6 @@ void RedisServiceImpl::GenericCommand(RedisConnectionContext *ctx,
         }
         break;
     }
-    case RedisCommandType::ELOQVEC_CREATE:
-    {
-        auto [success, cmd] = ParseCreateVecIndexCommand(cmd_arg_list, output);
-        if (success)
-        {
-            ExecuteCommand(
-                ctx, txm, RedisTableName(ctx->db_id), &cmd, output, false);
-        }
-        break;
-    }
-    case RedisCommandType::ELOQVEC_INFO:
-    {
-        auto [success, cmd] = ParseInfoVecIndexCommand(cmd_arg_list, output);
-        if (success)
-        {
-            ExecuteCommand(
-                ctx, txm, RedisTableName(ctx->db_id), &cmd, output, false);
-        }
-        break;
-    }
     default:
         LOG(WARNING) << "Lua unsupported command type: " << cmd_arg_list[0];
         output->OnError("Unknown Redis command called from script");
@@ -6460,11 +6460,8 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
 }
 
 bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
-                                      TransactionExecution *txm,
-                                      const TableName *table,
                                       CreateVecIndexCommand *cmd,
-                                      OutputHandler *output,
-                                      bool auto_commit)
+                                      OutputHandler *output)
 {
     if (vector_index_worker_pool_ == nullptr)
     {
@@ -6496,29 +6493,16 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
             cv.wait(lk);
         }
     }
-    if (res == EloqVec::VectorOpResult::SUCCEED)
-    {
-        if (auto_commit)
-        {
-            CommitTx(txm);
-        }
-        cmd->result_.err_code_ = RD_OK;
-    }
-    else
-    {
-        if (auto_commit)
-        {
-            AbortTx(txm);
-        }
-        cmd->result_.err_code_ = RD_ERR_VECTOR_INDX_CREATE_FAILED;
-    }
+
+    cmd->result_.err_code_ = res == EloqVec::VectorOpResult::SUCCEED
+                                 ? RD_OK
+                                 : RD_ERR_VECTOR_INDX_CREATE_FAILED;
     cmd->OutputResult(output, ctx);
     return true;
 }
 
 bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
                                       TransactionExecution *txm,
-                                      const TableName *table,
                                       InfoVecIndexCommand *cmd,
                                       OutputHandler *output,
                                       bool auto_commit)
@@ -6563,6 +6547,250 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
             AbortTx(txm);
         }
         cmd->result_.err_code_ = RD_ERR_VECTOR_INDX_INFO_FAILED;
+    }
+    cmd->OutputResult(output, ctx);
+    return true;
+}
+
+bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
+                                      DropVecIndexCommand *cmd,
+                                      OutputHandler *output)
+{
+    if (vector_index_worker_pool_ == nullptr)
+    {
+        output->OnError("ERR Vector Index not enabled");
+        return false;
+    }
+    EloqVec::VectorOpResult res = EloqVec::VectorOpResult::SUCCEED;
+    bthread::Mutex mux;
+    bthread::ConditionVariable cv;
+    bool finished = false;
+    {
+        std::unique_lock<bthread::Mutex> lk(mux);
+        vector_index_worker_pool_->SubmitWork(
+            [cmd, &res, &mux, &cv, &finished]()
+            {
+                res = EloqVec::VectorHandler::Instance().Drop(
+                    cmd->index_name_.String());
+                std::unique_lock<bthread::Mutex> lk(mux);
+                finished = true;
+                cv.notify_one();
+            });
+        while (!finished)
+        {
+            cv.wait(lk);
+        }
+    }
+    cmd->result_.err_code_ = res == EloqVec::VectorOpResult::SUCCEED
+                                 ? RD_OK
+                                 : RD_ERR_VECTOR_INDX_DROP_FAILED;
+    cmd->OutputResult(output, ctx);
+    return true;
+}
+
+bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
+                                      TransactionExecution *txm,
+                                      AddVecIndexCommand *cmd,
+                                      OutputHandler *output,
+                                      bool auto_commit)
+{
+    if (vector_index_worker_pool_ == nullptr)
+    {
+        output->OnError("ERR Vector Index not enabled");
+        return false;
+    }
+    EloqVec::VectorOpResult res = EloqVec::VectorOpResult::SUCCEED;
+    bthread::Mutex mux;
+    bthread::ConditionVariable cv;
+    bool finished = false;
+    {
+        std::unique_lock<bthread::Mutex> lk(mux);
+        vector_index_worker_pool_->SubmitWork(
+            [cmd, txm, &res, &mux, &cv, &finished]()
+            {
+                res = EloqVec::VectorHandler::Instance().Add(
+                    cmd->index_name_.String(), cmd->key_, cmd->vector_, txm);
+                std::unique_lock<bthread::Mutex> lk(mux);
+                finished = true;
+                cv.notify_one();
+            });
+        while (!finished)
+        {
+            cv.wait(lk);
+        }
+    }
+    if (res == EloqVec::VectorOpResult::SUCCEED)
+    {
+        if (auto_commit)
+        {
+            CommitTx(txm);
+        }
+        cmd->result_.err_code_ = RD_OK;
+    }
+    else
+    {
+        if (auto_commit)
+        {
+            AbortTx(txm);
+        }
+        cmd->result_.err_code_ = RD_ERR_VECTOR_INDX_ADD_FAILED;
+    }
+    cmd->OutputResult(output, ctx);
+    return true;
+}
+
+bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
+                                      TransactionExecution *txm,
+                                      UpdateVecIndexCommand *cmd,
+                                      OutputHandler *output,
+                                      bool auto_commit)
+{
+    if (vector_index_worker_pool_ == nullptr)
+    {
+        output->OnError("ERR Vector Index not enabled");
+        return false;
+    }
+    EloqVec::VectorOpResult res = EloqVec::VectorOpResult::SUCCEED;
+    bthread::Mutex mux;
+    bthread::ConditionVariable cv;
+    bool finished = false;
+    {
+        std::unique_lock<bthread::Mutex> lk(mux);
+        vector_index_worker_pool_->SubmitWork(
+            [cmd, txm, &res, &mux, &cv, &finished]()
+            {
+                res = EloqVec::VectorHandler::Instance().Update(
+                    cmd->index_name_.String(), cmd->key_, cmd->vector_, txm);
+                std::unique_lock<bthread::Mutex> lk(mux);
+                finished = true;
+                cv.notify_one();
+            });
+        while (!finished)
+        {
+            cv.wait(lk);
+        }
+    }
+    if (res == EloqVec::VectorOpResult::SUCCEED)
+    {
+        if (auto_commit)
+        {
+            CommitTx(txm);
+        }
+        cmd->result_.err_code_ = RD_OK;
+    }
+    else
+    {
+        if (auto_commit)
+        {
+            AbortTx(txm);
+        }
+        cmd->result_.err_code_ = RD_ERR_VECTOR_INDX_UPDATE_FAILED;
+    }
+    cmd->OutputResult(output, ctx);
+    return true;
+}
+
+bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
+                                      TransactionExecution *txm,
+                                      DeleteVecIndexCommand *cmd,
+                                      OutputHandler *output,
+                                      bool auto_commit)
+{
+    if (vector_index_worker_pool_ == nullptr)
+    {
+        output->OnError("ERR Vector Index not enabled");
+        return false;
+    }
+    EloqVec::VectorOpResult res = EloqVec::VectorOpResult::SUCCEED;
+    bthread::Mutex mux;
+    bthread::ConditionVariable cv;
+    bool finished = false;
+    {
+        std::unique_lock<bthread::Mutex> lk(mux);
+        vector_index_worker_pool_->SubmitWork(
+            [cmd, txm, &res, &mux, &cv, &finished]()
+            {
+                res = EloqVec::VectorHandler::Instance().Delete(
+                    cmd->index_name_.String(), cmd->key_, txm);
+                std::unique_lock<bthread::Mutex> lk(mux);
+                finished = true;
+                cv.notify_one();
+            });
+        while (!finished)
+        {
+            cv.wait(lk);
+        }
+    }
+    if (res == EloqVec::VectorOpResult::SUCCEED)
+    {
+        if (auto_commit)
+        {
+            CommitTx(txm);
+        }
+        cmd->result_.err_code_ = RD_OK;
+    }
+    else
+    {
+        if (auto_commit)
+        {
+            AbortTx(txm);
+        }
+        cmd->result_.err_code_ = RD_ERR_VECTOR_INDX_DELETE_FAILED;
+    }
+    cmd->OutputResult(output, ctx);
+    return true;
+}
+
+bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
+                                      TransactionExecution *txm,
+                                      SearchVecIndexCommand *cmd,
+                                      OutputHandler *output,
+                                      bool auto_commit)
+{
+    if (vector_index_worker_pool_ == nullptr)
+    {
+        output->OnError("ERR Vector Index not enabled");
+        return false;
+    }
+    EloqVec::VectorOpResult res = EloqVec::VectorOpResult::SUCCEED;
+    bthread::Mutex mux;
+    bthread::ConditionVariable cv;
+    bool finished = false;
+    {
+        std::unique_lock<bthread::Mutex> lk(mux);
+        vector_index_worker_pool_->SubmitWork(
+            [cmd, txm, &res, &mux, &cv, &finished]()
+            {
+                res = EloqVec::VectorHandler::Instance().Search(
+                    cmd->index_name_.String(),
+                    cmd->vector_,
+                    cmd->k_count_,
+                    txm,
+                    cmd->search_res_);
+                std::unique_lock<bthread::Mutex> lk(mux);
+                finished = true;
+                cv.notify_one();
+            });
+        while (!finished)
+        {
+            cv.wait(lk);
+        }
+    }
+    if (res == EloqVec::VectorOpResult::SUCCEED)
+    {
+        if (auto_commit)
+        {
+            CommitTx(txm);
+        }
+        cmd->result_.err_code_ = RD_OK;
+    }
+    else
+    {
+        if (auto_commit)
+        {
+            AbortTx(txm);
+        }
+        cmd->result_.err_code_ = RD_ERR_VECTOR_INDX_SEARCH_FAILED;
     }
     cmd->OutputResult(output, ctx);
     return true;
