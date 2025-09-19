@@ -273,13 +273,13 @@ cd ../ && rm -rf FakeIt
 git clone https://github.com/eloqdata/rocksdb-cloud.git
 cd rocksdb-cloud
 git checkout main
-LIBNAME=librocksdb-cloud-aws USE_RTTI=1 USE_AWS=1 ROCKSDB_DISABLE_TCMALLOC=1 ROCKSDB_DISABLE_JEMALLOC=1 make shared_lib -j8
+LIBNAME=librocksdb-cloud-aws USE_RTTI=1 USE_AWS=1 ROCKSDB_DISABLE_TCMALLOC=1 ROCKSDB_DISABLE_JEMALLOC=1 make shared_lib -j $(nproc)
 LIBNAME=librocksdb-cloud-aws PREFIX=$(pwd)/output make install-shared
 sudo mkdir -p /usr/local/include/rocksdb_cloud_header
 sudo cp -r ./output/include/* /usr/local/include/rocksdb_cloud_header
 sudo cp -r ./output/lib/* /usr/local/lib
 make clean && rm -rf $(pwd)/output
-LIBNAME=librocksdb-cloud-gcp USE_RTTI=1 USE_GCP=1 ROCKSDB_DISABLE_TCMALLOC=1 ROCKSDB_DISABLE_JEMALLOC=1 make shared_lib -j8
+LIBNAME=librocksdb-cloud-gcp USE_RTTI=1 USE_GCP=1 ROCKSDB_DISABLE_TCMALLOC=1 ROCKSDB_DISABLE_JEMALLOC=1 make shared_lib -j $(nproc)
 LIBNAME=librocksdb-cloud-gcp PREFIX=$(pwd)/output make install-shared
 sudo cp -r ./output/lib/* /usr/local/lib
 cd ../ && sudo ldconfig && rm -rf rocksdb-cloud
