@@ -14,6 +14,7 @@
 #include <usearch/index.hpp>
 #include <usearch/index_dense.hpp>
 #include <usearch/index_plugins.hpp>
+#include <glog/logging.h>
 
 namespace EloqVec
 {
@@ -174,17 +175,34 @@ bool HNSWVectorIndex::initialize_usearch_index(const IndexConfig &config)
         {
             index_config.connectivity = std::stoul(m_it->second);
         }
+        else
+        {
+            config_.params.try_emplace(
+                std::string("m"), std::to_string(index_config.connectivity));
+        }
 
         auto ef_it = config.params.find("ef_construction");
         if (ef_it != config.params.end())
         {
             index_config.expansion_add = std::stoul(ef_it->second);
         }
+        else
+        {
+            config_.params.try_emplace(
+                std::string("ef_construction"),
+                std::to_string(index_config.expansion_add));
+        }
 
         auto ef_search_it = config.params.find("ef_search");
         if (ef_search_it != config.params.end())
         {
             index_config.expansion_search = std::stoul(ef_search_it->second);
+        }
+        else
+        {
+            config_.params.try_emplace(
+                std::string("ef_search"),
+                std::to_string(index_config.expansion_search));
         }
 
         // Initialize the usearch index
@@ -604,6 +622,12 @@ bool HNSWVectorIndex::optimize()
 std::string HNSWVectorIndex::get_type() const
 {
     return "HNSW";
+}
+
+uint64_t HNSWVectorIndex::get_buffer_threshold()
+{
+    std::shared_lock<std::shared_mutex> lock(index_mutex_);
+    return config_.buffer_threshold;
 }
 
 bool HNSWVectorIndex::set_search_params(

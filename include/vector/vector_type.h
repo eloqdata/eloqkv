@@ -150,7 +150,7 @@ struct IndexConfig
                 size_t dimension,
                 Algorithm algorithm,
                 DistanceMetric metric,
-                std::string &storage_path,
+                const std::string &storage_path,
                 std::unordered_map<std::string, std::string> &&alg_params)
         : name(name),
           dimension(dimension),
@@ -166,7 +166,9 @@ struct IndexConfig
     size_t max_elements = 1000000;          ///< Maximum number of elements
     Algorithm algorithm = Algorithm::HNSW;  ///< Algorithm type
     DistanceMetric distance_metric =
-        DistanceMetric::L2SQ;       ///< Distance metric type
+        DistanceMetric::L2SQ;  ///< Distance metric type
+    uint64_t buffer_threshold =
+        10000;  ///< Buffer threshold, currently not configurable by user.
     std::string storage_path = "";  ///< Path for persistent storage
 
     std::unordered_map<std::string, std::string>

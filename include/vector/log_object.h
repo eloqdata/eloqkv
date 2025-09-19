@@ -169,13 +169,17 @@ public:
      * is used for log cleanup and maintenance.
      *
      * @param log_name Name of the log object
-     * @param to_id Sequence ID up to which to truncate (inclusive)
+     * @param to_id Sequence ID up to which to truncate (inclusive). If greater
+     * than the current tail sequence id it will be clamped to the tail. If less
+     * than the current head sequence id the call fails with INVALID_PARAMETER.
+     * If set to UINT64_MAX, the log will be truncated up to the current tail and
+     * updated to_id will be set to the current tail sequence id.
      * @param log_count Number of log items in the log object after truncation
      * @param txm Transaction execution context (required, non-null)
      * @return LogError::SUCCESS if truncation successful, error code otherwise
      */
     static LogError truncate_log(const std::string &log_name,
-                                 uint64_t to_id,
+                                 uint64_t &to_id,
                                  uint64_t &log_count,
                                  txservice::TransactionExecution *txm);
 

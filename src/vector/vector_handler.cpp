@@ -21,6 +21,7 @@
 #include "log_object.h"
 #include "tx_request.h"
 #include "tx_util.h"
+#include "tx_worker_pool.h"
 
 namespace EloqVec
 {
@@ -37,7 +38,6 @@ using txservice::OperationType;
 using txservice::ReadTxRequest;
 using txservice::RecordStatus;
 using txservice::TransactionExecution;
-using txservice::TxErrorCode;
 using txservice::TxKey;
 using txservice::TxRecord;
 using txservice::TxService;
@@ -72,7 +72,8 @@ VectorMetadata::VectorMetadata(const IndexConfig &vec_spec)
       algorithm_(vec_spec.algorithm),
       metric_(vec_spec.distance_metric),
       alg_params_(vec_spec.params),
-      file_path_(vec_spec.storage_path)
+      file_path_(vec_spec.storage_path),
+      buffer_threshold_(vec_spec.buffer_threshold)
 {
     uint64_t ts = LocalCcShards::ClockTs();
     file_path_.append("/")
@@ -90,7 +91,7 @@ void VectorMetadata::Encode(std::string &encoded_str) const
      * The format of the encoded metadata:
      * nameLen | name | dimension | algorithm | metric | paramCount | key1Len |
      * key1 | value1Len | value1 | ... | filePathLen | filePath |
-     * bufferThreshold | size | createdTs
+     * bufferThreshold | size | createdTs | lastPersistTs
      * 1. nameLen is a 2-byte integer representing the length of the name. 2.
      * name is a string. 3. dimension is a 8-byte integer representing the
      * dimension. 4. algorithm is a 1-byte integer representing the
@@ -102,7 +103,8 @@ void VectorMetadata::Encode(std::string &encoded_str) const
      * bufferThreshold is a 8-byte integer representing the buffer
      * threshold. 11. size is a 8-byte integer representing the size of the
      * index. 12. createdTs is a 8-byte integer representing the creation
-     * timestamp.
+     * timestamp. 13. lastPersistTs is a 8-byte integer representing the last
+     * persist timestamp.
      */
     uint16_t name_len = static_cast<uint16_t>(name_.size());
     size_t len_sizeof = sizeof(uint16_t);
@@ -162,6 +164,14 @@ void VectorMetadata::Encode(std::string &encoded_str) const
 
     len_sizeof = sizeof(uint64_t);
     val_ptr = reinterpret_cast<const char *>(&created_ts_);
+    encoded_str.append(val_ptr, len_sizeof);
+
+    // Serialize persistence tracking fields
+    len_sizeof = sizeof(uint64_t);
+    val_ptr = reinterpret_cast<const char *>(&last_persisted_sequence_id_);
+    // persist ts
+    len_sizeof = sizeof(uint64_t);
+    val_ptr = reinterpret_cast<const char *>(&last_persist_ts_);
     encoded_str.append(val_ptr, len_sizeof);
 }
 
@@ -230,21 +240,37 @@ void VectorMetadata::Decode(const char *buf,
     created_ts_ = created_ts_ == 0 ? version : created_ts_;
     offset += sizeof(uint64_t);
 
-    last_persist_ts_ = version;
-    assert(offset == buff_size);
+    // Deserialize persistence tracking fields (if available)
+    if (offset + sizeof(uint64_t) <= buff_size)
+    {
+        last_persisted_sequence_id_ =
+            *reinterpret_cast<const uint64_t *>(buf + offset);
+        offset += sizeof(uint64_t);
+    }
+    else
+    {
+        last_persisted_sequence_id_ = 0;  // Default for backward compatibility
+    }
+
+    last_persist_ts_ = *reinterpret_cast<const uint64_t *>(buf + offset);
+    offset += sizeof(uint64_t);
 }
 
 static std::unique_ptr<VectorHandler> vector_handler_instance = nullptr;
 static std::once_flag vector_handler_once;
 
-void VectorHandler::InitHandlerInstance(TxService *tx_service)
+void VectorHandler::InitHandlerInstance(
+    TxService *tx_service,
+    txservice::TxWorkerPool *vector_index_worker_pool,
+    std::string &vector_index_data_path)
 {
-    std::call_once(vector_handler_once,
-                   [tx_service]()
-                   {
-                       vector_handler_instance = std::unique_ptr<VectorHandler>(
-                           new VectorHandler(tx_service));
-                   });
+    std::call_once(
+        vector_handler_once,
+        [tx_service, vector_index_worker_pool, &vector_index_data_path]()
+        {
+            vector_handler_instance = std::unique_ptr<VectorHandler>(
+                new VectorHandler(tx_service, vector_index_worker_pool, vector_index_data_path));
+        });
 }
 
 VectorHandler &VectorHandler::Instance()
@@ -554,7 +580,6 @@ VectorOpResult VectorHandler::Add(const std::string &name,
     {
         return VectorOpResult::INDEX_META_OP_FAILED;
     }
-
     // 2. Check if the index exists
     if (read_req.Result().first != RecordStatus::Normal)
     {
@@ -562,7 +587,6 @@ VectorOpResult VectorHandler::Add(const std::string &name,
         // The index does not exist
         return VectorOpResult::INDEX_NOT_EXIST;
     }
-
     uint64_t index_version = read_req.Result().second;
     // 3. Get or create the vector index from cache
     auto [index_sptr, get_result] =
@@ -571,7 +595,6 @@ VectorOpResult VectorHandler::Add(const std::string &name,
     {
         return get_result;
     }
-
     // Add item to log object.
     std::string serialized_vector;
     serialize_vector(vector, serialized_vector);
@@ -587,9 +610,21 @@ VectorOpResult VectorHandler::Add(const std::string &name,
     {
         return VectorOpResult::INDEX_LOG_OP_FAILED;
     }
-
     // 4. Add the vector to the index
     auto add_result = index_sptr->add(vector, id);
+    if (add_result.error == VectorOpResult::SUCCEED)
+    {
+        // Persist the index if it has enough items
+        std::lock_guard<std::shared_mutex> lock(vec_indexes_mutex_);
+        if (pending_persist_indexes_.find(name) ==
+                pending_persist_indexes_.end() &&
+            log_count >= index_sptr->get_buffer_threshold())
+        {
+            pending_persist_indexes_.insert(name);
+            vector_index_worker_pool_->SubmitWork(
+                [name] { VectorHandler::Instance().PersistIndex(name); });
+        }
+    }
     return add_result.error;
 }
 
@@ -646,6 +681,20 @@ VectorOpResult VectorHandler::Update(const std::string &name,
 
     // 4. Update the vector in the index
     auto update_result = index_sptr->update(vector, id);
+
+    if (update_result.error == VectorOpResult::SUCCEED)
+    {
+        // Persist the index if it has enough items
+        std::lock_guard<std::shared_mutex> lock(vec_indexes_mutex_);
+        if (pending_persist_indexes_.find(name) ==
+                pending_persist_indexes_.end() &&
+            log_count >= index_sptr->get_buffer_threshold())
+        {
+            pending_persist_indexes_.insert(name);
+            vector_index_worker_pool_->SubmitWork(
+                [name] { VectorHandler::Instance().PersistIndex(name); });
+        }
+    }
     return update_result.error;
 }
 
@@ -704,6 +753,20 @@ VectorOpResult VectorHandler::Delete(const std::string &name,
 
     // 4. Delete the vector from the index
     auto remove_result = index_sptr->remove(id);
+
+    if (remove_result.error == VectorOpResult::SUCCEED)
+    {
+        // Persist the index if it has enough items
+        std::lock_guard<std::shared_mutex> lock(vec_indexes_mutex_);
+        if (pending_persist_indexes_.find(name) ==
+                pending_persist_indexes_.end() &&
+            log_count >= index_sptr->get_buffer_threshold())
+        {
+            pending_persist_indexes_.insert(name);
+            vector_index_worker_pool_->SubmitWork(
+                [name] { VectorHandler::Instance().PersistIndex(name); });
+        }
+    }
     return remove_result.error;
 }
 
@@ -805,4 +868,155 @@ VectorHandler::CreateAndInitializeIndex(const TxRecord::Uptr &h_record,
     return {index_sptr, VectorOpResult::SUCCEED};
 }
 
+VectorOpResult VectorHandler::PersistIndex(const std::string &name, bool force)
+{
+    // 1. Create a new transaction for this persistence operation
+    TransactionExecution *txm = NewTxInit(
+        tx_service_, IsolationLevel::RepeatableRead, CcProtocol::Locking);
+
+    // 2. Check if the index exists and get its metadata
+    std::string h_key = build_metadata_key(name);
+    TxKey tx_key = EloqStringKey::Create(h_key.c_str(), h_key.size());
+    TxRecord::Uptr h_record = EloqStringRecord::Create();
+    ReadTxRequest read_req(
+        &vector_index_meta_table, 0, &tx_key, h_record.get(), true);
+    txm->Execute(&read_req);
+    read_req.Wait();
+    if (read_req.IsError())
+    {
+        AbortTx(txm);
+        std::lock_guard<std::shared_mutex> lock(vec_indexes_mutex_);
+        pending_persist_indexes_.erase(name);
+        return VectorOpResult::INDEX_META_OP_FAILED;
+    }
+
+    if (read_req.Result().first != RecordStatus::Normal)
+    {
+        AbortTx(txm);
+        std::lock_guard<std::shared_mutex> lock(vec_indexes_mutex_);
+        pending_persist_indexes_.erase(name);
+        return VectorOpResult::INDEX_NOT_EXIST;
+    }
+
+    uint64_t index_version = read_req.Result().second;
+    // 2. Decode metadata
+    VectorMetadata metadata;
+    const char *blob_data = h_record->EncodedBlobData();
+    size_t blob_size = h_record->EncodedBlobSize();
+    size_t offset = 0;
+    metadata.Decode(blob_data, blob_size, offset, index_version);
+    // 3. Get the current index instance from cache
+    std::shared_ptr<VectorIndex> index_sptr = nullptr;
+    {
+        std::shared_lock<std::shared_mutex> read_lock(vec_indexes_mutex_);
+        auto it = vec_indexes_.find(name);
+        if (it != vec_indexes_.end() && it->second.first == index_version)
+        {
+            index_sptr = it->second.second;
+        }
+    }
+    if (!index_sptr)
+    {
+        AbortTx(txm);
+        std::lock_guard<std::shared_mutex> lock(vec_indexes_mutex_);
+        pending_persist_indexes_.erase(name);
+        return VectorOpResult::INDEX_NOT_EXIST;
+    }
+
+    // 4. Truncate the log up to the current tail, this will also acquire
+    // write intent on log object which blocks other writes to the log/vector
+    // index.
+    std::string log_name = "vector_index:" + name;
+    uint64_t log_count_after_truncate;
+    uint64_t truncate_to_id = UINT64_MAX;
+    LogError truncate_result = LogObject::truncate_log(
+        log_name, truncate_to_id, log_count_after_truncate, txm);
+    if (truncate_result != LogError::SUCCESS)
+    {
+        AbortTx(txm);
+        std::lock_guard<std::shared_mutex> lock(vec_indexes_mutex_);
+        pending_persist_indexes_.erase(name);
+        return VectorOpResult::INDEX_META_OP_FAILED;
+    }
+    // 5. Generate new file path with timestamp
+    std::string old_file_path = metadata.FilePath();
+    std::string new_file_path = old_file_path;
+
+    // Replace the timestamp in the filename with current timestamp
+    size_t last_dash = new_file_path.find_last_of('-');
+    size_t last_dot = new_file_path.find_last_of('.');
+    if (last_dash != std::string::npos && last_dot != std::string::npos &&
+        last_dash < last_dot)
+    {
+        uint64_t current_ts = LocalCcShards::ClockTs();
+        new_file_path = new_file_path.substr(0, last_dash + 1) +
+                        std::to_string(current_ts) +
+                        new_file_path.substr(last_dot);
+    }
+    else
+    {
+        // Fallback: append timestamp
+        uint64_t current_ts = LocalCcShards::ClockTs();
+        new_file_path += "-" + std::to_string(current_ts);
+    }
+    // 6. Save the index to the new file
+    if (!index_sptr->save(new_file_path))
+    {
+        AbortTx(txm);
+        std::lock_guard<std::shared_mutex> lock(vec_indexes_mutex_);
+        pending_persist_indexes_.erase(name);
+        return VectorOpResult::INDEX_META_OP_FAILED;
+    }
+    // 8. Update metadata with new file path and persistence info
+    metadata.SetFilePath(new_file_path);
+    metadata.SetLastPersistedSequenceId(truncate_to_id);
+    metadata.SetLastPersistTs(LocalCcShards::ClockTs());
+    // 9. Encode updated metadata
+    std::string encoded_metadata;
+    metadata.Encode(encoded_metadata);
+    h_record->SetEncodedBlob(
+        reinterpret_cast<const unsigned char *>(encoded_metadata.data()),
+        encoded_metadata.size());
+    // 10. Update metadata in storage
+    UpsertTxRequest upsert_req(&vector_index_meta_table,
+                               std::move(tx_key),
+                               std::move(h_record),
+                               OperationType::Update);
+    txm->Execute(&upsert_req);
+    upsert_req.Wait();
+    if (upsert_req.IsError())
+    {
+        AbortTx(txm);
+        std::lock_guard<std::shared_mutex> lock(vec_indexes_mutex_);
+        pending_persist_indexes_.erase(name);
+        return VectorOpResult::INDEX_META_OP_FAILED;
+    }
+    // 11. Commit the transaction
+    auto commit_result = CommitTx(txm);
+    if (!commit_result.first)
+    {
+        std::lock_guard<std::shared_mutex> lock(vec_indexes_mutex_);
+        pending_persist_indexes_.erase(name);
+        return VectorOpResult::INDEX_META_OP_FAILED;
+    }
+    // 12. Remove old file (after successful commit)
+    if (!old_file_path.empty() && old_file_path != new_file_path &&
+        std::filesystem::exists(old_file_path))
+    {
+        try
+        {
+            std::filesystem::remove(old_file_path);
+        }
+        catch (const std::filesystem::filesystem_error &e)
+        {
+            LOG(WARNING) << "Failed to delete old index file: " << old_file_path
+                         << ", error: " << e.what();
+            // Don't fail the operation if old file deletion fails
+        }
+    }
+    std::lock_guard<std::shared_mutex> lock(vec_indexes_mutex_);
+    pending_persist_indexes_.erase(name);
+
+    return VectorOpResult::SUCCEED;
+}
 }  // namespace EloqVec

@@ -402,7 +402,7 @@ LogError LogObject::append_log(const std::string &log_name,
                                            false,
                                            nullptr,
                                            nullptr,
-                                           txm);
+                                           nullptr);
     txm->Execute(&meta_read_req);
     meta_read_req.Wait();
 
@@ -544,7 +544,7 @@ LogError LogObject::remove_log(const std::string &log_name,
                                            false,
                                            nullptr,
                                            nullptr,
-                                           txm);
+                                           nullptr);
     txm->Execute(&meta_read_req);
     meta_read_req.Wait();
 
@@ -620,6 +620,8 @@ LogError LogObject::remove_log(const std::string &log_name,
  * @param to_id Target sequence id to truncate up to (inclusive). If greater
  * than the current tail sequence id it will be clamped to the tail. If less
  * than the current head sequence id the call fails with INVALID_PARAMETER.
+ * If set to UINT64_MAX, the log will be truncated up to the current tail and
+ * updated to_id will be set to the current tail sequence id.
  * @param log_count Out parameter set to the remaining total_items after
  * truncation.
  *
@@ -633,7 +635,7 @@ LogError LogObject::remove_log(const std::string &log_name,
  * failures.
  */
 LogError LogObject::truncate_log(const std::string &log_name,
-                                 uint64_t to_id,
+                                 uint64_t &to_id,
                                  uint64_t &log_count,
                                  txservice::TransactionExecution *txm)
 {
@@ -662,7 +664,7 @@ LogError LogObject::truncate_log(const std::string &log_name,
                                            false,
                                            nullptr,
                                            nullptr,
-                                           txm);
+                                           nullptr);
     txm->Execute(&meta_read_req);
     meta_read_req.Wait();
 
@@ -744,6 +746,10 @@ LogError LogObject::truncate_log(const std::string &log_name,
     }
 
     log_count = meta.total_items;
+    if (to_id == UINT64_MAX)
+    {
+        to_id = meta.tail_item_sequence_id;
+    }
 
     return LogError::SUCCESS;
 }
@@ -801,7 +807,7 @@ LogError LogObject::scan_log(const std::string &log_name,
                                            false,
                                            nullptr,
                                            nullptr,
-                                           txm);
+                                           nullptr);
     txm->Execute(&meta_read_req);
     meta_read_req.Wait();
 
@@ -852,7 +858,7 @@ LogError LogObject::scan_log(const std::string &log_name,
                                                  false,
                                                  nullptr,
                                                  nullptr,
-                                                 txm);
+                                                 nullptr);
     txm->Execute(&batch_read_req);
     batch_read_req.Wait();
 

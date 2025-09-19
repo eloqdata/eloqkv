@@ -68,6 +68,7 @@ public:
     size_t size() override;
     bool optimize() override;
     std::string get_type() const override;
+    uint64_t get_buffer_threshold() override;
     bool set_search_params(
         std::unordered_map<std::string, std::string> params) override;
     bool set_update_params(

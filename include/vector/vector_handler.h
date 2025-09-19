@@ -90,6 +90,31 @@ public:
         return file_path_;
     }
 
+    uint64_t LastPersistedSequenceId() const
+    {
+        return last_persisted_sequence_id_;
+    }
+
+    void SetLastPersistedSequenceId(uint64_t seq_id)
+    {
+        last_persisted_sequence_id_ = seq_id;
+    }
+
+    void SetFilePath(const std::string &path)
+    {
+        file_path_ = path;
+    }
+
+    void SetLastPersistTs(uint64_t ts)
+    {
+        last_persist_ts_ = ts;
+    }
+
+    size_t BufferThreshold() const
+    {
+        return buffer_threshold_;
+    }
+
 private:
     std::string name_{""};
     size_t dimension_{0};
@@ -102,6 +127,8 @@ private:
     size_t size_{0};
     uint64_t created_ts_{0};
     uint64_t last_persist_ts_{0};
+    // Persistence tracking fields
+    uint64_t last_persisted_sequence_id_{0};
 };
 
 /**
@@ -119,7 +146,10 @@ public:
      *
      * @param tx_service Transaction service
      */
-    static void InitHandlerInstance(txservice::TxService *tx_service);
+    static void InitHandlerInstance(
+        txservice::TxService *tx_service,
+        txservice::TxWorkerPool *vector_index_worker_pool,
+        std::string &vector_index_data_path);
     /**
      * @brief Get the singleton instance of VectorHandler
      *
@@ -213,10 +243,38 @@ public:
                           uint64_t id,
                           txservice::TransactionExecution *txm);
 
+    /**
+     * @brief Persist a vector index to disk and truncate its log
+     *
+     * This method performs the complete persistence workflow:
+     * 1. Creates its own transaction for atomicity
+     * 2. Determines the truncation point for the log
+     * 3. Truncates the log object
+     * 4. Saves the index to a new file
+     * 5. Updates metadata with new file path and persisted sequence ID
+     * 6. Commits the transaction
+     * 7. Removes the old file (post-commit)
+     *
+     * @param name Name of the vector index to persist
+     * @param force Whether to persist the index even if it doesn't have enough
+     * items
+     * @return VectorOpResult indicating success or failure
+     */
+    VectorOpResult PersistIndex(const std::string &name, bool force = false);
+
+    const std::string &VectorIndexDataPath() const
+    {
+        return vector_index_data_path_;
+    }
+
 private:
     // Private constructor to prevent instantiation
-    explicit VectorHandler(txservice::TxService *tx_service)
-        : tx_service_(tx_service)
+    explicit VectorHandler(txservice::TxService *tx_service,
+                           txservice::TxWorkerPool *vector_index_worker_pool,
+                           std::string &vector_index_data_path)
+        : tx_service_(tx_service),
+          vector_index_worker_pool_(vector_index_worker_pool),
+          vector_index_data_path_(vector_index_data_path)
     {
     }
 
@@ -255,12 +313,17 @@ private:
 
     // Transaction service
     txservice::TxService *tx_service_{nullptr};
+    // Vector index worker pool
+    txservice::TxWorkerPool *vector_index_worker_pool_{nullptr};
+    // Vector index data path
+    std::string vector_index_data_path_{""};
     // Vector index cache with thread safety
     mutable std::shared_mutex vec_indexes_mutex_;
     // map of index name to index version and index object
     std::unordered_map<std::string,
                        std::pair<uint64_t, std::shared_ptr<VectorIndex>>>
         vec_indexes_;
+    std::unordered_set<std::string> pending_persist_indexes_;
 };
 
 }  // namespace EloqVec

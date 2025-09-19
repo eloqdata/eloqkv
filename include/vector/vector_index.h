@@ -164,6 +164,8 @@ public:
      */
     virtual std::string get_type() const = 0;
 
+    virtual uint64_t get_buffer_threshold() = 0;
+
     /**
      * @brief Set search parameters for the index
      *
