@@ -50,6 +50,22 @@ inline std::string build_metadata_key(const std::string &name)
     return key_pattern;
 }
 
+inline std::string build_log_name(const std::string &name)
+{
+    std::string name_pattern("vector_index:");
+    name_pattern.append(name);
+    return name_pattern;
+}
+
+inline void serialize_vector(const std::vector<float> &vector,
+                             std::string &result)
+{
+    size_t vec_size = vector.size();
+    result.reserve(vec_size * sizeof(float));
+    result.append(reinterpret_cast<const char *>(vector.data()),
+                  vec_size * sizeof(float));
+}
+
 VectorMetadata::VectorMetadata(const IndexConfig &vec_spec)
     : name_(vec_spec.name),
       dimension_(vec_spec.dimension),
@@ -281,37 +297,7 @@ VectorOpResult VectorHandler::Create(const IndexConfig &idx_spec)
     }
 
     // The index does not exist, create it
-    // 1. encode the index metadata
-    VectorMetadata vec_meta(idx_spec);
-    std::string encoded_str;
-    vec_meta.Encode(encoded_str);
-    h_record->SetEncodedBlob(
-        reinterpret_cast<const unsigned char *>(encoded_str.data()),
-        encoded_str.size());
-    // 2. upsert the metadata to the internal table
-    // There is no need to check the schema ts of the internal table.
-    UpsertTxRequest upsert_req(&vector_index_meta_table,
-                               std::move(tx_key),
-                               std::move(h_record),
-                               OperationType::Insert);
-    txm->Execute(&upsert_req);
-    upsert_req.Wait();
-    if (upsert_req.IsError())
-    {
-        AbortTx(txm);
-        return VectorOpResult::INDEX_META_OP_FAILED;
-    }
-
-    // 3. create the log object
-    LogError log_err =
-        LogObject::create_log("vector_index:" + idx_spec.name, txm);
-    if (log_err != LogError::SUCCESS)
-    {
-        AbortTx(txm);
-        return VectorOpResult::INDEX_META_OP_FAILED;
-    }
-
-    // Check if the configuration is valid
+    // 1. Check if the configuration is valid
     bool is_valid = false;
     switch (idx_spec.algorithm)
     {
@@ -331,6 +317,37 @@ VectorOpResult VectorHandler::Create(const IndexConfig &idx_spec)
         return VectorOpResult::INDEX_INIT_FAILED;
     }
 
+    // 2. encode the index metadata
+    VectorMetadata vec_meta(idx_spec);
+    std::string encoded_str;
+    vec_meta.Encode(encoded_str);
+    h_record->SetEncodedBlob(
+        reinterpret_cast<const unsigned char *>(encoded_str.data()),
+        encoded_str.size());
+    // 3. upsert the metadata to the internal table
+    // There is no need to check the schema ts of the internal table.
+    UpsertTxRequest upsert_req(&vector_index_meta_table,
+                               std::move(tx_key),
+                               std::move(h_record),
+                               OperationType::Insert);
+    txm->Execute(&upsert_req);
+    upsert_req.Wait();
+    if (upsert_req.IsError())
+    {
+        AbortTx(txm);
+        return VectorOpResult::INDEX_META_OP_FAILED;
+    }
+
+    // 4. create the log object
+    LogError log_err =
+        LogObject::create_log(build_log_name(idx_spec.name), txm);
+    if (log_err != LogError::SUCCESS)
+    {
+        AbortTx(txm);
+        return VectorOpResult::INDEX_META_OP_FAILED;
+    }
+
+    // 5. commit the transaction
     auto res_pair = CommitTx(txm);
     return res_pair.first ? VectorOpResult::SUCCEED
                           : VectorOpResult::INDEX_META_OP_FAILED;
@@ -404,7 +421,7 @@ VectorOpResult VectorHandler::Drop(const std::string &name)
     }
 
     // 5. delete the log object
-    LogError log_err = LogObject::remove_log("vector_index:" + name, txm);
+    LogError log_err = LogObject::remove_log(build_log_name(name), txm);
     if (log_err != LogError::SUCCESS)
     {
         AbortTx(txm);
@@ -555,7 +572,21 @@ VectorOpResult VectorHandler::Add(const std::string &name,
         return get_result;
     }
 
-    // TODO(ysw): Add item to log object.
+    // Add item to log object.
+    std::string serialized_vector;
+    serialize_vector(vector, serialized_vector);
+    uint64_t log_id = 0;
+    uint64_t log_count = 0;
+    uint64_t ts = LocalCcShards::ClockTs();
+    std::vector<log_item_t> log_items;
+    log_items.emplace_back(
+        LogOperationType::INSERT, std::to_string(id), serialized_vector, ts, 0);
+    LogError log_err = LogObject::append_log(
+        build_log_name(name), log_items, log_id, log_count, txm);
+    if (log_err != LogError::SUCCESS)
+    {
+        return VectorOpResult::INDEX_LOG_OP_FAILED;
+    }
 
     // 4. Add the vector to the index
     auto add_result = index_sptr->add(vector, id);
@@ -597,7 +628,21 @@ VectorOpResult VectorHandler::Update(const std::string &name,
         return get_result;
     }
 
-    // TODO(ysw): Update item to log object.
+    // Add item to log object.
+    std::string serialized_vector;
+    serialize_vector(vector, serialized_vector);
+    uint64_t log_id = 0;
+    uint64_t log_count = 0;
+    uint64_t ts = LocalCcShards::ClockTs();
+    std::vector<log_item_t> log_items;
+    log_items.emplace_back(
+        LogOperationType::UPDATE, std::to_string(id), serialized_vector, ts, 0);
+    LogError log_err = LogObject::append_log(
+        build_log_name(name), log_items, log_id, log_count, txm);
+    if (log_err != LogError::SUCCESS)
+    {
+        return VectorOpResult::INDEX_LOG_OP_FAILED;
+    }
 
     // 4. Update the vector in the index
     auto update_result = index_sptr->update(vector, id);
@@ -639,7 +684,23 @@ VectorOpResult VectorHandler::Delete(const std::string &name,
         return get_result;
     }
 
-    // TODO(ysw): Delete item to log object.
+    // Add item to log object.
+    std::string serialized_empty_vec;
+    uint64_t log_id = 0;
+    uint64_t log_count = 0;
+    uint64_t ts = LocalCcShards::ClockTs();
+    std::vector<log_item_t> log_items;
+    log_items.emplace_back(LogOperationType::DELETE,
+                           std::to_string(id),
+                           serialized_empty_vec,
+                           ts,
+                           0);
+    LogError log_err = LogObject::append_log(
+        build_log_name(name), log_items, log_id, log_count, txm);
+    if (log_err != LogError::SUCCESS)
+    {
+        return VectorOpResult::INDEX_LOG_OP_FAILED;
+    }
 
     // 4. Delete the vector from the index
     auto remove_result = index_sptr->remove(id);
