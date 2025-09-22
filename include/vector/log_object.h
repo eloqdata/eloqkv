@@ -172,8 +172,8 @@ public:
      * @param to_id Sequence ID up to which to truncate (inclusive). If greater
      * than the current tail sequence id it will be clamped to the tail. If less
      * than the current head sequence id the call fails with INVALID_PARAMETER.
-     * If set to UINT64_MAX, the log will be truncated up to the current tail and
-     * updated to_id will be set to the current tail sequence id.
+     * If set to UINT64_MAX, the log will be truncated up to the current tail
+     * and updated to_id will be set to the current tail sequence id.
      * @param log_count Number of log items in the log object after truncation
      * @param txm Transaction execution context (required, non-null)
      * @return LogError::SUCCESS if truncation successful, error code otherwise
@@ -212,6 +212,85 @@ public:
      */
     static log_metadata_t get_stats(const std::string &log_name,
                                     txservice::TransactionExecution *txm);
+
+    // ===== SHARDED LOG APIs =====
+
+    /**
+     * @brief Create multiple sharded log objects
+     *
+     * Creates multiple log objects with shard-specific names for
+     * high-concurrency scenarios. Each shard operates independently, allowing
+     * parallel writes.
+     *
+     * @param base_log_name Base name for the log objects (e.g.,
+     * "vector_index:my_index")
+     * @param num_shards Number of shards to create (must be > 0)
+     * @param txm Transaction execution context (required, non-null)
+     * @return LogError::SUCCESS if all shards created successfully, error code
+     * otherwise
+     */
+    static LogError create_sharded_logs(const std::string &base_log_name,
+                                        uint32_t num_shards,
+                                        txservice::TransactionExecution *txm);
+
+    /**
+     * @brief Remove multiple sharded log objects
+     *
+     * Removes all sharded log objects including metadata and all associated
+     * log items. This operation is irreversible.
+     *
+     * @param base_log_name Base name for the log objects to remove
+     * @param num_shards Number of shards to remove
+     * @param txm Transaction execution context (required, non-null)
+     * @return LogError::SUCCESS if all shards removed successfully, error code
+     * otherwise
+     */
+    static LogError remove_sharded_logs(const std::string &base_log_name,
+                                        uint32_t num_shards,
+                                        txservice::TransactionExecution *txm);
+
+    /**
+     * @brief Append log items to a specific shard
+     *
+     * Adds new log items to the end of a specific shard determined by the
+     * shard_key. The shard is selected using hash-based distribution.
+     *
+     * @param base_log_name Base name for the log objects
+     * @param shard_key Key used to determine which shard to use (e.g., vector
+     * ID)
+     * @param num_shards Total number of shards
+     * @param items Log items to append
+     * @param log_id Log ID of the last log appended
+     * @param log_count Number of log items in the target shard after appending
+     * @param txm Transaction execution context (required, non-null)
+     * @return LogError::SUCCESS if append successful, error code otherwise
+     */
+    static LogError append_log_sharded(const std::string &base_log_name,
+                                       const std::string &shard_key,
+                                       uint32_t num_shards,
+                                       std::vector<log_item_t> &items,
+                                       uint64_t &log_id,
+                                       uint64_t &log_count,
+                                       txservice::TransactionExecution *txm);
+
+    /**
+     * @brief Truncate all sharded logs
+     *
+     * Removes all log items from all shards.
+     * This operation is used for log cleanup and maintenance across all shards.
+     *
+     * @param base_log_name Base name for the log objects
+     * @param num_shards Total number of shards
+     * @param total_log_count Total number of log items across all shards after
+     * truncation
+     * @param txm Transaction execution context (required, non-null)
+     * @return LogError::SUCCESS if truncation successful, error code otherwise
+     */
+    static LogError truncate_all_sharded_logs(
+        const std::string &base_log_name,
+        uint32_t num_shards,
+        uint64_t &total_log_count,
+        txservice::TransactionExecution *txm);
 
 private:
     /**
@@ -267,6 +346,33 @@ private:
      */
     static std::string get_log_item_key(const std::string &log_name,
                                         uint64_t sequence_id);
+
+    // ===== SHARDED LOG HELPER FUNCTIONS =====
+
+    /**
+     * @brief Get shard ID for a given shard key
+     *
+     * Uses hash-based distribution to determine which shard a key belongs to.
+     *
+     * @param shard_key Key used to determine shard (e.g., vector ID)
+     * @param num_shards Total number of shards
+     * @return Shard ID (0 to num_shards-1)
+     */
+    static uint32_t get_shard_id(const std::string &shard_key,
+                                 uint32_t num_shards);
+
+    /**
+     * @brief Get shard-specific log name
+     *
+     * Generates the log name for a specific shard based on base name and shard
+     * ID.
+     *
+     * @param base_log_name Base name for the log objects
+     * @param shard_id Shard ID (0 to num_shards-1)
+     * @return Shard-specific log name
+     */
+    static std::string get_shard_log_name(const std::string &base_log_name,
+                                          uint32_t shard_id);
 };
 
 }  // namespace EloqVec

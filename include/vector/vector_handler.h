@@ -65,11 +65,6 @@ public:
         return alg_params_;
     }
 
-    size_t Size() const
-    {
-        return size_;
-    }
-
     uint64_t CreatedTs() const
     {
         return created_ts_;
@@ -88,16 +83,6 @@ public:
     const std::string &FilePath() const
     {
         return file_path_;
-    }
-
-    uint64_t LastPersistedSequenceId() const
-    {
-        return last_persisted_sequence_id_;
-    }
-
-    void SetLastPersistedSequenceId(uint64_t seq_id)
-    {
-        last_persisted_sequence_id_ = seq_id;
     }
 
     void SetFilePath(const std::string &path)
@@ -123,12 +108,8 @@ private:
     std::unordered_map<std::string, std::string> alg_params_;
     std::string file_path_{""};
     size_t buffer_threshold_{10000};
-    // Total number of vectors in the index
-    size_t size_{0};
     uint64_t created_ts_{0};
     uint64_t last_persist_ts_{0};
-    // Persistence tracking fields
-    uint64_t last_persisted_sequence_id_{0};
 };
 
 /**
