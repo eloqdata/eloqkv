@@ -19,8 +19,6 @@
  *    <http://www.gnu.org/licenses/>.
  *
  */
-#include "redis_service.h"
-
 #include <absl/types/span.h>
 #include <bthread/mutex.h>
 #include <bthread/task_group.h>
@@ -42,6 +40,7 @@
 #include "eloq_metrics/include/metrics.h"
 #include "error_messages.h"
 #include "kv_store.h"
+#include "redis_service.h"
 #include "sharder.h"
 #include "tx_key.h"
 #if defined(DATA_STORE_TYPE_DYNAMODB) ||                                       \
@@ -1070,7 +1069,7 @@ bool RedisServiceImpl::Init(brpc::Server &brpc_server)
     defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB_CLOUD_GCS)
         EloqDS::RocksDBConfig rocksdb_config(config_reader, eloq_dss_data_path);
         EloqDS::RocksDBCloudConfig rocksdb_cloud_config(config_reader);
-	rocksdb_cloud_config.branch_name_ = FLAGS_eloq_dss_branch_name;
+        rocksdb_cloud_config.branch_name_ = FLAGS_eloq_dss_branch_name;
         auto ds_factory =
             std::make_unique<EloqDS::RocksDBCloudDataStoreFactory>(
                 rocksdb_config,
