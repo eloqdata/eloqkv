@@ -58,7 +58,18 @@
 #include "eloq_data_store_service/eloq_store_data_store_factory.h"
 #endif
 
-#if defined(USE_ROCKSDB_LOG_STATE) && defined(WITH_ROCKSDB_CLOUD)
+// Log state type
+#if ((defined(LOG_STATE_TYPE_RKDB_S3) || defined(LOG_STATE_TYPE_RKDB_GCS)) &&  \
+     !defined(LOG_STATE_TYPE_RKDB))
+#define LOG_STATE_TYPE_RKDB_CLOUD 1
+#endif
+
+#if (defined(LOG_STATE_TYPE_RKDB_S3) || defined(LOG_STATE_TYPE_RKDB_GCS) ||    \
+     defined(LOG_STATE_TYPE_RKDB))
+#define LOG_STATE_TYPE_RKDB_ALL 1
+#endif
+
+#if defined(LOG_STATE_TYPE_RKDB_CLOUD)
 #include "rocksdb_cloud_config.h"
 #endif
 
@@ -77,7 +88,6 @@
 #include "INIReader.h"
 #if (WITH_LOG_SERVICE)
 #include "log_service_metrics.h"
-#include "log_utils.h"
 #endif
 
 #if (defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB_CLOUD_S3) ||                      \
@@ -141,8 +151,8 @@ DEFINE_string(dynamodb_region,
 #if defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB_CLOUD_S3)
 DECLARE_string(aws_access_key_id);
 DECLARE_string(aws_secret_key);
-#elif defined(DATA_STORE_TYPE_DYNAMODB) ||                                     \
-    (defined(USE_ROCKSDB_LOG_STATE) && defined(WITH_ROCKSDB_CLOUD))
+#elif (defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB_CLOUD_S3) ||                    \
+       defined(DATA_STORE_TYPE_DYNAMODB) || defined(LOG_STATE_TYPE_RKDB_S3))
 DEFINE_string(aws_access_key_id, "", "AWS SDK access key id");
 DEFINE_string(aws_secret_key, "", "AWS SDK secret key");
 #endif
@@ -243,7 +253,7 @@ DEFINE_uint32(slow_log_max_length,
               128,
               "Max number of logs kept in slow query log.");
 
-#if defined(USE_ROCKSDB_LOG_STATE) && defined(WITH_ROCKSDB_CLOUD)
+#if defined(LOG_STATE_TYPE_RKDB_CLOUD)
 DEFINE_string(txlog_rocksdb_cloud_region,
               "ap-northeast-1",
               "Cloud service regin");
@@ -768,7 +778,7 @@ bool RedisServiceImpl::Init(brpc::Server &brpc_server)
 
 #if defined(DATA_STORE_TYPE_DYNAMODB) ||                                       \
     defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB_CLOUD_S3) ||                       \
-    (defined(USE_ROCKSDB_LOG_STATE) && defined(WITH_ROCKSDB_CLOUD))
+    defined(LOG_STATE_TYPE_RKDB_S3)
     aws_options_.loggingOptions.logLevel = Aws::Utils::Logging::LogLevel::Info;
     Aws::InitAPI(aws_options_);
 #endif
@@ -1700,7 +1710,7 @@ bool RedisServiceImpl::InitTxLogService(
                   "notify_checkpointer_threshold_size",
                   FLAGS_notify_checkpointer_threshold_size));
 
-#ifdef USE_ROCKSDB_LOG_STATE
+#if defined(LOG_STATE_TYPE_RKDB_ALL)
     std::string txlog_rocksdb_storage_path =
         !CheckCommandLineFlagIsDefault("txlog_rocksdb_storage_path")
             ? FLAGS_txlog_rocksdb_storage_path
@@ -1712,9 +1722,9 @@ bool RedisServiceImpl::InitTxLogService(
         txlog_rocksdb_storage_path = log_path.substr(8) + "/rocksdb";
     }
 
-#ifdef WITH_ROCKSDB_CLOUD
+#if defined(LOG_STATE_TYPE_RKDB_CLOUD)
     txlog::RocksDBCloudConfig txlog_rocksdb_cloud_config;
-#if WITH_ROCKSDB_CLOUD == CS_TYPE_S3
+#if defined(LOG_STATE_TYPE_RKDB_S3)
     txlog_rocksdb_cloud_config.aws_access_key_id_ =
         !CheckCommandLineFlagIsDefault("aws_access_key_id")
             ? FLAGS_aws_access_key_id
@@ -1723,7 +1733,7 @@ bool RedisServiceImpl::InitTxLogService(
         !CheckCommandLineFlagIsDefault("aws_secret_key")
             ? FLAGS_aws_secret_key
             : config_reader.GetString("store", "aws_secret_key", "");
-#endif /* WITH_ROCKSDB_CLOUD == CS_TYPE_S3 */
+#endif /* LOG_STATE_TYPE_RKDB_S3 */
     txlog_rocksdb_cloud_config.endpoint_url_ =
         !CheckCommandLineFlagIsDefault("txlog_rocksdb_cloud_endpoint_url")
             ? FLAGS_txlog_rocksdb_cloud_endpoint_url
@@ -2015,7 +2025,7 @@ void RedisServiceImpl::Stop()
 
 #if defined(DATA_STORE_TYPE_DYNAMODB) ||                                       \
     defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB_CLOUD_S3) ||                       \
-    (defined(USE_ROCKSDB_LOG_STATE) && defined(WITH_ROCKSDB_CLOUD))
+    defined(LOG_STATE_TYPE_RKDB_S3)
     Aws::ShutdownAPI(aws_options_);
 #endif
 
