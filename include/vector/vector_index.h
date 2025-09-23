@@ -72,10 +72,11 @@ public:
      *
      * @param query_vector The query vector to search for
      * @param k Number of nearest neighbors to return
-     * @param result SearchResult containing IDs, distances, and optionally vectors
+     * @param result SearchResult containing IDs, distances, and optionally
+     * vectors
      * @param exact Whether to return exact matches
      * @param filter Optional filter function to apply to results
-     * @return IndexOpResult 
+     * @return IndexOpResult
      */
     virtual IndexOpResult search(
         const std::vector<float> &query_vector,
@@ -91,7 +92,8 @@ public:
      * @param id Unique identifier for the vector
      * @return IndexOpResult
      */
-    virtual IndexOpResult add(const std::vector<float> &vector, uint64_t id) = 0;
+    virtual IndexOpResult add(const std::vector<float> &vector,
+                              uint64_t id) = 0;
 
     /**
      * @brief Add multiple vectors to the index in batch
@@ -100,8 +102,9 @@ public:
      * @param ids Vector of unique identifiers
      * @return IndexOpResult
      */
-    virtual IndexOpResult add_batch(const std::vector<std::vector<float>> &vectors,
-                           const std::vector<uint64_t> &ids) = 0;
+    virtual IndexOpResult add_batch(
+        const std::vector<std::vector<float>> &vectors,
+        const std::vector<uint64_t> &ids) = 0;
 
     /**
      * @brief Delete a vector from the index
@@ -118,7 +121,18 @@ public:
      * @param id Unique identifier of the vector to update
      * @return IndexOpResult
      */
-    virtual IndexOpResult update(const std::vector<float> &vector, uint64_t id) = 0;
+    virtual IndexOpResult update(const std::vector<float> &vector,
+                                 uint64_t id) = 0;
+
+    /**
+     * @brief Get a vector from the index
+     *
+     * @param id Unique identifier of the vector to get
+     * @param vector [OUT] The vector data. If the size of the vector is 0, it
+     * means that no such @id exists in the index.
+     * @return IndexOpResult
+     */
+    virtual IndexOpResult get(uint64_t id, std::vector<float> &vector) = 0;
 
     /**
      * @brief Get the current memory usage of the index

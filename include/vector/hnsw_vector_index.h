@@ -62,6 +62,7 @@ public:
     IndexOpResult remove(uint64_t id) override;
     IndexOpResult update(const std::vector<float> &vector,
                          uint64_t id) override;
+    IndexOpResult get(uint64_t id, std::vector<float> &vector) override;
     size_t memory_usage() override;
     bool is_ready() override;
     size_t get_dimension() override;

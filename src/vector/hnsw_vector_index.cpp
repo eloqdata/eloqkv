@@ -10,11 +10,12 @@
 
 #include "vector/hnsw_vector_index.h"
 
+#include <glog/logging.h>
+
 #include <shared_mutex>
 #include <usearch/index.hpp>
 #include <usearch/index_dense.hpp>
 #include <usearch/index_plugins.hpp>
-#include <glog/logging.h>
 
 namespace EloqVec
 {
@@ -560,6 +561,53 @@ IndexOpResult HNSWVectorIndex::update(const std::vector<float> &vector,
         {
             return IndexOpResult(VectorOpResult::INDEX_INTERNAL_ERROR,
                                  add_result.error.what());
+        }
+
+        return IndexOpResult(VectorOpResult::SUCCEED, "");
+    }
+    catch (const std::exception &e)
+    {
+        return IndexOpResult(VectorOpResult::INDEX_INTERNAL_ERROR, e.what());
+    }
+}
+
+/**
+ * @brief Get a vector from the index by its identifier.
+ *
+ * Attempts to retrieve the vector associated with the given `id` from the
+ * underlying HNSW index. If the index has not been initialized the operation
+ * fails with INDEX_NOT_EXIST. On success returns SUCCEED; internal failures
+ * (including exceptions) are reported as INDEX_INTERNAL_ERROR with an
+ * explanatory message.
+ *
+ * @param id Identifier of the vector to get.
+ * @param vector [OUT] The vector data. If the size of the vector is 0, it means
+ *   that no such @id exists in the index.
+ * @return IndexOpResult
+ * - VectorOpResult::SUCCEED on success.
+ * - VectorOpResult::INDEX_NOT_EXIST if the index has not been initialized.
+ * - VectorOpResult::INDEX_INTERNAL_ERROR if the underlying usearch get
+ *   operation fails or an exception is thrown; the result message contains
+ *   the underlying error text.
+ */
+IndexOpResult HNSWVectorIndex::get(uint64_t id, std::vector<float> &vector)
+{
+    std::shared_lock<std::shared_mutex> lock(index_mutex_);
+    if (!initialized_)
+    {
+        return IndexOpResult(VectorOpResult::INDEX_NOT_EXIST,
+                             "Index not initialized");
+    }
+
+    try
+    {
+        // Get the vector data from usearch index
+        vector.resize(config_.dimension);
+        size_t vectors_count = usearch_index_.get(id, vector.data());
+        if (vectors_count == 0)
+        {
+            // No vector found for this id
+            vector.clear();
         }
 
         return IndexOpResult(VectorOpResult::SUCCEED, "");

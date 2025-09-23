@@ -19945,7 +19945,7 @@ void InfoVecIndexCommand::OutputResult(OutputHandler *reply,
     {
         // For now, return a simple placeholder response
         auto &alg_params = metadata_.VecAlgParams();
-        size_t len = (7 + alg_params.size()) * 2;
+        size_t len = (6 + alg_params.size()) * 2;
         reply->OnArrayStart(len);
         reply->OnString("index_name");
         reply->OnString(index_name_.StringView());
@@ -19962,8 +19962,6 @@ void InfoVecIndexCommand::OutputResult(OutputHandler *reply,
             reply->OnString(param.first);
             reply->OnString(param.second);
         }
-        reply->OnString("size");
-        reply->OnString(std::to_string(metadata_.Size()));
         reply->OnString("created_ts");
         reply->OnString(std::to_string(metadata_.CreatedTs()));
         reply->OnString("last_persist_ts");
