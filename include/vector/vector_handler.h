@@ -274,23 +274,41 @@ private:
      * @param name Index name
      * @param h_record Record containing encoded metadata
      * @param index_version Current index version from storage
+     * @param txm Transaction execution context
      * @return Pair of the vector index and the result of the operation
      */
     std::pair<std::shared_ptr<VectorIndex>, VectorOpResult> GetOrCreateIndex(
         const std::string &name,
         const txservice::TxRecord::Uptr &h_record,
-        uint64_t index_version);
+        uint64_t index_version,
+        txservice::TransactionExecution *txm);
 
     /**
      * @brief Create a vector index with given configuration and initialize it
      *
      * @param h_record Record containing encoded metadata
      * @param index_version Current index version from storage
+     * @param txm Transaction execution context
      * @return Pair of the vector index and the result of the operation
      */
     std::pair<std::shared_ptr<VectorIndex>, VectorOpResult>
     CreateAndInitializeIndex(const txservice::TxRecord::Uptr &h_record,
-                             uint64_t index_version);
+                             uint64_t index_version,
+                             txservice::TransactionExecution *txm);
+
+    /**
+     * @brief Apply log items to the index
+     *
+     * @param idx_name Index name
+     * @param to_id The end sequence id of the log items to apply(inclusive)
+     * @param index_sptr Index object
+     * @param txm Transaction execution context
+     * @return Result of the apply operation
+     */
+    VectorOpResult ApplyLogItems(const std::string &idx_name,
+                                 std::shared_ptr<VectorIndex> index_sptr,
+                                 uint64_t to_id,
+                                 txservice::TransactionExecution *txm);
 
     // Transaction service
     txservice::TxService *tx_service_{nullptr};

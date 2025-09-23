@@ -69,6 +69,20 @@ inline void serialize_vector(const std::vector<float> &vector,
                   vec_size * sizeof(float));
 }
 
+inline void deserialize_vector(const std::string &vec_str,
+                               std::vector<float> &result)
+{
+    size_t vec_size = vec_str.size() / sizeof(float);
+    result.reserve(vec_size);
+    size_t offset = 0;
+    for (size_t i = 0; i < vec_size; ++i)
+    {
+        result.emplace_back(
+            *reinterpret_cast<const float *>(vec_str.data() + offset));
+        offset += sizeof(float);
+    }
+}
+
 VectorMetadata::VectorMetadata(const IndexConfig &vec_spec)
     : name_(vec_spec.name),
       dimension_(vec_spec.dimension),
@@ -535,7 +549,7 @@ VectorOpResult VectorHandler::Search(const std::string &name,
 
     // 3. Get or create the vector index from cache
     auto [index_sptr, get_result] =
-        GetOrCreateIndex(name, h_record, index_version);
+        GetOrCreateIndex(name, h_record, index_version, txm);
     if (get_result != VectorOpResult::SUCCEED)
     {
         return get_result;
@@ -574,7 +588,7 @@ VectorOpResult VectorHandler::Add(const std::string &name,
     uint64_t index_version = read_req.Result().second;
     // 3. Get or create the vector index from cache
     auto [index_sptr, get_result] =
-        GetOrCreateIndex(name, h_record, index_version);
+        GetOrCreateIndex(name, h_record, index_version, txm);
     if (get_result != VectorOpResult::SUCCEED)
     {
         return get_result;
@@ -648,7 +662,7 @@ VectorOpResult VectorHandler::Update(const std::string &name,
     uint64_t index_version = read_req.Result().second;
     // 3. Get or create the vector index from cache
     auto [index_sptr, get_result] =
-        GetOrCreateIndex(name, h_record, index_version);
+        GetOrCreateIndex(name, h_record, index_version, txm);
     if (get_result != VectorOpResult::SUCCEED)
     {
         return get_result;
@@ -725,7 +739,7 @@ VectorOpResult VectorHandler::Delete(const std::string &name,
 
     // 3. Get or create the vector index from cache
     auto [index_sptr, get_result] =
-        GetOrCreateIndex(name, h_record, index_version);
+        GetOrCreateIndex(name, h_record, index_version, txm);
     if (get_result != VectorOpResult::SUCCEED)
     {
         return get_result;
@@ -778,7 +792,8 @@ VectorOpResult VectorHandler::Delete(const std::string &name,
 std::pair<std::shared_ptr<VectorIndex>, VectorOpResult>
 VectorHandler::GetOrCreateIndex(const std::string &name,
                                 const TxRecord::Uptr &h_record,
-                                uint64_t index_version)
+                                uint64_t index_version,
+                                TransactionExecution *txm)
 {
     assert(index_version > 0);
     std::shared_ptr<VectorIndex> cached_index_sptr = nullptr;
@@ -813,7 +828,7 @@ VectorHandler::GetOrCreateIndex(const std::string &name,
 
         // Create and initialize the index
         auto [index_sptr, init_result] =
-            CreateAndInitializeIndex(h_record, index_version);
+            CreateAndInitializeIndex(h_record, index_version, txm);
         if (init_result != VectorOpResult::SUCCEED)
         {
             return {nullptr, init_result};
@@ -829,7 +844,8 @@ VectorHandler::GetOrCreateIndex(const std::string &name,
 
 std::pair<std::shared_ptr<VectorIndex>, VectorOpResult>
 VectorHandler::CreateAndInitializeIndex(const TxRecord::Uptr &h_record,
-                                        uint64_t index_version)
+                                        uint64_t index_version,
+                                        TransactionExecution *txm)
 {
     // Decode metadata from h_record
     VectorMetadata metadata;
@@ -868,6 +884,17 @@ VectorHandler::CreateAndInitializeIndex(const TxRecord::Uptr &h_record,
         !index_sptr->load(config.storage_path))
     {
         return {nullptr, VectorOpResult::INDEX_LOAD_FAILED};
+    }
+
+    // Apply log items to the index
+    if (LogObject::exists(build_log_name(config.name), txm))
+    {
+        auto apply_result =
+            ApplyLogItems(config.name, index_sptr, UINT64_MAX, txm);
+        if (apply_result != VectorOpResult::SUCCEED)
+        {
+            return {nullptr, apply_result};
+        }
     }
 
     return {index_sptr, VectorOpResult::SUCCEED};
@@ -1019,6 +1046,113 @@ VectorOpResult VectorHandler::PersistIndex(const std::string &name, bool force)
     }
     std::lock_guard<std::shared_mutex> lock(vec_indexes_mutex_);
     pending_persist_indexes_.erase(name);
+
+    return VectorOpResult::SUCCEED;
+}
+
+VectorOpResult VectorHandler::ApplyLogItems(
+    const std::string &idx_name,
+    std::shared_ptr<VectorIndex> index_sptr,
+    uint64_t to_id,
+    TransactionExecution *txm)
+{
+    std::string log_name = build_log_name(idx_name);
+    std::vector<log_item_t> log_items;
+    if (LogObject::scan_sharded_log(
+            log_name, VECTOR_INDEX_LOG_SHARD_COUNT, log_items, txm) !=
+        LogError::SUCCESS)
+    {
+        LOG(ERROR) << "Failed to scan log items for index: " << idx_name;
+        return VectorOpResult::INDEX_LOG_OP_FAILED;
+    }
+    // Apply log items to the index
+    std::vector<float> update_vec;
+    std::vector<std::vector<float>> insert_vecs;
+    std::vector<uint64_t> insert_ids;
+    insert_vecs.reserve(log_items.size());
+    insert_ids.reserve(log_items.size());
+
+    auto apply_batch_add = [&]() -> bool
+    {
+        if (insert_ids.size() > 0)
+        {
+            assert(insert_vecs.size() == insert_ids.size());
+            auto add_result = index_sptr->add_batch(insert_vecs, insert_ids);
+            if (add_result.error != VectorOpResult::SUCCEED)
+            {
+                LOG(ERROR) << "ApplyLogItems: Failed to insert vector with "
+                              "batch size: "
+                           << insert_vecs.size();
+                return false;
+            }
+            insert_vecs.clear();
+            insert_ids.clear();
+        }
+        return true;
+    };
+
+    for (const auto &item : log_items)
+    {
+        switch (item.operation_type)
+        {
+        case LogOperationType::INSERT:
+        {
+            insert_vecs.emplace_back();
+            deserialize_vector(item.value, insert_vecs.back());
+            insert_ids.emplace_back(std::stoull(item.key));
+            break;
+        }
+        case LogOperationType::UPDATE:
+        {
+            // Apply batch add first
+            if (!apply_batch_add())
+            {
+                return VectorOpResult::INDEX_LOG_OP_FAILED;
+            }
+
+            update_vec.clear();
+            deserialize_vector(item.value, update_vec);
+            uint64_t id = std::stoull(item.key);
+            auto update_result = index_sptr->update(update_vec, id);
+            if (update_result.error != VectorOpResult::SUCCEED)
+            {
+                LOG(ERROR) << "ApplyLogItems: Failed to update vector: "
+                           << item.key;
+                return VectorOpResult::INDEX_LOG_OP_FAILED;
+            }
+            break;
+        }
+        case LogOperationType::DELETE:
+        {
+            // Apply batch add first
+            if (!apply_batch_add())
+            {
+                return VectorOpResult::INDEX_LOG_OP_FAILED;
+            }
+
+            auto delete_result = index_sptr->remove(std::stoull(item.key));
+            if (delete_result.error != VectorOpResult::SUCCEED)
+            {
+                LOG(ERROR) << "ApplyLogItems: Failed to delete vector: "
+                           << item.key;
+                return VectorOpResult::INDEX_LOG_OP_FAILED;
+            }
+            break;
+        }
+        default:
+        {
+            LOG(ERROR) << "ApplyLogItems: Invalid operation type: "
+                       << static_cast<uint32_t>(item.operation_type);
+            return VectorOpResult::INDEX_LOG_OP_FAILED;
+        }
+        }
+    }
+
+    // Apply the remaining batch add for insert
+    if (!apply_batch_add())
+    {
+        return VectorOpResult::INDEX_LOG_OP_FAILED;
+    }
 
     return VectorOpResult::SUCCEED;
 }

@@ -859,6 +859,11 @@ LogError LogObject::scan_log(const std::string &log_name,
     size_t meta_data_size = meta_record.EncodedBlobSize();
     log_metadata_t meta = deserialize_metadata(meta_data, meta_data_size);
 
+    if (meta.total_items == 0)
+    {
+        return LogError::SUCCESS;
+    }
+
     if (to_id < meta.head_item_sequence_id)
     {
         return LogError::INVALID_PARAMETER;
