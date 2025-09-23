@@ -16,6 +16,7 @@
 #include <shared_mutex>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "eloq_string_key_record.h"
@@ -161,13 +162,10 @@ public:
      * @brief Get information about a vector index
      *
      * @param name Name of the vector index to query
-     * @param txm Transaction execution context
      * @param metadata (OUT) Metadata of the vector index
      * @return Result of the info operation
      */
-    VectorOpResult Info(const std::string &name,
-                        txservice::TransactionExecution *txm,
-                        VectorMetadata &metadata);
+    VectorOpResult Info(const std::string &name, VectorMetadata &metadata);
 
     /**
      * @brief Search for similar vectors in an index
@@ -175,14 +173,12 @@ public:
      * @param name Name of the vector index to search
      * @param query_vector Query vector
      * @param k_count Number of nearest neighbors to return
-     * @param txm Transaction execution context
      * @param vector_result (OUT) Result of the search vectors
      * @return Result of the search operation
      */
     VectorOpResult Search(const std::string &name,
                           const std::vector<float> &query_vector,
                           size_t k_count,
-                          txservice::TransactionExecution *txm,
                           SearchResult &vector_result);
 
     /**
@@ -191,13 +187,11 @@ public:
      * @param name Name of the vector index
      * @param id Unique identifier for the vector
      * @param vector Vector data
-     * @param txm Transaction execution context
      * @return Result of the add operation
      */
     VectorOpResult Add(const std::string &name,
                        uint64_t id,
-                       const std::vector<float> &vector,
-                       txservice::TransactionExecution *txm);
+                       const std::vector<float> &vector);
 
     /**
      * @brief Update a vector entry in an index
@@ -205,25 +199,20 @@ public:
      * @param name Name of the vector index
      * @param id Unique identifier for the vector
      * @param vector Vector data
-     * @param txm Transaction execution context
      * @return Result of the update operation
      */
     VectorOpResult Update(const std::string &name,
                           uint64_t id,
-                          const std::vector<float> &vector,
-                          txservice::TransactionExecution *txm);
+                          const std::vector<float> &vector);
 
     /**
      * @brief Delete a vector entry from an index
      *
      * @param name Name of the vector index
      * @param id Unique identifier for the vector
-     * @param txm Transaction execution context
      * @return Result of the delete operation
      */
-    VectorOpResult Delete(const std::string &name,
-                          uint64_t id,
-                          txservice::TransactionExecution *txm);
+    VectorOpResult Delete(const std::string &name, uint64_t id);
 
     /**
      * @brief Persist a vector index to disk and truncate its log

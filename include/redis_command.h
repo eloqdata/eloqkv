@@ -6899,7 +6899,7 @@ struct ScanCommand : public CustomCommand
     RedisScanResult result_;
 };
 
-struct CreateVecIndexCommand : public CustomCommand
+struct CreateVecIndexCommand
 {
     CreateVecIndexCommand() = default;
 
@@ -6926,15 +6926,7 @@ struct CreateVecIndexCommand : public CustomCommand
     CreateVecIndexCommand &operator=(CreateVecIndexCommand &&rhs) = delete;
     ~CreateVecIndexCommand() = default;
 
-    bool Execute(RedisServiceImpl *redis_impl,
-                 RedisConnectionContext *ctx,
-                 const txservice::TableName *table,
-                 txservice::TransactionExecution *txm,
-                 OutputHandler *output,
-                 bool auto_commit) override;
-
-    void OutputResult(OutputHandler *reply,
-                      RedisConnectionContext *ctx) const override;
+    void OutputResult(OutputHandler *reply, RedisConnectionContext *ctx) const;
 
     // Name of the vector index
     EloqString index_name_;
@@ -6955,7 +6947,7 @@ struct CreateVecIndexCommand : public CustomCommand
     RedisCommandResult result_;
 };
 
-struct InfoVecIndexCommand : public CustomCommand
+struct InfoVecIndexCommand
 {
     InfoVecIndexCommand() = default;
 
@@ -6971,15 +6963,7 @@ struct InfoVecIndexCommand : public CustomCommand
     InfoVecIndexCommand &operator=(InfoVecIndexCommand &&rhs) = delete;
     ~InfoVecIndexCommand() = default;
 
-    bool Execute(RedisServiceImpl *redis_impl,
-                 RedisConnectionContext *ctx,
-                 const txservice::TableName *table,
-                 txservice::TransactionExecution *txm,
-                 OutputHandler *output,
-                 bool auto_commit) override;
-
-    void OutputResult(OutputHandler *reply,
-                      RedisConnectionContext *ctx) const override;
+    void OutputResult(OutputHandler *reply, RedisConnectionContext *ctx) const;
 
     // Name of the vector index to get info for
     EloqString index_name_;
@@ -6991,7 +6975,7 @@ struct InfoVecIndexCommand : public CustomCommand
     RedisCommandResult result_;
 };
 
-struct DropVecIndexCommand : public CustomCommand
+struct DropVecIndexCommand
 {
     DropVecIndexCommand() = default;
 
@@ -7007,15 +6991,7 @@ struct DropVecIndexCommand : public CustomCommand
     DropVecIndexCommand &operator=(DropVecIndexCommand &&rhs) = delete;
     ~DropVecIndexCommand() = default;
 
-    bool Execute(RedisServiceImpl *redis_impl,
-                 RedisConnectionContext *ctx,
-                 const txservice::TableName *table,
-                 txservice::TransactionExecution *txm,
-                 OutputHandler *output,
-                 bool auto_commit) override;
-
-    void OutputResult(OutputHandler *reply,
-                      RedisConnectionContext *ctx) const override;
+    void OutputResult(OutputHandler *reply, RedisConnectionContext *ctx) const;
 
     // Name of the vector index to drop
     EloqString index_name_;
@@ -7024,7 +7000,7 @@ struct DropVecIndexCommand : public CustomCommand
     RedisCommandResult result_;
 };
 
-struct AddVecIndexCommand : public CustomCommand
+struct AddVecIndexCommand
 {
     AddVecIndexCommand() = default;
 
@@ -7042,15 +7018,7 @@ struct AddVecIndexCommand : public CustomCommand
     AddVecIndexCommand &operator=(AddVecIndexCommand &&rhs) = delete;
     ~AddVecIndexCommand() = default;
 
-    bool Execute(RedisServiceImpl *redis_impl,
-                 RedisConnectionContext *ctx,
-                 const txservice::TableName *table,
-                 txservice::TransactionExecution *txm,
-                 OutputHandler *output,
-                 bool auto_commit) override;
-
-    void OutputResult(OutputHandler *reply,
-                      RedisConnectionContext *ctx) const override;
+    void OutputResult(OutputHandler *reply, RedisConnectionContext *ctx) const;
 
     // Name of the vector index
     EloqString index_name_;
@@ -7063,7 +7031,7 @@ struct AddVecIndexCommand : public CustomCommand
     RedisCommandResult result_;
 };
 
-struct UpdateVecIndexCommand : public CustomCommand
+struct UpdateVecIndexCommand
 {
     UpdateVecIndexCommand() = default;
 
@@ -7081,15 +7049,7 @@ struct UpdateVecIndexCommand : public CustomCommand
     UpdateVecIndexCommand &operator=(UpdateVecIndexCommand &&rhs) = delete;
     ~UpdateVecIndexCommand() = default;
 
-    bool Execute(RedisServiceImpl *redis_impl,
-                 RedisConnectionContext *ctx,
-                 const txservice::TableName *table,
-                 txservice::TransactionExecution *txm,
-                 OutputHandler *output,
-                 bool auto_commit) override;
-
-    void OutputResult(OutputHandler *reply,
-                      RedisConnectionContext *ctx) const override;
+    void OutputResult(OutputHandler *reply, RedisConnectionContext *ctx) const;
 
     // Name of the vector index
     EloqString index_name_;
@@ -7102,7 +7062,7 @@ struct UpdateVecIndexCommand : public CustomCommand
     RedisCommandResult result_;
 };
 
-struct DeleteVecIndexCommand : public CustomCommand
+struct DeleteVecIndexCommand
 {
     DeleteVecIndexCommand() = default;
 
@@ -7118,15 +7078,7 @@ struct DeleteVecIndexCommand : public CustomCommand
     DeleteVecIndexCommand &operator=(DeleteVecIndexCommand &&rhs) = delete;
     ~DeleteVecIndexCommand() = default;
 
-    bool Execute(RedisServiceImpl *redis_impl,
-                 RedisConnectionContext *ctx,
-                 const txservice::TableName *table,
-                 txservice::TransactionExecution *txm,
-                 OutputHandler *output,
-                 bool auto_commit) override;
-
-    void OutputResult(OutputHandler *reply,
-                      RedisConnectionContext *ctx) const override;
+    void OutputResult(OutputHandler *reply, RedisConnectionContext *ctx) const;
 
     // Name of the vector index
     EloqString index_name_;
@@ -7137,7 +7089,7 @@ struct DeleteVecIndexCommand : public CustomCommand
     RedisCommandResult result_;
 };
 
-struct SearchVecIndexCommand : public CustomCommand
+struct SearchVecIndexCommand
 {
     SearchVecIndexCommand() = default;
 
@@ -7155,15 +7107,7 @@ struct SearchVecIndexCommand : public CustomCommand
     SearchVecIndexCommand &operator=(SearchVecIndexCommand &&rhs) = delete;
     ~SearchVecIndexCommand() = default;
 
-    bool Execute(RedisServiceImpl *redis_impl,
-                 RedisConnectionContext *ctx,
-                 const txservice::TableName *table,
-                 txservice::TransactionExecution *txm,
-                 OutputHandler *output,
-                 bool auto_commit) override;
-
-    void OutputResult(OutputHandler *reply,
-                      RedisConnectionContext *ctx) const override;
+    void OutputResult(OutputHandler *reply, RedisConnectionContext *ctx) const;
 
     // Name of the vector index
     EloqString index_name_;

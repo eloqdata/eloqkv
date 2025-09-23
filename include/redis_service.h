@@ -396,38 +396,28 @@ public:
                         OutputHandler *output);
 
     bool ExecuteCommand(RedisConnectionContext *ctx,
-                        TransactionExecution *txm,
                         InfoVecIndexCommand *cmd,
-                        OutputHandler *output,
-                        bool auto_commit);
+                        OutputHandler *output);
 
     bool ExecuteCommand(RedisConnectionContext *ctx,
                         DropVecIndexCommand *cmd,
                         OutputHandler *output);
 
     bool ExecuteCommand(RedisConnectionContext *ctx,
-                        TransactionExecution *txm,
                         AddVecIndexCommand *cmd,
-                        OutputHandler *output,
-                        bool auto_commit);
+                        OutputHandler *output);
 
     bool ExecuteCommand(RedisConnectionContext *ctx,
-                        TransactionExecution *txm,
                         UpdateVecIndexCommand *cmd,
-                        OutputHandler *output,
-                        bool auto_commit);
+                        OutputHandler *output);
 
     bool ExecuteCommand(RedisConnectionContext *ctx,
-                        TransactionExecution *txm,
                         DeleteVecIndexCommand *cmd,
-                        OutputHandler *output,
-                        bool auto_commit);
+                        OutputHandler *output);
 
     bool ExecuteCommand(RedisConnectionContext *ctx,
-                        TransactionExecution *txm,
                         SearchVecIndexCommand *cmd,
-                        OutputHandler *output,
-                        bool auto_commit);
+                        OutputHandler *output);
 
 #ifdef WITH_FAULT_INJECT
     bool ExecuteCommand(RedisConnectionContext *ctx,
