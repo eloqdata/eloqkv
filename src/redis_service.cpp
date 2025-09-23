@@ -6226,8 +6226,6 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
         uint64_t scan_alias = scan_open.Result();
         assert(scan_alias != UINT64_MAX);
 
-        // save_point->Debug();
-
         size_t current_index = 0;
         if (save_point->prev_pause_idx_ != UINT64_MAX)
         {
@@ -6239,8 +6237,6 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
         BucketScanPlan plan = save_point->PickPlan(current_index);
         std::vector<txservice::ScanBatchTuple> scan_batch;
         std::vector<txservice::UnlockTuple> unlock_batch;
-
-        size_t debug_total_cnt = 0;
 
         while (current_index < plan_size)
         {
@@ -6276,8 +6272,6 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
                 return false;
             }
 
-            debug_total_cnt += scan_batch.size();
-
             size_t scan_batch_idx = 0;
             for (; scan_batch_idx < scan_batch.size(); ++scan_batch_idx)
             {
@@ -6285,19 +6279,9 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
                 const std::string_view sv =
                     tuple.key_.GetKey<EloqKey>()->StringView();
 
-                // TODO(lokax): check the pattern inside BackfillFetchBucketData
-                // function
-                if (tuple.cce_addr_.Empty())
+                if (tuple.status_ == RecordStatus::Deleted)
                 {
-                    if (cmd->pattern_.Length() > 0 &&
-                        stringmatchlen(cmd->pattern_.Data(),
-                                       cmd->pattern_.Length(),
-                                       sv.data(),
-                                       sv.size(),
-                                       0) == 0)
-                    {
-                        continue;
-                    }
+                    continue;
                 }
 
                 vct_rst.emplace_back(sv);
@@ -6314,34 +6298,25 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
             {
                 cmd->scan_cursor_->cache_idx_ = 0;
                 cmd->scan_cursor_->cache_.clear();
+
                 for (size_t idx = scan_batch_idx; idx < scan_batch.size();
                      ++idx)
                 {
                     const ScanBatchTuple &tuple = scan_batch[idx];
-                    unlock_batch.emplace_back(
-                        tuple.cce_addr_, tuple.version_ts_, tuple.status_);
+
+                    if (tuple.status_ == RecordStatus::Deleted)
+                    {
+                        continue;
+                    }
+                    // unlock_batch.emplace_back(
+                    //    tuple.cce_addr_, tuple.version_ts_, tuple.status_);
                     const std::string_view sv =
                         tuple.key_.GetKey<EloqKey>()->StringView();
-                    // TODO(lokax): check the pattern inside
-                    // BackfillFetchBucketData function
-                    if (tuple.cce_addr_.Empty())
-                    {
-                        if (cmd->pattern_.Length() > 0 &&
-                            stringmatchlen(cmd->pattern_.Data(),
-                                           cmd->pattern_.Length(),
-                                           sv.data(),
-                                           sv.size(),
-                                           0) == 0)
-                        {
-                            continue;
-                        }
-                    }
-
                     cmd->scan_cursor_->cache_.emplace_back(sv);
                 }
 
                 save_point->prev_pause_idx_ = current_index;
-                save_point->pause_position_ = std::move(plan.CurrentPosition());
+                save_point->pause_position_ = plan.CurrentPosition();
                 break;
             }
 
