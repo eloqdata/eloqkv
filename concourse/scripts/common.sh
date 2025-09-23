@@ -866,6 +866,7 @@ function run_eloqkv_tests() {
       --aws_secret_key="${rocksdb_cloud_aws_secret_access_key}" \
       --rocksdb_cloud_bucket_name=${rocksdb_cloud_bucket_name} \
       --rocksdb_cloud_object_path=${rocksdb_cloud_object_path} \
+      --rocksdb_cloud_purger_periodicity_secs=30 \
       --maxclients=1000000 \
       --checkpoint_interval=36000 \
       --enable_io_uring=${enable_io_uring} \
@@ -910,6 +911,7 @@ function run_eloqkv_tests() {
       --aws_secret_key="${rocksdb_cloud_aws_secret_access_key}" \
       --rocksdb_cloud_bucket_name=${rocksdb_cloud_bucket_name} \
       --rocksdb_cloud_object_path=${rocksdb_cloud_object_path} \
+      --rocksdb_cloud_purger_periodicity_secs=30 \
       --maxclients=1000000 \
       --checkpoint_interval=36000 \
       --enable_io_uring=${enable_io_uring} \
@@ -975,6 +977,7 @@ function run_eloqkv_tests() {
         --aws_secret_key="${rocksdb_cloud_aws_secret_access_key}" \
         --rocksdb_cloud_bucket_name=${rocksdb_cloud_bucket_name} \
         --rocksdb_cloud_object_path=${rocksdb_cloud_object_path} \
+        --rocksdb_cloud_purger_periodicity_secs=30 \
         --maxclients=1000000 \
         --checkpoint_interval=10 \
         --enable_io_uring=${enable_io_uring} \
@@ -1009,6 +1012,7 @@ function run_eloqkv_tests() {
         --aws_secret_key="${rocksdb_cloud_aws_secret_access_key}" \
         --rocksdb_cloud_bucket_name=${rocksdb_cloud_bucket_name} \
         --rocksdb_cloud_object_path=${rocksdb_cloud_object_path} \
+        --rocksdb_cloud_purger_periodicity_secs=30 \
         --maxclients=1000000 \
         --checkpoint_interval=10 \
         --enable_io_uring=${enable_io_uring} \
