@@ -6141,6 +6141,8 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
 
     if (cmd->count_ < 0 || obj_cnt < cmd->count_)
     {
+        size_t loop_cnt = 0;
+        auto start_time = std::chrono::high_resolution_clock::now();
         // Fetch catalog and acquire read lock on catalog table
         CatalogKey catalog_key(*redis_table_name);
         TxKey cat_tx_key(&catalog_key);
@@ -6240,7 +6242,9 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
 
         while (current_index < plan_size)
         {
+            loop_cnt++;
             scan_batch.clear();
+            // auto start_time = std::chrono::high_resolution_clock::now();
             ScanBatchTxRequest scan_batch_req(
                 scan_alias,
                 *redis_table_name,
@@ -6272,6 +6276,14 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
                 return false;
             }
 
+            /*
+            auto stop_time = std::chrono::high_resolution_clock::now();
+            LOG(INFO) << "== redis scan batch time = "
+                      << std::chrono::duration_cast<std::chrono::microseconds>(
+                             stop_time - start_time)
+                             .count();
+            */
+
             debug_total_cnt += scan_batch.size();
 
             size_t scan_batch_idx = 0;
@@ -6281,19 +6293,9 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
                 const std::string_view sv =
                     tuple.key_.GetKey<EloqKey>()->StringView();
 
-                // TODO(lokax): check the pattern inside BackfillFetchBucketData
-                // function
-                if (tuple.cce_addr_.Empty())
+                if (tuple.status_ == RecordStatus::Deleted)
                 {
-                    if (cmd->pattern_.Length() > 0 &&
-                        stringmatchlen(cmd->pattern_.Data(),
-                                       cmd->pattern_.Length(),
-                                       sv.data(),
-                                       sv.size(),
-                                       0) == 0)
-                    {
-                        continue;
-                    }
+                    continue;
                 }
 
                 vct_rst.emplace_back(sv);
@@ -6310,34 +6312,25 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
             {
                 cmd->scan_cursor_->cache_idx_ = 0;
                 cmd->scan_cursor_->cache_.clear();
+
                 for (size_t idx = scan_batch_idx; idx < scan_batch.size();
                      ++idx)
                 {
                     const ScanBatchTuple &tuple = scan_batch[idx];
-                    unlock_batch.emplace_back(
-                        tuple.cce_addr_, tuple.version_ts_, tuple.status_);
+
+                    if (tuple.status_ == RecordStatus::Deleted)
+                    {
+                        continue;
+                    }
+                    // unlock_batch.emplace_back(
+                    //    tuple.cce_addr_, tuple.version_ts_, tuple.status_);
                     const std::string_view sv =
                         tuple.key_.GetKey<EloqKey>()->StringView();
-                    // TODO(lokax): check the pattern inside
-                    // BackfillFetchBucketData function
-                    if (tuple.cce_addr_.Empty())
-                    {
-                        if (cmd->pattern_.Length() > 0 &&
-                            stringmatchlen(cmd->pattern_.Data(),
-                                           cmd->pattern_.Length(),
-                                           sv.data(),
-                                           sv.size(),
-                                           0) == 0)
-                        {
-                            continue;
-                        }
-                    }
-
                     cmd->scan_cursor_->cache_.emplace_back(sv);
                 }
 
                 save_point->prev_pause_idx_ = current_index;
-                save_point->pause_position_ = std::move(plan.CurrentPosition());
+                save_point->pause_position_ = plan.CurrentPosition();
                 break;
             }
 
@@ -6352,6 +6345,14 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
             }
         }
 
+        auto stop_time = std::chrono::high_resolution_clock::now();
+        int64_t time = std::chrono::duration_cast<std::chrono::microseconds>(
+                           stop_time - start_time)
+                           .count();
+        LOG(INFO) << "== scan time = " << time
+                  << " us, res size = " << vct_rst.size()
+                  << ", loop cnt = " << loop_cnt
+                  << ", plan size = " << plan_size;
         txm->CloseTxScan(scan_alias, *redis_table_name, unlock_batch);
     }
     else
