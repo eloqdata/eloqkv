@@ -4,11 +4,22 @@ SET(TX_LOG_PROTOS_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/tx_service/tx-log-proto
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-error")
 
 option(BRPC_WITH_GLOG "With glog" ON)
-option(USE_ROCKSDB_LOG_STATE "Whether use rocksdb log state or in-memory log state" ON)
-message(NOTICE "USE_ROCKSDB_LOG_STATE : ${USE_ROCKSDB_LOG_STATE}")
-option(WITH_ROCKSDB_CLOUD "RocksDB Cloud storage backend, S3 or GCS")
-set_property(CACHE WITH_ROCKSDB_CLOUD PROPERTY STRINGS "S3" "GCS")
-message(NOTICE "With RocksDB Cloud: ${WITH_ROCKSDB_CLOUD}")
+set(WITH_LOG_STATE "ROCKSDB" CACHE STRING "The log state implementation")
+set_property(CACHE WITH_LOG_STATE PROPERTY STRINGS "MEMORY" "ROCKSDB" "ROCKSDB_CLOUD_S3" "ROCKSDB_CLOUD_GCS")
+message(NOTICE "WITH_LOG_STATE: ${WITH_LOG_STATE}")
+
+# Add compile flags for LOG STATE TYPE
+if(WITH_LOG_STATE STREQUAL "MEMORY")
+  add_compile_definitions(LOG_STATE_TYPE_MEM)
+elseif(WITH_LOG_STATE STREQUAL "ROCKSDB")
+  add_compile_definitions(LOG_STATE_TYPE_RKDB)
+elseif(WITH_LOG_STATE STREQUAL "ROCKSDB_CLOUD_S3")
+  add_compile_definitions(LOG_STATE_TYPE_RKDB_S3)
+elseif(WITH_LOG_STATE STREQUAL "ROCKSDB_CLOUD_GCS")
+  add_compile_definitions(LOG_STATE_TYPE_RKDB_GCS)
+else()
+  message(FATAL_ERROR "Unknown WITH_LOG_STATE: ${WITH_LOG_STATE}")
+endif()
 
 option(WITH_CLOUD_AZ_INFO "With Cloud Availability Zone Info" OFF)
 message(NOTICE "With Cloud Availability Zone Info: ${WITH_CLOUD_AZ_INFO}")
@@ -113,9 +124,11 @@ endif()
 include_directories(${LEVELDB_INCLUDE_PATH})
 
 set(LOG_SHIPPING_THREADS_NUM 8)
-if (USE_ROCKSDB_LOG_STATE)
-  if (WITH_ROCKSDB_CLOUD MATCHES "S3|GCS")
-    if (WITH_ROCKSDB_CLOUD STREQUAL "S3")
+
+# Add RocksDB include and libs for LOG_STATE
+if (WITH_LOG_STATE MATCHES "ROCKSDB|ROCKSDB_CLOUD_S3|ROCKSDB_CLOUD_GCS")
+  if (WITH_LOG_STATE MATCHES "ROCKSDB_CLOUD_S3|ROCKSDB_CLOUD_GCS")
+    if (WITH_LOG_STATE STREQUAL "ROCKSDB_CLOUD_S3")
         find_path(AWS_CORE_INCLUDE_PATH aws/core/Aws.h)
         if((NOT AWS_CORE_INCLUDE_PATH))
           message(FATAL_ERROR "Fail to find aws/core include path")
@@ -176,8 +189,7 @@ if (USE_ROCKSDB_LOG_STATE)
         find_library(ROCKSDB_CLOUD_LIB NAMES rocksdb-cloud-aws)
 
         add_compile_definitions(USE_AWS)
-        add_compile_definitions(WITH_ROCKSDB_CLOUD=1)
-      elseif (WITH_ROCKSDB_CLOUD STREQUAL "GCS")
+      elseif (WITH_LOG_STATE STREQUAL "ROCKSDB_CLOUD_GCS")
         find_path(GCP_CS_INCLUDE_PATH google/cloud/storage/client.h)
         if((NOT GCP_CS_INCLUDE_PATH))
           message(FATAL_ERROR "Fail to find google/cloud/storage include path")
@@ -202,7 +214,6 @@ if (USE_ROCKSDB_LOG_STATE)
         find_library(ROCKSDB_CLOUD_LIB NAMES rocksdb-cloud-gcp)
 
         add_compile_definitions(USE_GCP)
-        add_compile_definitions(WITH_ROCKSDB_CLOUD=2)
       endif ()
 
       find_path(ROCKSDB_CLOUD_INCLUDE_PATH NAMES rocksdb/db.h PATH_SUFFIXES "rocksdb_cloud_header")
@@ -240,11 +251,10 @@ if (USE_ROCKSDB_LOG_STATE)
             ${ROCKSDB_LIB}
             )
 
-    # add preprocessor definition USE_ROCKSDB_LOG_STATE
-    add_compile_definitions(USE_ROCKSDB_LOG_STATE)
     # one shipping thread is enough for rocksdb version log state
     set(LOG_SHIPPING_THREADS_NUM 1)
 endif ()
+
 
 add_compile_definitions(LOG_SHIPPING_THREADS_NUM=${LOG_SHIPPING_THREADS_NUM})
 
@@ -284,4 +294,3 @@ ADD_LIBRARY(logservice STATIC
 
 target_include_directories(logservice PUBLIC ${LOG_INCLUDE_DIR})
 target_link_libraries(logservice PUBLIC ${LOG_LIB} ${PROTOBUF_LIBRARIES})
-
