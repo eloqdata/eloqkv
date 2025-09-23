@@ -178,7 +178,12 @@ public:
      */
     virtual std::string get_type() const = 0;
 
-    virtual uint64_t get_buffer_threshold() = 0;
+    /**
+     * @brief Get the persist threshold of the index
+     *
+     * @return Persist threshold, -1 means MANUAL strategy.
+     */
+    virtual int64_t get_persist_threshold() = 0;
 
     /**
      * @brief Set search parameters for the index

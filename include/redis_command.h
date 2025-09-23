@@ -6909,11 +6909,13 @@ struct CreateVecIndexCommand : public CustomCommand
         uint32_t dimensions,
         EloqVec::Algorithm algorithm,
         EloqVec::DistanceMetric metric_type,
+        int64_t threshold,
         std::unordered_map<std::string, std::string> &&alg_params)
         : index_name_(index_name),
           dimensions_(dimensions),
           algorithm_(algorithm),
           metric_type_(metric_type),
+          persist_threshold_(threshold),
           alg_params_(std::move(alg_params))
     {
     }
@@ -6942,6 +6944,8 @@ struct CreateVecIndexCommand : public CustomCommand
     EloqVec::Algorithm algorithm_;
     // Distance metric (cosine, l2sq, ip)
     EloqVec::DistanceMetric metric_type_;
+    // Persist threshold
+    int64_t persist_threshold_;
 
     // Algorithm specific parameters (such as for HNSW: max_connectivity,
     // ef_construction, ef_search, etc.)

@@ -51,6 +51,18 @@ enum class DistanceMetric
 };
 
 /**
+ * @brief Persist strategy types
+ */
+enum class PersistStrategy
+{
+    // Persist every N log items
+    EVERY_N,
+    // Persist manually
+    MANUAL,
+    UNKNOWN
+};
+
+/**
  * @brief Convert distance metric enum to string representation
  *
  * @param metric The distance metric enum value
@@ -141,6 +153,30 @@ inline Algorithm string_to_algorithm(const std::string_view &sv)
 }
 
 /**
+ * @brief Convert string to persist strategy enum
+ *
+ * @param sv String view representation of the persist strategy
+ * @return Persist strategy enum value
+ */
+inline PersistStrategy string_to_persist_strategy(const std::string_view &sv)
+{
+    std::string persist_strategy_str(sv);
+    std::transform(persist_strategy_str.begin(),
+                   persist_strategy_str.end(),
+                   persist_strategy_str.begin(),
+                   ::toupper);
+    if (persist_strategy_str == "EVERY_N")
+    {
+        return PersistStrategy::EVERY_N;
+    }
+    if (persist_strategy_str == "MANUAL")
+    {
+        return PersistStrategy::MANUAL;
+    }
+    return PersistStrategy::UNKNOWN;
+}
+
+/**
  * @brief Configuration parameters for vector index operations
  */
 struct IndexConfig
@@ -150,12 +186,14 @@ struct IndexConfig
                 size_t dimension,
                 Algorithm algorithm,
                 DistanceMetric metric,
+                int64_t threshold,
                 const std::string &storage_path,
                 std::unordered_map<std::string, std::string> &&alg_params)
         : name(name),
           dimension(dimension),
           algorithm(algorithm),
           distance_metric(metric),
+          persist_threshold(threshold),
           storage_path(storage_path),
           params(std::move(alg_params))
     {
@@ -167,8 +205,8 @@ struct IndexConfig
     Algorithm algorithm = Algorithm::HNSW;  ///< Algorithm type
     DistanceMetric distance_metric =
         DistanceMetric::L2SQ;  ///< Distance metric type
-    uint64_t buffer_threshold =
-        10000;  ///< Buffer threshold, currently not configurable by user.
+    int64_t persist_threshold =
+        10000;  ///< Persist threshold, -1 means MANUAL strategy.
     std::string storage_path = "";  ///< Path for persistent storage
 
     std::unordered_map<std::string, std::string>

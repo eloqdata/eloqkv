@@ -95,9 +95,9 @@ public:
         last_persist_ts_ = ts;
     }
 
-    size_t BufferThreshold() const
+    int64_t PersistThreshold() const
     {
-        return buffer_threshold_;
+        return persist_threshold_;
     }
 
 private:
@@ -107,7 +107,8 @@ private:
     DistanceMetric metric_{DistanceMetric::L2SQ};
     std::unordered_map<std::string, std::string> alg_params_;
     std::string file_path_{""};
-    size_t buffer_threshold_{10000};
+    // Persist threshold. -1 means MANUAL strategy.
+    int64_t persist_threshold_{10000};
     uint64_t created_ts_{0};
     uint64_t last_persist_ts_{0};
 };

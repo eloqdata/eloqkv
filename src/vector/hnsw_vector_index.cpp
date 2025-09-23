@@ -672,10 +672,10 @@ std::string HNSWVectorIndex::get_type() const
     return "HNSW";
 }
 
-uint64_t HNSWVectorIndex::get_buffer_threshold()
+int64_t HNSWVectorIndex::get_persist_threshold()
 {
     std::shared_lock<std::shared_mutex> lock(index_mutex_);
-    return config_.buffer_threshold;
+    return config_.persist_threshold;
 }
 
 bool HNSWVectorIndex::set_search_params(

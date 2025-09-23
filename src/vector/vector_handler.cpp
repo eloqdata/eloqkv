@@ -90,7 +90,7 @@ VectorMetadata::VectorMetadata(const IndexConfig &vec_spec)
       metric_(vec_spec.distance_metric),
       alg_params_(vec_spec.params),
       file_path_(vec_spec.storage_path),
-      buffer_threshold_(vec_spec.buffer_threshold)
+      persist_threshold_(vec_spec.persist_threshold)
 {
     uint64_t ts = LocalCcShards::ClockTs();
     file_path_.append("/")
@@ -108,7 +108,7 @@ void VectorMetadata::Encode(std::string &encoded_str) const
      * The format of the encoded metadata:
      * nameLen | name | dimension | algorithm | metric | paramCount | key1Len |
      * key1 | value1Len | value1 | ... | filePathLen | filePath |
-     * bufferThreshold | createdTs | lastPersistTs
+     * persistThreshold | createdTs | lastPersistTs
      * 1. nameLen is a 2-byte integer representing the length of the name. 2.
      * name is a string. 3. dimension is a 8-byte integer representing the
      * dimension. 4. algorithm is a 1-byte integer representing the
@@ -117,7 +117,7 @@ void VectorMetadata::Encode(std::string &encoded_str) const
      * parameters. 7. For each parameter: keyLen (4-byte) | key (string) |
      * valueLen (4-byte) | value (string). 8. filePathLen is a 4-byte integer
      * representing the length of the file path. 9. filePath is a string. 10.
-     * bufferThreshold is a 8-byte integer representing the buffer
+     * persistThreshold is a 8-byte integer representing the persist
      * threshold. 11. createdTs is a 8-byte integer representing the creation
      * timestamp. 12. lastPersistTs is a 8-byte integer representing the last
      * persist timestamp.
@@ -170,8 +170,8 @@ void VectorMetadata::Encode(std::string &encoded_str) const
     encoded_str.append(val_ptr, len_sizeof);
     encoded_str.append(file_path_.data(), file_path_len);
 
-    len_sizeof = sizeof(size_t);
-    val_ptr = reinterpret_cast<const char *>(&buffer_threshold_);
+    len_sizeof = sizeof(int64_t);
+    val_ptr = reinterpret_cast<const char *>(&persist_threshold_);
     encoded_str.append(val_ptr, len_sizeof);
 
     len_sizeof = sizeof(uint64_t);
@@ -239,8 +239,8 @@ void VectorMetadata::Decode(const char *buf,
               std::back_inserter(file_path_));
     offset += file_path_len;
 
-    buffer_threshold_ = *reinterpret_cast<const size_t *>(buf + offset);
-    offset += sizeof(size_t);
+    persist_threshold_ = *reinterpret_cast<const int64_t *>(buf + offset);
+    offset += sizeof(int64_t);
 
     created_ts_ = *reinterpret_cast<const uint64_t *>(buf + offset);
     created_ts_ = created_ts_ == 0 ? version : created_ts_;
@@ -616,14 +616,16 @@ VectorOpResult VectorHandler::Add(const std::string &name,
     }
     // 4. Add the vector to the index
     auto add_result = index_sptr->add(vector, id);
-    if (add_result.error == VectorOpResult::SUCCEED)
+    if (add_result.error == VectorOpResult::SUCCEED &&
+        index_sptr->get_persist_threshold() != -1)
     {
         // Persist the index if it has enough items
         std::lock_guard<std::shared_mutex> lock(vec_indexes_mutex_);
         uint64_t estimate_log_count = log_count * VECTOR_INDEX_LOG_SHARD_COUNT;
         if (pending_persist_indexes_.find(name) ==
                 pending_persist_indexes_.end() &&
-            estimate_log_count >= index_sptr->get_buffer_threshold())
+            estimate_log_count >=
+                static_cast<uint64_t>(index_sptr->get_persist_threshold()))
         {
             pending_persist_indexes_.insert(name);
             vector_index_worker_pool_->SubmitWork(
@@ -693,14 +695,16 @@ VectorOpResult VectorHandler::Update(const std::string &name,
     // 4. Update the vector in the index
     auto update_result = index_sptr->update(vector, id);
 
-    if (update_result.error == VectorOpResult::SUCCEED)
+    if (update_result.error == VectorOpResult::SUCCEED &&
+        index_sptr->get_persist_threshold() != -1)
     {
         // Persist the index if it has enough items
         uint64_t estimate_log_count = log_count * VECTOR_INDEX_LOG_SHARD_COUNT;
         std::lock_guard<std::shared_mutex> lock(vec_indexes_mutex_);
         if (pending_persist_indexes_.find(name) ==
                 pending_persist_indexes_.end() &&
-            estimate_log_count >= index_sptr->get_buffer_threshold())
+            estimate_log_count >=
+                static_cast<uint64_t>(index_sptr->get_persist_threshold()))
         {
             pending_persist_indexes_.insert(name);
             vector_index_worker_pool_->SubmitWork(
@@ -772,14 +776,16 @@ VectorOpResult VectorHandler::Delete(const std::string &name,
     // 4. Delete the vector from the index
     auto remove_result = index_sptr->remove(id);
 
-    if (remove_result.error == VectorOpResult::SUCCEED)
+    if (remove_result.error == VectorOpResult::SUCCEED &&
+        index_sptr->get_persist_threshold() != -1)
     {
         // Persist the index if it has enough items
         std::lock_guard<std::shared_mutex> lock(vec_indexes_mutex_);
         uint64_t estimate_log_count = log_count * VECTOR_INDEX_LOG_SHARD_COUNT;
         if (pending_persist_indexes_.find(name) ==
                 pending_persist_indexes_.end() &&
-            estimate_log_count >= index_sptr->get_buffer_threshold())
+            estimate_log_count >=
+                static_cast<uint64_t>(index_sptr->get_persist_threshold()))
         {
             pending_persist_indexes_.insert(name);
             vector_index_worker_pool_->SubmitWork(
@@ -872,6 +878,7 @@ VectorHandler::CreateAndInitializeIndex(const TxRecord::Uptr &h_record,
     config.distance_metric = metadata.VecMetric();
     config.storage_path = metadata.FilePath();
     config.params = metadata.VecAlgParams();
+    config.persist_threshold = metadata.PersistThreshold();
 
     // Initialize the index
     if (!index_sptr->initialize(config))

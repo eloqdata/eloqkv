@@ -6478,12 +6478,14 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
         vector_index_worker_pool_->SubmitWork(
             [cmd, &res, &mux, &cv, &finished]()
             {
-                EloqVec::IndexConfig index_config(cmd->index_name_.String(),
-                                                  cmd->dimensions_,
-                                                  cmd->algorithm_,
-                                                  cmd->metric_type_,
-                                                  EloqVec::VectorHandler::Instance().VectorIndexDataPath(), 
-                                                  std::move(cmd->alg_params_));
+                EloqVec::IndexConfig index_config(
+                    cmd->index_name_.String(),
+                    cmd->dimensions_,
+                    cmd->algorithm_,
+                    cmd->metric_type_,
+                    cmd->persist_threshold_,
+                    EloqVec::VectorHandler::Instance().VectorIndexDataPath(),
+                    std::move(cmd->alg_params_));
                 res = EloqVec::VectorHandler::Instance().Create(index_config);
                 std::unique_lock<bthread::Mutex> lk(mux);
                 finished = true;
