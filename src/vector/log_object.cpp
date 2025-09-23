@@ -1101,4 +1101,51 @@ LogError LogObject::truncate_all_sharded_logs(
     return LogError::SUCCESS;
 }
 
+LogError LogObject::scan_sharded_log(const std::string &base_log_name,
+                                     uint32_t num_shards,
+                                     std::vector<log_item_t> &items,
+                                     txservice::TransactionExecution *txm)
+{
+    // Require non-null transaction execution context
+    if (txm == nullptr)
+    {
+        return LogError::INVALID_PARAMETER;
+    }
+
+    // Validate parameters
+    if (num_shards == 0)
+    {
+        return LogError::INVALID_PARAMETER;
+    }
+
+    // Scan all shards sequentially within transaction
+    std::vector<std::vector<log_item_t>> all_shard_items;
+    all_shard_items.resize(num_shards);
+    size_t total_items_count = 0;
+    for (uint32_t shard_id = 0; shard_id < num_shards; ++shard_id)
+    {
+        std::string shard_log_name =
+            get_shard_log_name(base_log_name, shard_id);
+        std::vector<log_item_t> &shard_items = all_shard_items[shard_id];
+        LogError result =
+            scan_log(shard_log_name, UINT64_MAX, shard_items, txm);
+        if (result != LogError::SUCCESS)
+        {
+            return result;
+        }
+        total_items_count += shard_items.size();
+    }
+
+    // Merge into the output vector
+    items.reserve(total_items_count);
+    for (auto &shard_items : all_shard_items)
+    {
+        items.insert(items.end(),
+                     std::make_move_iterator(shard_items.begin()),
+                     std::make_move_iterator(shard_items.end()));
+    }
+
+    return LogError::SUCCESS;
+}
+
 }  // namespace EloqVec

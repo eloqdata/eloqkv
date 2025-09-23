@@ -292,6 +292,22 @@ public:
         uint64_t &total_log_count,
         txservice::TransactionExecution *txm);
 
+    /**
+     * @brief Scan sharded log items from oldest to specified ID
+     *
+     * Retrieves all log items from all shards.
+     *
+     * @param base_log_name Base name for the log objects
+     * @param num_shards Total number of shards
+     * @param items [OUT] vector to store retrieved log items
+     * @param txm Transaction execution context (required, non-null)
+     * @return LogError::SUCCESS if scan successful, error code otherwise
+     */
+    static LogError scan_sharded_log(const std::string &base_log_name,
+                                     uint32_t num_shards,
+                                     std::vector<log_item_t> &items,
+                                     txservice::TransactionExecution *txm);
+
 private:
     /**
      * @brief Serialize metadata to string
