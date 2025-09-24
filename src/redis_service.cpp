@@ -58,21 +58,6 @@
 #include "eloq_data_store_service/eloq_store_data_store_factory.h"
 #endif
 
-// Log state type
-#if ((defined(LOG_STATE_TYPE_RKDB_S3) || defined(LOG_STATE_TYPE_RKDB_GCS)) &&  \
-     !defined(LOG_STATE_TYPE_RKDB))
-#define LOG_STATE_TYPE_RKDB_CLOUD 1
-#endif
-
-#if (defined(LOG_STATE_TYPE_RKDB_S3) || defined(LOG_STATE_TYPE_RKDB_GCS) ||    \
-     defined(LOG_STATE_TYPE_RKDB))
-#define LOG_STATE_TYPE_RKDB_ALL 1
-#endif
-
-#if defined(LOG_STATE_TYPE_RKDB_CLOUD)
-#include "rocksdb_cloud_config.h"
-#endif
-
 #include <algorithm>
 #include <cassert>
 #include <charconv>
@@ -88,6 +73,7 @@
 #include "INIReader.h"
 #if (WITH_LOG_SERVICE)
 #include "log_service_metrics.h"
+#include "log_utils.h"
 #endif
 
 #if (defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB_CLOUD_S3) ||                      \
@@ -103,6 +89,31 @@
 #include "eloq_data_store_service/data_store_service.h"
 #include "eloq_data_store_service/data_store_service_config.h"
 #include "store_handler/data_store_service_client.h"
+#endif
+
+// Log state type
+#if !defined(LOG_STATE_TYPE_RKDB_CLOUD)
+
+// Only if LOG_STATE_TYPE_RKDB_CLOUD undefined
+#if ((defined(LOG_STATE_TYPE_RKDB_S3) || defined(LOG_STATE_TYPE_RKDB_GCS)) &&  \
+     !defined(LOG_STATE_TYPE_RKDB))
+#define LOG_STATE_TYPE_RKDB_CLOUD 1
+#endif
+
+#endif
+
+#if !defined(LOG_STATE_TYPE_RKDB_ALL)
+
+// Only if LOG_STATE_TYPE_RKDB_ALL undefined
+#if (defined(LOG_STATE_TYPE_RKDB_S3) || defined(LOG_STATE_TYPE_RKDB_GCS) ||    \
+     defined(LOG_STATE_TYPE_RKDB))
+#define LOG_STATE_TYPE_RKDB_ALL 1
+#endif
+
+#endif
+
+#if defined(LOG_STATE_TYPE_RKDB_CLOUD)
+#include "rocksdb_cloud_config.h"
 #endif
 
 #include "eloq_key.h"
@@ -1820,34 +1831,6 @@ bool RedisServiceImpl::InitTxLogService(
         txlog_rocksdb_cloud_config.log_purger_starting_second_ =
             log_purger_tm.tm_sec;
     }
-#if defined(OPEN_LOG_SERVICE)
-    if (FLAGS_bootstrap)
-    {
-        log_server_ = std::make_unique<::txlog::LogServer>(
-            txlog_node_id,
-            log_server_port,
-            log_path,
-            1,
-            txlog_rocksdb_cloud_config,
-            FLAGS_txlog_in_mem_data_log_queue_size_high_watermark,
-            txlog_rocksdb_max_write_buffer_number,
-            txlog_rocksdb_max_background_jobs,
-            txlog_rocksdb_target_file_size_base_val);
-    }
-    else
-    {
-        log_server_ = std::make_unique<::txlog::LogServer>(
-            txlog_node_id,
-            log_server_port,
-            log_path,
-            1,
-            txlog_rocksdb_cloud_config,
-            FLAGS_txlog_in_mem_data_log_queue_size_high_watermark,
-            txlog_rocksdb_max_write_buffer_number,
-            txlog_rocksdb_max_background_jobs,
-            txlog_rocksdb_target_file_size_base_val);
-    }
-#else
     if (FLAGS_bootstrap)
     {
         log_server_ = std::make_unique<::txlog::LogServer>(
@@ -1897,7 +1880,6 @@ bool RedisServiceImpl::InitTxLogService(
             check_replay_log_size_interval_sec,
             notify_checkpointer_threshold_size_val);
     }
-#endif
 #else
     size_t txlog_rocksdb_sst_files_size_limit_val =
         !CheckCommandLineFlagIsDefault("txlog_rocksdb_sst_files_size_limit")

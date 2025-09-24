@@ -130,6 +130,9 @@ set(LOG_SHIPPING_THREADS_NUM 1)
 
 add_compile_definitions(LOG_SHIPPING_THREADS_NUM=${LOG_SHIPPING_THREADS_NUM})
 
+# Add for compatiable reason
+add_compile_definitions(LOG_STATE_TYPE_RKDB)
+
 set(LOG_INCLUDE_DIR
   ${LOG_SOURCE_DIR}/include
   ${TX_LOG_PROTOS_SOURCE_DIR}
