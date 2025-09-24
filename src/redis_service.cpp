@@ -376,32 +376,18 @@ bool CheckCommandLineFlagIsDefault(const char *name)
     return flag_info.is_default;
 }
 
-static void RegisterFactory()
-{
-    txservice::TxKeyFactory::RegisterCreateTxKeyFunc(EloqKey::Create);
-    txservice::TxKeyFactory::RegisterCreateDefaultTxKeyFunc(
-        EloqKey::CreateDefault);
-    txservice::TxKeyFactory::RegisterNegInfTxKey(EloqKey::NegInfTxKey());
-    txservice::TxKeyFactory::RegisterPosInfTxKey(EloqKey::PosInfTxKey());
-    txservice::TxKeyFactory::RegisterPackedNegativeInfinity(
-        EloqKey::PackedNegativeInfinityTxKey());
-    txservice::TxRecordFactory::RegisterCreateTxRecordFunc(
-        RedisEloqObject::Create);
-}
-
 RedisServiceImpl::RedisServiceImpl(const std::string &config_file,
                                    const char *version)
 {
     version_ = version;
     config_file_ = config_file;
-
-    RegisterFactory();
 }
 
 bool RedisServiceImpl::Init(brpc::Server &brpc_server)
 {
     INIReader config_reader(config_file_);
     std::unordered_map<txservice::TableName, std::string> prebuilt_tables;
+    CatalogFactory *catalog_factory[3]{nullptr, &catalog_factory_, nullptr};
 
     if (!config_file_.empty() && config_reader.ParseError() != 0)
     {
@@ -1150,7 +1136,7 @@ bool RedisServiceImpl::Init(brpc::Server &brpc_server)
         data_store_service_->ConnectDataStore(std::move(dss_shards_map));
         // setup data store service client
         store_hd_ = std::make_unique<EloqDS::DataStoreServiceClient>(
-            ds_config, data_store_service_.get());
+            catalog_factory, ds_config, data_store_service_.get());
 
 #endif
 
@@ -1448,8 +1434,6 @@ bool RedisServiceImpl::Init(brpc::Server &brpc_server)
         {"max_standby_lag", max_standby_lag},
         {"kickout_data_for_test", FLAGS_kickout_data_for_test ? 1 : 0}};
 
-    CatalogFactory *catalog_factory[4]{
-        nullptr, &catalog_factory_, nullptr, nullptr};
     tx_service_ = std::make_unique<TxService>(
         catalog_factory,
         nullptr,  // "SystemHandler" is only used for mysql
@@ -2414,7 +2398,7 @@ void RedisServiceImpl::RedisClusterSlots(std::vector<SlotInfo> &info)
                 }
             }
         }  // end-if
-    }      // end-for
+    }  // end-for
 
     if (info.size() > 1)
     {
