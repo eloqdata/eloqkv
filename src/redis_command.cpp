@@ -20186,7 +20186,7 @@ void AddVecIndexCommand::OutputResult(OutputHandler *reply,
     }
 }
 
-bool BAddVecIndexCommand::ParseVectorData(std::string_view &vector_str,
+bool BAddVecIndexCommand::ParseVectorData(const std::string_view &vector_str,
                                           std::vector<float> &vector)
 {
     if (vector_str.empty())
@@ -20242,7 +20242,9 @@ bool BAddVecIndexCommand::ParseVectorData(std::string_view &vector_str,
         }
         vector.push_back(val);
     }
-    return true;
+
+    // Treat whitespace-only input as invalid
+    return !vector.empty();
 }
 
 void BAddVecIndexCommand::OutputResult(OutputHandler *reply,

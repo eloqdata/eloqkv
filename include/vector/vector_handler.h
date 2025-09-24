@@ -275,27 +275,23 @@ private:
      *
      * @param name Index name
      * @param h_record Record containing encoded metadata
-     * @param index_version Current index version from storage
      * @param txm Transaction execution context
      * @return Pair of the vector index and the result of the operation
      */
     std::pair<std::shared_ptr<VectorIndex>, VectorOpResult> GetOrCreateIndex(
         const std::string &name,
         const txservice::TxRecord::Uptr &h_record,
-        uint64_t index_version,
         txservice::TransactionExecution *txm);
 
     /**
      * @brief Create a vector index with given configuration and initialize it
      *
      * @param h_record Record containing encoded metadata
-     * @param index_version Current index version from storage
      * @param txm Transaction execution context
      * @return Pair of the vector index and the result of the operation
      */
     std::pair<std::shared_ptr<VectorIndex>, VectorOpResult>
     CreateAndInitializeIndex(const txservice::TxRecord::Uptr &h_record,
-                             uint64_t index_version,
                              txservice::TransactionExecution *txm);
 
     /**
@@ -320,10 +316,8 @@ private:
     std::string vector_index_data_path_{""};
     // Vector index cache with thread safety
     mutable std::shared_mutex vec_indexes_mutex_;
-    // map of index name to index version and index object
-    std::unordered_map<std::string,
-                       std::pair<uint64_t, std::shared_ptr<VectorIndex>>>
-        vec_indexes_;
+    // map of index name to index object
+    std::unordered_map<std::string, std::shared_ptr<VectorIndex>> vec_indexes_;
     std::unordered_set<std::string> pending_persist_indexes_;
 };
 

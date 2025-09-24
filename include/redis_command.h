@@ -7058,7 +7058,7 @@ struct BAddVecIndexCommand
     void OutputResult(OutputHandler *reply, RedisConnectionContext *ctx) const;
 
     // Helper function to parse vector data from string_view
-    static bool ParseVectorData(std::string_view &vector_str,
+    static bool ParseVectorData(const std::string_view &vector_str,
                                 std::vector<float> &vector);
 
     // Name of the vector index

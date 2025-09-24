@@ -557,11 +557,8 @@ VectorOpResult VectorHandler::Search(const std::string &name,
         return VectorOpResult::INDEX_NOT_EXIST;
     }
 
-    uint64_t index_version = read_req.Result().second;
-
     // 3. Get or create the vector index from cache
-    auto [index_sptr, get_result] =
-        GetOrCreateIndex(name, h_record, index_version, txm);
+    auto [index_sptr, get_result] = GetOrCreateIndex(name, h_record, txm);
     if (get_result != VectorOpResult::SUCCEED)
     {
         AbortTx(txm);
@@ -604,10 +601,8 @@ VectorOpResult VectorHandler::Add(const std::string &name,
         // The index does not exist
         return VectorOpResult::INDEX_NOT_EXIST;
     }
-    uint64_t index_version = read_req.Result().second;
     // 3. Get or create the vector index from cache
-    auto [index_sptr, get_result] =
-        GetOrCreateIndex(name, h_record, index_version, txm);
+    auto [index_sptr, get_result] = GetOrCreateIndex(name, h_record, txm);
     if (get_result != VectorOpResult::SUCCEED)
     {
         AbortTx(txm);
@@ -705,10 +700,8 @@ VectorOpResult VectorHandler::Update(const std::string &name,
         return VectorOpResult::INDEX_NOT_EXIST;
     }
 
-    uint64_t index_version = read_req.Result().second;
     // 3. Get or create the vector index from cache
-    auto [index_sptr, get_result] =
-        GetOrCreateIndex(name, h_record, index_version, txm);
+    auto [index_sptr, get_result] = GetOrCreateIndex(name, h_record, txm);
     if (get_result != VectorOpResult::SUCCEED)
     {
         AbortTx(txm);
@@ -815,11 +808,8 @@ VectorOpResult VectorHandler::Delete(const std::string &name, uint64_t id)
         return VectorOpResult::INDEX_NOT_EXIST;
     }
 
-    uint64_t index_version = read_req.Result().second;
-
     // 3. Get or create the vector index from cache
-    auto [index_sptr, get_result] =
-        GetOrCreateIndex(name, h_record, index_version, txm);
+    auto [index_sptr, get_result] = GetOrCreateIndex(name, h_record, txm);
     if (get_result != VectorOpResult::SUCCEED)
     {
         AbortTx(txm);
@@ -935,10 +925,8 @@ VectorOpResult VectorHandler::BatchAdd(
         return VectorOpResult::INDEX_NOT_EXIST;
     }
 
-    uint64_t index_version = read_req.Result().second;
     // 3. Get or create the vector index from cache
-    auto [index_sptr, get_result] =
-        GetOrCreateIndex(name, h_record, index_version, txm);
+    auto [index_sptr, get_result] = GetOrCreateIndex(name, h_record, txm);
     if (get_result != VectorOpResult::SUCCEED)
     {
         AbortTx(txm);
@@ -1047,10 +1035,8 @@ VectorOpResult VectorHandler::BatchAdd(
 std::pair<std::shared_ptr<VectorIndex>, VectorOpResult>
 VectorHandler::GetOrCreateIndex(const std::string &name,
                                 const TxRecord::Uptr &h_record,
-                                uint64_t index_version,
                                 TransactionExecution *txm)
 {
-    assert(index_version > 0);
     std::shared_ptr<VectorIndex> cached_index_sptr = nullptr;
     // First, try to get read lock to check cache
     {
@@ -1058,14 +1044,8 @@ VectorHandler::GetOrCreateIndex(const std::string &name,
         auto it = vec_indexes_.find(name);
         if (it != vec_indexes_.end())
         {
-            uint64_t cached_version = it->second.first;
-            if (cached_version == index_version)
-            {
-                // Version matches, return the cached index
-                cached_index_sptr = it->second.second;
-                return {cached_index_sptr, VectorOpResult::SUCCEED};
-            }
-            assert(cached_version < index_version);
+            cached_index_sptr = it->second;
+            return {cached_index_sptr, VectorOpResult::SUCCEED};
         }
     }
 
@@ -1074,32 +1054,30 @@ VectorHandler::GetOrCreateIndex(const std::string &name,
         std::lock_guard<std::shared_mutex> write_lock(vec_indexes_mutex_);
         // Double-checked locking pattern
         auto it = vec_indexes_.find(name);
-        if (it != vec_indexes_.end() && it->second.first == index_version)
+        if (it != vec_indexes_.end())
         {
-            cached_index_sptr = it->second.second;
+            cached_index_sptr = it->second;
             return {cached_index_sptr, VectorOpResult::SUCCEED};
         }
-        assert(it == vec_indexes_.end() || it->second.first < index_version);
 
         // Create and initialize the index
         auto [index_sptr, init_result] =
-            CreateAndInitializeIndex(h_record, index_version, txm);
+            CreateAndInitializeIndex(h_record, txm);
         if (init_result != VectorOpResult::SUCCEED)
         {
             return {nullptr, init_result};
         }
 
-        // Insert or update the index into the cache
-        vec_indexes_[name] =
-            std::make_pair(index_version, std::move(index_sptr));
-        cached_index_sptr = vec_indexes_[name].second;
+        // Insert the index into the cache
+        auto res_pair = vec_indexes_.emplace(name, std::move(index_sptr));
+        assert(res_pair.second);
+        cached_index_sptr = res_pair.first->second;
         return {cached_index_sptr, VectorOpResult::SUCCEED};
     }
 }
 
 std::pair<std::shared_ptr<VectorIndex>, VectorOpResult>
 VectorHandler::CreateAndInitializeIndex(const TxRecord::Uptr &h_record,
-                                        uint64_t index_version,
                                         TransactionExecution *txm)
 {
     // Decode metadata from h_record
@@ -1107,7 +1085,8 @@ VectorHandler::CreateAndInitializeIndex(const TxRecord::Uptr &h_record,
     const char *blob_data = h_record->EncodedBlobData();
     size_t blob_size = h_record->EncodedBlobSize();
     size_t offset = 0;
-    metadata.Decode(blob_data, blob_size, offset, index_version);
+    uint64_t unused_version = 0;
+    metadata.Decode(blob_data, blob_size, offset, unused_version);
 
     std::shared_ptr<VectorIndex> index_sptr = nullptr;
     switch (metadata.VecAlgorithm())
@@ -1198,9 +1177,9 @@ VectorOpResult VectorHandler::PersistIndex(const std::string &name, bool force)
     {
         std::shared_lock<std::shared_mutex> read_lock(vec_indexes_mutex_);
         auto it = vec_indexes_.find(name);
-        if (it != vec_indexes_.end() && it->second.first == index_version)
+        if (it != vec_indexes_.end())
         {
-            index_sptr = it->second.second;
+            index_sptr = it->second;
         }
     }
     if (!index_sptr)
