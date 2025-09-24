@@ -3113,6 +3113,10 @@ void RedisServiceImpl::AddHandlers()
         hd_vec_.emplace_back(std::make_unique<AddVecIndexHandler>(this));
     AddCommandHandler("eloqvec.add", add_vec_index_hd.get());
 
+    auto &badd_vec_index_hd =
+        hd_vec_.emplace_back(std::make_unique<BAddVecIndexHandler>(this));
+    AddCommandHandler("eloqvec.badd", badd_vec_index_hd.get());
+
     auto &update_vec_index_hd =
         hd_vec_.emplace_back(std::make_unique<UpdateVecIndexHandler>(this));
     AddCommandHandler("eloqvec.update", update_vec_index_hd.get());
@@ -6597,6 +6601,43 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
             {
                 res = EloqVec::VectorHandler::Instance().Add(
                     cmd->index_name_.String(), cmd->key_, cmd->vector_);
+                std::unique_lock<bthread::Mutex> lk(mux);
+                finished = true;
+                cv.notify_one();
+            });
+        while (!finished)
+        {
+            cv.wait(lk);
+        }
+    }
+
+    cmd->result_.err_code_ = res == EloqVec::VectorOpResult::SUCCEED
+                                 ? RD_OK
+                                 : RD_ERR_VECTOR_INDX_ADD_FAILED;
+    cmd->OutputResult(output, ctx);
+    return true;
+}
+
+bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
+                                      BAddVecIndexCommand *cmd,
+                                      OutputHandler *output)
+{
+    if (vector_index_worker_pool_ == nullptr)
+    {
+        output->OnError("ERR Vector Index not enabled");
+        return false;
+    }
+    EloqVec::VectorOpResult res = EloqVec::VectorOpResult::SUCCEED;
+    bthread::Mutex mux;
+    bthread::ConditionVariable cv;
+    bool finished = false;
+    {
+        std::unique_lock<bthread::Mutex> lk(mux);
+        vector_index_worker_pool_->SubmitWork(
+            [cmd, &res, &mux, &cv, &finished]()
+            {
+                res = EloqVec::VectorHandler::Instance().BatchAdd(
+                    cmd->index_name_.String(), cmd->keys_, cmd->vectors_);
                 std::unique_lock<bthread::Mutex> lk(mux);
                 finished = true;
                 cv.notify_one();

@@ -215,6 +215,18 @@ public:
     VectorOpResult Delete(const std::string &name, uint64_t id);
 
     /**
+     * @brief Add multiple vectors to an index in batch
+     *
+     * @param name Name of the vector index
+     * @param ids Vector of unique identifiers
+     * @param vectors Vector of vectors
+     * @return Result of the batch add operation
+     */
+    VectorOpResult BatchAdd(const std::string &name,
+                            const std::vector<uint64_t> &ids,
+                            const std::vector<std::vector<float>> &vectors);
+
+    /**
      * @brief Persist a vector index to disk and truncate its log
      *
      * This method performs the complete persistence workflow:

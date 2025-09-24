@@ -309,6 +309,7 @@ enum struct RedisCommandType
     ELOQVEC_INFO,
     ELOQVEC_DROP,
     ELOQVEC_ADD,
+    ELOQVEC_BADD,
     ELOQVEC_UPDATE,
     ELOQVEC_DELETE,
     ELOQVEC_SEARCH,
@@ -7031,6 +7032,46 @@ struct AddVecIndexCommand
     RedisCommandResult result_;
 };
 
+struct BAddVecIndexCommand
+{
+    static constexpr uint64_t MAX_BATCH_ADD_SIZE = 10000;
+
+    BAddVecIndexCommand() = default;
+
+    // Constructor with required parameters
+    BAddVecIndexCommand(std::string_view index_name,
+                        std::vector<uint64_t> &&keys,
+                        std::vector<std::vector<float>> &&vectors)
+        : index_name_(index_name),
+          keys_(std::move(keys)),
+          vectors_(std::move(vectors))
+    {
+        assert(keys_.size() == vectors_.size());
+    }
+
+    BAddVecIndexCommand(const BAddVecIndexCommand &rhs) = delete;
+    BAddVecIndexCommand(BAddVecIndexCommand &&rhs) = default;
+    BAddVecIndexCommand &operator=(const BAddVecIndexCommand &rhs) = delete;
+    BAddVecIndexCommand &operator=(BAddVecIndexCommand &&rhs) = delete;
+    ~BAddVecIndexCommand() = default;
+
+    void OutputResult(OutputHandler *reply, RedisConnectionContext *ctx) const;
+
+    // Helper function to parse vector data from string_view
+    static bool ParseVectorData(std::string_view &vector_str,
+                                std::vector<float> &vector);
+
+    // Name of the vector index
+    EloqString index_name_;
+    // Keys to add
+    std::vector<uint64_t> keys_;
+    // Vector data corresponding to each key
+    std::vector<std::vector<float>> vectors_;
+
+    // Result storage
+    RedisCommandResult result_;
+};
+
 struct UpdateVecIndexCommand
 {
     UpdateVecIndexCommand() = default;
@@ -8203,6 +8244,9 @@ std::tuple<bool, DropVecIndexCommand> ParseDropVecIndexCommand(
     const std::vector<std::string_view> &args, OutputHandler *output);
 
 std::tuple<bool, AddVecIndexCommand> ParseAddVecIndexCommand(
+    const std::vector<std::string_view> &args, OutputHandler *output);
+
+std::tuple<bool, BAddVecIndexCommand> ParseBAddVecIndexCommand(
     const std::vector<std::string_view> &args, OutputHandler *output);
 
 std::tuple<bool, UpdateVecIndexCommand> ParseUpdateVecIndexCommand(

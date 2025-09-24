@@ -5367,6 +5367,32 @@ brpc::RedisCommandHandlerResult AddVecIndexHandler::Run(
     return brpc::REDIS_CMD_HANDLED;
 }
 
+brpc::RedisCommandHandlerResult BAddVecIndexHandler::Run(
+    RedisConnectionContext *ctx,
+    const std::vector<butil::StringPiece> &args,
+    brpc::RedisReply *output,
+    bool /*flush_batched*/)
+{
+    assert(args[0] == "eloqvec.badd" || args[0] == "ELOQVEC.BADD");
+
+    RedisReplier reply(output);
+    std::vector<std::string_view> cmd_arg_list = Transform(args);
+    auto [success, cmd] = ParseBAddVecIndexCommand(cmd_arg_list, &reply);
+
+    if (success)
+    {
+        if (ctx->txm != nullptr)
+        {
+            reply.OnError("ERR vector command is not supported in transaction");
+            return brpc::REDIS_CMD_HANDLED;
+        }
+
+        redis_impl_->ExecuteCommand(ctx, &cmd, &reply);
+    }
+
+    return brpc::REDIS_CMD_HANDLED;
+}
+
 brpc::RedisCommandHandlerResult UpdateVecIndexHandler::Run(
     RedisConnectionContext *ctx,
     const std::vector<butil::StringPiece> &args,

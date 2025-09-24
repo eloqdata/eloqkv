@@ -15,6 +15,7 @@
 #include <filesystem>
 #include <mutex>
 #include <shared_mutex>
+#include <unordered_map>
 #include <utility>
 
 #include "hnsw_vector_index.h"
@@ -896,6 +897,151 @@ VectorOpResult VectorHandler::Delete(const std::string &name, uint64_t id)
     }
 
     return idx_res.error;
+}
+
+VectorOpResult VectorHandler::BatchAdd(
+    const std::string &name,
+    const std::vector<uint64_t> &ids,
+    const std::vector<std::vector<float>> &vectors)
+{
+    // Check if the ids and vectors are valid
+    if (ids.empty() || ids.size() != vectors.size())
+    {
+        return VectorOpResult::INDEX_ADD_FAILED;
+    }
+
+    TransactionExecution *txm = NewTxInit(
+        tx_service_, IsolationLevel::RepeatableRead, CcProtocol::Locking);
+
+    // 1. Check if the index exists by reading from vector_index_meta_table
+    std::string h_key = build_metadata_key(name);
+    TxKey tx_key = EloqStringKey::Create(h_key.c_str(), h_key.size());
+    TxRecord::Uptr h_record = EloqStringRecord::Create();
+    ReadTxRequest read_req(
+        &vector_index_meta_table, 0, &tx_key, h_record.get());
+    txm->Execute(&read_req);
+    read_req.Wait();
+    if (read_req.IsError())
+    {
+        AbortTx(txm);
+        return VectorOpResult::INDEX_META_OP_FAILED;
+    }
+
+    // 2. Check if the index exists
+    if (read_req.Result().first != RecordStatus::Normal)
+    {
+        assert(read_req.Result().first == RecordStatus::Deleted);
+        CommitTx(txm);
+        return VectorOpResult::INDEX_NOT_EXIST;
+    }
+
+    uint64_t index_version = read_req.Result().second;
+    // 3. Get or create the vector index from cache
+    auto [index_sptr, get_result] =
+        GetOrCreateIndex(name, h_record, index_version, txm);
+    if (get_result != VectorOpResult::SUCCEED)
+    {
+        AbortTx(txm);
+        return get_result;
+    }
+
+    // Group ids by shard id
+    std::unordered_map<uint32_t, std::vector<size_t>> shard_group;
+    for (size_t i = 0; i < ids.size(); i++)
+    {
+        uint32_t shard_id = LogObject::get_shard_id(
+            std::to_string(ids[i]), VECTOR_INDEX_LOG_SHARD_COUNT);
+        // Reserve memory for new shard to reduce frequent allocation
+        auto res_pair = shard_group.try_emplace(shard_id);
+        if (res_pair.second)
+        {
+            res_pair.first->second.reserve(ids.size());
+        }
+        res_pair.first->second.push_back(i);
+    }
+
+    // 4. Add items to log object by shard
+    uint64_t ts = LocalCcShards::ClockTs();
+    uint64_t log_id = 0;
+    uint64_t log_count = 0;
+    // Process each shard
+    for (const auto &shard_pair : shard_group)
+    {
+        const std::vector<size_t> &indices = shard_pair.second;
+
+        std::vector<log_item_t> log_items;
+        log_items.reserve(indices.size());
+
+        // Process each index in this shard
+        for (size_t idx : indices)
+        {
+            // Serialize the vector at this index
+            std::string serialized_vector;
+            serialize_vector(vectors[idx], serialized_vector);
+            // Create log item
+            log_items.emplace_back(LogOperationType::INSERT,
+                                   std::to_string(ids[idx]),
+                                   serialized_vector,
+                                   ts,
+                                   0);
+        }
+
+        // Append all items for this shard
+        LogError log_err = LogObject::append_log_sharded(
+            build_log_name(name),
+            std::to_string(ids[indices[0]]),  // Use first id as shard key
+            VECTOR_INDEX_LOG_SHARD_COUNT,
+            log_items,
+            log_id,
+            log_count,
+            txm);
+
+        if (log_err != LogError::SUCCESS)
+        {
+            AbortTx(txm);
+            return VectorOpResult::INDEX_LOG_OP_FAILED;
+        }
+    }
+
+    // 4. Add the vectors to the index
+    auto add_result = index_sptr->add_batch(vectors, ids);
+    if (add_result.error == VectorOpResult::SUCCEED)
+    {
+        auto res_pair = CommitTx(txm);
+        if (!res_pair.first)
+        {
+            for (const uint64_t id : ids)
+            {
+                index_sptr->remove(id);
+            }
+            return VectorOpResult::INDEX_ADD_FAILED;
+        }
+
+        if (index_sptr->get_persist_threshold() == -1)
+        {
+            // No need to persist the index.
+            return VectorOpResult::SUCCEED;
+        }
+
+        // Persist the index if it has enough items
+        std::lock_guard<std::shared_mutex> lock(vec_indexes_mutex_);
+        uint64_t estimate_log_count = log_count * VECTOR_INDEX_LOG_SHARD_COUNT;
+        if (pending_persist_indexes_.find(name) ==
+                pending_persist_indexes_.end() &&
+            estimate_log_count >=
+                static_cast<uint64_t>(index_sptr->get_persist_threshold()))
+        {
+            pending_persist_indexes_.insert(name);
+            vector_index_worker_pool_->SubmitWork(
+                [name] { VectorHandler::Instance().PersistIndex(name); });
+        }
+    }
+    else
+    {
+        AbortTx(txm);
+    }
+
+    return add_result.error;
 }
 
 std::pair<std::shared_ptr<VectorIndex>, VectorOpResult>

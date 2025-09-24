@@ -199,7 +199,7 @@ static inline bool string2double(const char *s, size_t slen, double &value)
  */
 static inline bool string2float(const char *s, size_t slen, float &value)
 {
-    std::string str(s, slen);
+    std::string_view str(s, slen);
     if (str == "-inf")
     {
         value = std::numeric_limits<float>::infinity() * -1;
@@ -210,7 +210,7 @@ static inline bool string2float(const char *s, size_t slen, float &value)
     }
     else
     {
-        const char *ptr = str.c_str();
+        const char *ptr = str.data();
         char *eptr;
         value = strtof(ptr, &eptr);
         if (slen == 0 || isspace(s[0]) ||

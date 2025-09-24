@@ -24,6 +24,7 @@
 #include <brpc/acceptor.h>
 #include <butil/endpoint.h>
 #include <butil/logging.h>
+#include <ctype.h>
 #include <strings.h>
 #include <sys/times.h>
 #include <unistd.h>
@@ -256,6 +257,7 @@ const std::vector<std::pair<const char *, RedisCommandType>> command_types{{
     {"eloqvec.info", RedisCommandType::ELOQVEC_INFO},
     {"eloqvec.drop", RedisCommandType::ELOQVEC_DROP},
     {"eloqvec.add", RedisCommandType::ELOQVEC_ADD},
+    {"eloqvec.badd", RedisCommandType::ELOQVEC_BADD},
     {"eloqvec.update", RedisCommandType::ELOQVEC_UPDATE},
     {"eloqvec.delete", RedisCommandType::ELOQVEC_DELETE},
     {"eloqvec.search", RedisCommandType::ELOQVEC_SEARCH},
@@ -20073,10 +20075,180 @@ std::tuple<bool, AddVecIndexCommand> ParseAddVecIndexCommand(
     return {true, AddVecIndexCommand(index_name, key, std::move(vector_data))};
 }
 
+std::tuple<bool, BAddVecIndexCommand> ParseBAddVecIndexCommand(
+    const std::vector<std::string_view> &args, OutputHandler *output)
+{
+    assert(args[0] == "eloqvec.badd" || args[0] == "ELOQVEC.BADD");
+
+    // ELOQVEC.BADD <index_name> <key_count> <key1> <vector1_data> [<key2>
+    // <vector2_data> ...]
+    if (args.size() < 5)
+    {
+        output->OnError(
+            "ERR wrong number of arguments for 'eloqvec.badd' command");
+        return {false, BAddVecIndexCommand()};
+    }
+
+    std::string_view index_name = args[1];
+    std::string_view key_count_str = args[2];
+
+    // Validate index name is not empty
+    if (index_name.empty())
+    {
+        output->OnError("ERR index name cannot be empty");
+        return {false, BAddVecIndexCommand()};
+    }
+
+    // Parse key_count for validation
+    uint64_t key_count;
+    if (!string2ull(key_count_str.data(), key_count_str.size(), key_count) ||
+        key_count == 0)
+    {
+        output->OnError("ERR key_count must be a positive integer");
+        return {false, BAddVecIndexCommand()};
+    }
+
+    if (key_count > BAddVecIndexCommand::MAX_BATCH_ADD_SIZE)
+    {
+        std::string msg("ERR The key count exceeds the maximum batch value:");
+        msg.append(std::to_string(BAddVecIndexCommand::MAX_BATCH_ADD_SIZE));
+        output->OnError(msg);
+        return {false, BAddVecIndexCommand()};
+    }
+
+    // Calculate expected argument count: command + index_name + key_count +
+    // key_count * 2 (key + vector_data)
+    const size_t pair_args = args.size() - 3;
+    if (pair_args % 2 != 0 || pair_args / 2 != key_count)
+    {
+        std::string msg("ERR wrong number of arguments: expected ");
+        msg.append(std::to_string(key_count * 2 + 3))
+            .append(" but got ")
+            .append(std::to_string(args.size()));
+        output->OnError(msg);
+        return {false, BAddVecIndexCommand()};
+    }
+
+    std::vector<uint64_t> keys;
+    std::vector<std::vector<float>> vectors;
+    keys.reserve(key_count);
+    vectors.reserve(key_count);
+    // Parse key-value pairs
+    for (uint64_t i = 0; i < key_count; ++i)
+    {
+        uint64_t arg_idx = 3 + i * 2;
+        // Parse key
+        std::string_view key_str = args[arg_idx];
+        uint64_t key;
+        if (!string2ull(key_str.data(), key_str.size(), key))
+        {
+            output->OnError("ERR key must be a valid integer");
+            return {false, BAddVecIndexCommand()};
+        }
+        keys.push_back(key);
+
+        // Parse vector data using helper function
+        std::string_view vector_str = args[arg_idx + 1];
+        std::vector<float> vector_data;
+        if (!BAddVecIndexCommand::ParseVectorData(vector_str, vector_data))
+        {
+            output->OnError("ERR vector data must be valid float");
+            return {false, BAddVecIndexCommand()};
+        }
+
+        // Validate vector is not empty
+        if (vector_data.empty())
+        {
+            output->OnError("ERR vector data cannot be empty or invalid");
+            return {false, BAddVecIndexCommand()};
+        }
+
+        vectors.push_back(std::move(vector_data));
+    }
+
+    // Create command object
+    return {
+        true,
+        BAddVecIndexCommand(index_name, std::move(keys), std::move(vectors))};
+}
+
 void AddVecIndexCommand::OutputResult(OutputHandler *reply,
                                       RedisConnectionContext *ctx) const
 {
     // Output the result of the add operation
+    if (result_.err_code_ == RD_OK)
+    {
+        reply->OnString("OK");
+    }
+    else
+    {
+        reply->OnError(redis_get_error_messages(result_.err_code_));
+    }
+}
+
+bool BAddVecIndexCommand::ParseVectorData(std::string_view &vector_str,
+                                          std::vector<float> &vector)
+{
+    if (vector_str.empty())
+    {
+        return false;
+    }
+
+    // Count the number of space-separated values to estimate vector size
+    size_t estimated_size = 1;  // At least one value
+    for (char c : vector_str)
+    {
+        if (std::isspace(static_cast<unsigned char>(c)))
+        {
+            estimated_size++;
+        }
+    }
+
+    // Reserve space based on estimated count to avoid reallocations
+    vector.reserve(estimated_size);
+
+    const char *start = vector_str.data();
+    const char *end = start + vector_str.size();
+    const char *current = start;
+
+    while (current < end)
+    {
+        // Skip leading whitespace
+        while (current < end &&
+               std::isspace(static_cast<unsigned char>(*current)))
+        {
+            ++current;
+        }
+
+        if (current >= end)
+        {
+            break;
+        }
+
+        // Find the end of the current number
+        const char *num_start = current;
+        while (current < end &&
+               !std::isspace(static_cast<unsigned char>(*current)))
+        {
+            ++current;
+        }
+
+        // Parse the number
+        float val;
+        if (!string2float(num_start, current - num_start, val))
+        {
+            // Return false on parse error
+            return false;
+        }
+        vector.push_back(val);
+    }
+    return true;
+}
+
+void BAddVecIndexCommand::OutputResult(OutputHandler *reply,
+                                       RedisConnectionContext *ctx) const
+{
+    // Output the result of the batch add operation
     if (result_.err_code_ == RD_OK)
     {
         reply->OnString("OK");

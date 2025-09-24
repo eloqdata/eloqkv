@@ -364,7 +364,7 @@ private:
                                         uint64_t sequence_id);
 
     // ===== SHARDED LOG HELPER FUNCTIONS =====
-
+public:
     /**
      * @brief Get shard ID for a given shard key
      *
@@ -377,6 +377,7 @@ private:
     static uint32_t get_shard_id(const std::string &shard_key,
                                  uint32_t num_shards);
 
+private:
     /**
      * @brief Get shard-specific log name
      *
