@@ -7057,10 +7057,6 @@ struct BAddVecIndexCommand
 
     void OutputResult(OutputHandler *reply, RedisConnectionContext *ctx) const;
 
-    // Helper function to parse vector data from string_view
-    static bool ParseVectorData(const std::string_view &vector_str,
-                                std::vector<float> &vector);
-
     // Name of the vector index
     EloqString index_name_;
     // Keys to add
@@ -8257,5 +8253,9 @@ std::tuple<bool, DeleteVecIndexCommand> ParseDeleteVecIndexCommand(
 
 std::tuple<bool, SearchVecIndexCommand> ParseSearchVecIndexCommand(
     const std::vector<std::string_view> &args, OutputHandler *output);
+
+// Global helper function to parse vector data from string_view
+bool ParseVectorData(const std::string_view &vector_str,
+                     std::vector<float> &vector);
 
 }  // namespace EloqKV

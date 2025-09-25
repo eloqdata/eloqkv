@@ -453,7 +453,10 @@ FetchContent_Declare(
     GIT_TAG        v2.21.0
 )
 FetchContent_MakeAvailable(usearch)
-set(USEARCH_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/bld/_deps/usearch-src/include)
+set(USEARCH_INCLUDE_DIR
+   ${usearch_SOURCE_DIR}/include
+   ${usearch_SOURCE_DIR}/fp16/include
+)
 include_directories(${USEARCH_INCLUDE_DIR})
 
 INCLUDE(build_tx_service.cmake)

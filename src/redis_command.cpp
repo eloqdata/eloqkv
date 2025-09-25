@@ -19972,12 +19972,14 @@ void InfoVecIndexCommand::OutputResult(OutputHandler *reply,
     if (result_.err_code_ == RD_OK)
     {
         auto &alg_params = metadata_.VecAlgParams();
-        size_t len = (7 + alg_params.size()) * 2;
+        size_t len = (8 + alg_params.size()) * 2;
         reply->OnArrayStart(len);
         reply->OnString("index_name");
         reply->OnString(index_name_.StringView());
         reply->OnString("status");
         reply->OnString("ready");
+        reply->OnString("dimensions");
+        reply->OnInt(metadata_.Dimension());
         reply->OnString("algorithm");
         reply->OnString(EloqVec::algorithm_to_string(metadata_.VecAlgorithm()));
         reply->OnString("metric");
@@ -20022,9 +20024,8 @@ std::tuple<bool, AddVecIndexCommand> ParseAddVecIndexCommand(
 {
     assert(args[0] == "eloqvec.add" || args[0] == "ELOQVEC.ADD");
 
-    // ELOQVEC.ADD <index_name> <key> <vector_data>
-    // vector_data should be a space-separated list of float values
-    if (args.size() < 4)
+    // ELOQVEC.ADD <index_name> <key> "vector_data"
+    if (args.size() != 4)
     {
         output->OnError(
             "ERR wrong number of arguments for 'eloqvec.add' command");
@@ -20033,6 +20034,7 @@ std::tuple<bool, AddVecIndexCommand> ParseAddVecIndexCommand(
 
     std::string_view index_name = args[1];
     std::string_view key_str = args[2];
+    std::string_view vector_data_str = args[3];
 
     // Validate index name is not empty
     if (index_name.empty())
@@ -20049,19 +20051,12 @@ std::tuple<bool, AddVecIndexCommand> ParseAddVecIndexCommand(
         return {false, AddVecIndexCommand()};
     }
 
-    // Parse vector data (remaining arguments should be float values)
+    // Parse vector data
     std::vector<float> vector_data;
-    vector_data.reserve(args.size() - 3);
-
-    for (size_t i = 3; i < args.size(); ++i)
+    if (!ParseVectorData(vector_data_str, vector_data))
     {
-        float val;
-        if (!string2float(args[i].data(), args[i].size(), val))
-        {
-            output->OnError("ERR vector data must contain valid float values");
-            return {false, AddVecIndexCommand()};
-        }
-        vector_data.push_back(val);
+        output->OnError("ERR vector data must be valid float values");
+        return {false, AddVecIndexCommand()};
     }
 
     // Validate vector is not empty
@@ -20150,7 +20145,7 @@ std::tuple<bool, BAddVecIndexCommand> ParseBAddVecIndexCommand(
         // Parse vector data using helper function
         std::string_view vector_str = args[arg_idx + 1];
         std::vector<float> vector_data;
-        if (!BAddVecIndexCommand::ParseVectorData(vector_str, vector_data))
+        if (!ParseVectorData(vector_str, vector_data))
         {
             output->OnError("ERR vector data must be valid float");
             return {false, BAddVecIndexCommand()};
@@ -20186,67 +20181,6 @@ void AddVecIndexCommand::OutputResult(OutputHandler *reply,
     }
 }
 
-bool BAddVecIndexCommand::ParseVectorData(const std::string_view &vector_str,
-                                          std::vector<float> &vector)
-{
-    if (vector_str.empty())
-    {
-        return false;
-    }
-
-    // Count the number of space-separated values to estimate vector size
-    size_t estimated_size = 1;  // At least one value
-    for (char c : vector_str)
-    {
-        if (std::isspace(static_cast<unsigned char>(c)))
-        {
-            estimated_size++;
-        }
-    }
-
-    // Reserve space based on estimated count to avoid reallocations
-    vector.reserve(estimated_size);
-
-    const char *start = vector_str.data();
-    const char *end = start + vector_str.size();
-    const char *current = start;
-
-    while (current < end)
-    {
-        // Skip leading whitespace
-        while (current < end &&
-               std::isspace(static_cast<unsigned char>(*current)))
-        {
-            ++current;
-        }
-
-        if (current >= end)
-        {
-            break;
-        }
-
-        // Find the end of the current number
-        const char *num_start = current;
-        while (current < end &&
-               !std::isspace(static_cast<unsigned char>(*current)))
-        {
-            ++current;
-        }
-
-        // Parse the number
-        float val;
-        if (!string2float(num_start, current - num_start, val))
-        {
-            // Return false on parse error
-            return false;
-        }
-        vector.push_back(val);
-    }
-
-    // Treat whitespace-only input as invalid
-    return !vector.empty();
-}
-
 void BAddVecIndexCommand::OutputResult(OutputHandler *reply,
                                        RedisConnectionContext *ctx) const
 {
@@ -20266,8 +20200,8 @@ std::tuple<bool, UpdateVecIndexCommand> ParseUpdateVecIndexCommand(
 {
     assert(args[0] == "eloqvec.update" || args[0] == "ELOQVEC.UPDATE");
 
-    // ELOQVEC.UPDATE <index_name> <key> <vector_data>
-    if (args.size() < 4)
+    // ELOQVEC.UPDATE <index_name> <key> "vector_data"
+    if (args.size() != 4)
     {
         output->OnError(
             "ERR wrong number of arguments for 'eloqvec.update' command");
@@ -20276,6 +20210,7 @@ std::tuple<bool, UpdateVecIndexCommand> ParseUpdateVecIndexCommand(
 
     std::string_view index_name = args[1];
     std::string_view key_str = args[2];
+    std::string_view vector_data_str = args[3];
 
     // Validate index name is not empty
     if (index_name.empty())
@@ -20294,18 +20229,10 @@ std::tuple<bool, UpdateVecIndexCommand> ParseUpdateVecIndexCommand(
 
     // Parse vector data
     std::vector<float> vector_data;
-    size_t i = 3;
-    // Parse vector data (until we hit end of args)
-    while (i < args.size())
+    if (!ParseVectorData(vector_data_str, vector_data))
     {
-        float val;
-        if (!string2float(args[i].data(), args[i].size(), val))
-        {
-            output->OnError("ERR vector data must contain valid float values");
-            return {false, UpdateVecIndexCommand()};
-        }
-        vector_data.push_back(val);
-        i++;
+        output->OnError("ERR vector data must be valid float values");
+        return {false, UpdateVecIndexCommand()};
     }
 
     // Validate vector is not empty
@@ -20383,13 +20310,74 @@ void DeleteVecIndexCommand::OutputResult(OutputHandler *reply,
     }
 }
 
+bool ParseVectorData(const std::string_view &vector_str,
+                     std::vector<float> &vector)
+{
+    if (vector_str.empty())
+    {
+        return false;
+    }
+
+    // Count the number of space-separated values to estimate vector size
+    size_t estimated_size = 1;  // At least one value
+    for (char c : vector_str)
+    {
+        if (std::isspace(static_cast<unsigned char>(c)))
+        {
+            estimated_size++;
+        }
+    }
+
+    // Reserve space based on estimated count to avoid reallocations
+    vector.reserve(estimated_size);
+
+    const char *start = vector_str.data();
+    const char *end = start + vector_str.size();
+    const char *current = start;
+
+    while (current < end)
+    {
+        // Skip leading whitespace
+        while (current < end &&
+               std::isspace(static_cast<unsigned char>(*current)))
+        {
+            ++current;
+        }
+
+        if (current >= end)
+        {
+            break;
+        }
+
+        // Find the end of the current number
+        const char *num_start = current;
+        while (current < end &&
+               !std::isspace(static_cast<unsigned char>(*current)))
+        {
+            ++current;
+        }
+
+        // Parse the number
+        float val;
+        if (!string2float(num_start, current - num_start, val))
+        {
+            // Return false on parse error
+            return false;
+        }
+        vector.push_back(val);
+    }
+
+    // Treat whitespace-only input as invalid
+    return !vector.empty();
+}
+
 std::tuple<bool, SearchVecIndexCommand> ParseSearchVecIndexCommand(
     const std::vector<std::string_view> &args, OutputHandler *output)
 {
     assert(args[0] == "eloqvec.search" || args[0] == "ELOQVEC.SEARCH");
 
-    // ELOQVEC.SEARCH <index_name> <k_count> <vector_data>
-    if (args.size() < 4)
+    // ELOQVEC.SEARCH <index_name> <k_count> "vector_data"
+    if (args.size() != 4)
     {
         output->OnError(
             "ERR wrong number of arguments for 'eloqvec.search' command");
@@ -20398,6 +20386,7 @@ std::tuple<bool, SearchVecIndexCommand> ParseSearchVecIndexCommand(
 
     std::string_view index_name = args[1];
     std::string_view k_count_str = args[2];
+    std::string_view vector_data_str = args[3];
 
     // Validate index name is not empty
     if (index_name.empty())
@@ -20416,18 +20405,10 @@ std::tuple<bool, SearchVecIndexCommand> ParseSearchVecIndexCommand(
 
     // Parse vector data
     std::vector<float> vector_data;
-    size_t i = 3;
-    // Parse vector data (until we hit end of args)
-    while (i < args.size())
+    if (!ParseVectorData(vector_data_str, vector_data))
     {
-        float val;
-        if (!string2float(args[i].data(), args[i].size(), val))
-        {
-            output->OnError("ERR vector data must contain valid float values");
-            return {false, SearchVecIndexCommand()};
-        }
-        vector_data.push_back(val);
-        i++;
+        output->OnError("ERR vector data must be valid float values");
+        return {false, SearchVecIndexCommand()};
     }
 
     // Validate vector is not empty
