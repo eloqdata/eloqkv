@@ -536,7 +536,8 @@ private:
 
     std::unique_ptr<TxService> tx_service_;
 #if defined(DATA_STORE_TYPE_DYNAMODB) ||                                       \
-    defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB_CLOUD_S3)
+    defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB_CLOUD_S3) ||                       \
+    defined(LOG_STATE_TYPE_RKDB_S3)
     Aws::SDKOptions aws_options_;
 #endif
 
