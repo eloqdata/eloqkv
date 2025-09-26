@@ -528,6 +528,7 @@ VectorOpResult VectorHandler::Info(const std::string &name,
 VectorOpResult VectorHandler::Search(const std::string &name,
                                      const std::vector<float> &query_vector,
                                      size_t k_count,
+                                     size_t thread_id,
                                      SearchResult &vector_result)
 {
     TransactionExecution *txm =
@@ -567,7 +568,7 @@ VectorOpResult VectorHandler::Search(const std::string &name,
 
     // 4. Perform vector search
     auto search_result =
-        index_sptr->search(query_vector, k_count, vector_result);
+        index_sptr->search(query_vector, k_count, thread_id, vector_result);
     CommitTx(txm);
     return search_result.error;
 }
@@ -658,7 +659,8 @@ VectorOpResult VectorHandler::Add(const std::string &name,
         {
             pending_persist_indexes_.insert(name);
             vector_index_worker_pool_->SubmitWork(
-                [name] { VectorHandler::Instance().PersistIndex(name); });
+                [name](size_t thread_id)
+                { VectorHandler::Instance().PersistIndex(name); });
         }
     }
     else
@@ -768,7 +770,8 @@ VectorOpResult VectorHandler::Update(const std::string &name,
         {
             pending_persist_indexes_.insert(name);
             vector_index_worker_pool_->SubmitWork(
-                [name] { VectorHandler::Instance().PersistIndex(name); });
+                [name](size_t thread_id)
+                { VectorHandler::Instance().PersistIndex(name); });
         }
     }
     else
@@ -878,7 +881,8 @@ VectorOpResult VectorHandler::Delete(const std::string &name, uint64_t id)
         {
             pending_persist_indexes_.insert(name);
             vector_index_worker_pool_->SubmitWork(
-                [name] { VectorHandler::Instance().PersistIndex(name); });
+                [name](size_t thread_id)
+                { VectorHandler::Instance().PersistIndex(name); });
         }
     }
     else
@@ -1021,7 +1025,8 @@ VectorOpResult VectorHandler::BatchAdd(
         {
             pending_persist_indexes_.insert(name);
             vector_index_worker_pool_->SubmitWork(
-                [name] { VectorHandler::Instance().PersistIndex(name); });
+                [name](size_t thread_id)
+                { VectorHandler::Instance().PersistIndex(name); });
         }
     }
     else

@@ -286,6 +286,7 @@ metric_kind_t HNSWVectorIndex::convert_metric(DistanceMetric metric) const
 IndexOpResult HNSWVectorIndex::search(
     const std::vector<float> &query_vector,
     size_t k,
+    size_t thread_id,
     SearchResult &result,
     bool exact,
     std::optional<std::function<bool(uint64_t)>> filter)
@@ -331,7 +332,7 @@ IndexOpResult HNSWVectorIndex::search(
             // Use regular search
             auto search_result = usearch_index_.search(query_vector.data(),
                                                        k,
-                                                       0,  // thread
+                                                       thread_id,  // thread
                                                        exact);
 
             if (search_result.error)

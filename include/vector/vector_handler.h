@@ -179,6 +179,7 @@ public:
     VectorOpResult Search(const std::string &name,
                           const std::vector<float> &query_vector,
                           size_t k_count,
+                          size_t thread_id,
                           SearchResult &vector_result);
 
     /**

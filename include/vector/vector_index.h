@@ -81,6 +81,7 @@ public:
     virtual IndexOpResult search(
         const std::vector<float> &query_vector,
         size_t k,
+        size_t thread_id,
         SearchResult &result,
         bool exact = false,
         std::optional<std::function<bool(uint64_t)>> filter = std::nullopt) = 0;
