@@ -51,7 +51,8 @@
 #endif
 
 #if defined(DATA_STORE_TYPE_DYNAMODB) ||                                       \
-    (ROCKSDB_CLOUD_FS_TYPE == ROCKSDB_CLOUD_FS_TYPE_S3)
+    defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB_CLOUD_S3) ||                       \
+    defined(LOG_STATE_TYPE_RKDB_S3)
 #include <aws/core/Aws.h>
 #endif
 
@@ -536,7 +537,8 @@ private:
 
     std::unique_ptr<TxService> tx_service_;
 #if defined(DATA_STORE_TYPE_DYNAMODB) ||                                       \
-    (ROCKSDB_CLOUD_FS_TYPE == ROCKSDB_CLOUD_FS_TYPE_S3)
+    defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB_CLOUD_S3) ||                       \
+    defined(LOG_STATE_TYPE_RKDB_S3)
     Aws::SDKOptions aws_options_;
 #endif
 

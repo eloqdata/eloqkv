@@ -118,7 +118,7 @@ if [ -d "${LOG_SV_SRC}" ]; then
   rm -rf build LogService
   mkdir -p LogService/bin LogService/lib
   mkdir build && cd build
-  cmake .. -DCMAKE_BUILD_TYPE="${BUILD_TYPE}" -DWITH_ASAN="${ASAN}" -DDISABLE_CODE_LINE_IN_LOG=ON -DUSE_ROCKSDB_LOG_STATE=ON
+  cmake .. -DCMAKE_BUILD_TYPE="${BUILD_TYPE}" -DWITH_ASAN="${ASAN}" -DDISABLE_CODE_LINE_IN_LOG=ON
   cmake --build . --config "${BUILD_TYPE}" -j"${NCORE}"
   mv "${LOG_SV_SRC}/build/launch_sv" "${LOG_SV_SRC}/LogService/bin"
   if [ -f "${LOG_SV_SRC}/LogService/bin/launch_sv" ]; then
@@ -155,5 +155,3 @@ if [ -d "${LOG_SV_SRC}" ]; then
 fi
 
 echo "Build completed. Tarball at the-output/${TARBALL_NAME}"
-
-

@@ -12,7 +12,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1335 USA
-cmake_minimum_required(VERSION 3.8)
+cmake_minimum_required(VERSION 3.12)
 project(eloqkv C CXX)
 
 # Install dependencies to compile redis_cli:
@@ -70,10 +70,8 @@ elseif(WITH_DATA_STORE STREQUAL "ROCKSDB")
     add_compile_definitions(DATA_STORE_TYPE_ROCKSDB)
 elseif(WITH_DATA_STORE STREQUAL "ELOQDSS_ROCKSDB_CLOUD_S3")
     add_compile_definitions(DATA_STORE_TYPE_ELOQDSS_ROCKSDB_CLOUD_S3)
-    add_compile_definitions(ROCKSDB_CLOUD_FS_TYPE=1)
 elseif(WITH_DATA_STORE STREQUAL "ELOQDSS_ROCKSDB_CLOUD_GCS")
     add_compile_definitions(DATA_STORE_TYPE_ELOQDSS_ROCKSDB_CLOUD_GCS)
-    add_compile_definitions(ROCKSDB_CLOUD_FS_TYPE=2)
 elseif(WITH_DATA_STORE STREQUAL "ELOQDSS_ROCKSDB")
     add_compile_definitions(DATA_STORE_TYPE_ELOQDSS_ROCKSDB)
 elseif(WITH_DATA_STORE STREQUAL "ELOQDSS_ELOQSTORE")
