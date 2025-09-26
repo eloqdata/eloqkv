@@ -609,7 +609,7 @@ std::unique_ptr<txservice::CcScanner> RedisCatalogFactory::CreatePkCcmScanner(
     txservice::ScanDirection direction, const txservice::KeySchema *key_schema)
 {
     return std::make_unique<
-        txservice::TemplateCcScanner<EloqKey, RedisEloqObject>>(
+        txservice::HashParitionCcScanner<EloqKey, RedisEloqObject>>(
         direction, txservice::ScanIndexType::Primary, key_schema);
 }
 

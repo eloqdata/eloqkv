@@ -21,6 +21,7 @@
  */
 #pragma once
 
+#include <string_view>
 #include <vector>
 
 #include "eloq_string.h"
@@ -312,6 +313,22 @@ public:
     std::string_view StringView() const
     {
         return key_.StringView();
+    }
+
+    static bool IsMatch(const char *key_data,
+                        size_t key_data_size,
+                        const std::string_view &pattern)
+    {
+        if (pattern.empty())
+        {
+            return true;
+        }
+
+        return stringmatchlen(pattern.data(),
+                              pattern.size(),
+                              key_data,
+                              key_data_size,
+                              0) != 0;
     }
 
     bool IsMatch(const std::string_view &pattern) const
