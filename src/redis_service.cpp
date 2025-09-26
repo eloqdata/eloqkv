@@ -2417,7 +2417,7 @@ void RedisServiceImpl::RedisClusterSlots(std::vector<SlotInfo> &info)
                 }
             }
         }  // end-if
-    }      // end-for
+    }  // end-for
 
     if (info.size() > 1)
     {
@@ -6279,7 +6279,7 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
                 const std::string_view sv =
                     tuple.key_.GetKey<EloqKey>()->StringView();
 
-                if (tuple.status_ == RecordStatus::Deleted)
+                if (tuple.status_ != RecordStatus::Normal)
                 {
                     continue;
                 }
@@ -6289,12 +6289,13 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
 
                 if (cmd->count_ > 0 && obj_cnt >= cmd->count_)
                 {
+                    scan_batch_idx++;
                     is_scan_end = false;
                     break;
                 }
             }
 
-            if (scan_batch_idx < scan_batch.size())
+            if (cmd->count_ > 0 && obj_cnt >= cmd->count_)
             {
                 cmd->scan_cursor_->cache_idx_ = 0;
                 cmd->scan_cursor_->cache_.clear();
@@ -6304,7 +6305,7 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
                 {
                     const ScanBatchTuple &tuple = scan_batch[idx];
 
-                    if (tuple.status_ == RecordStatus::Deleted)
+                    if (tuple.status_ != RecordStatus::Normal)
                     {
                         continue;
                     }
