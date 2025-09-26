@@ -45,7 +45,7 @@
 #include "sharder.h"
 #include "tx_key.h"
 #if defined(DATA_STORE_TYPE_DYNAMODB) ||                                       \
-    (ROCKSDB_CLOUD_FS_TYPE == ROCKSDB_CLOUD_FS_TYPE_S3)
+    defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB_CLOUD_S3)
 #include <aws/core/Aws.h>
 #endif
 
@@ -2390,7 +2390,7 @@ void RedisServiceImpl::RedisClusterSlots(std::vector<SlotInfo> &info)
                 }
             }
         }  // end-if
-    }  // end-for
+    }      // end-for
 
     if (info.size() > 1)
     {
