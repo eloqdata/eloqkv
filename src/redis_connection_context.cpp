@@ -24,9 +24,11 @@
 #include <list>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <utility>
 
+#include "redis_command.h"
 #include "redis_service.h"
 #include "tx_util.h"
 
@@ -151,6 +153,77 @@ std::pair<bool, const std::string *> RedisConnectionContext::FindScanCursor(
         return {true, &cursor_content};
     }
     return {false, nullptr};
+}
+
+uint64_t RedisConnectionContext::CreateBucketScanCursor(
+    std::string_view cursor_content,
+    std::unique_ptr<BucketScanCursor> scan_cursor)
+{
+    // FNV-1a hash algorithm.
+    uint64_t hash = 14695981039346656037ULL;
+    for (size_t i = 0; i < cursor_content.size(); ++i)
+    {
+        hash ^= cursor_content[i];
+        hash *= 1099511628211ULL;
+    }
+
+    scan_cursor->cursor_id_ = hash;
+
+    auto iter = bucket_scan_cursors.find(db_id);
+    if (iter == bucket_scan_cursors.end())
+    {
+        bucket_scan_cursors.emplace(db_id, std::move(scan_cursor));
+    }
+    else
+    {
+        iter->second = std::move(scan_cursor);
+    }
+
+    return hash;
+}
+
+void RedisConnectionContext::RemoveBucketScanCursor()
+{
+    bucket_scan_cursors.erase(db_id);
+}
+
+uint64_t RedisConnectionContext::UpdateBucketScanCursor(
+    std::string_view cursor_content)
+{
+    // FNV-1a hash algorithm.
+    uint64_t hash = 14695981039346656037ULL;
+    for (size_t i = 0; i < cursor_content.size(); ++i)
+    {
+        hash ^= cursor_content[i];
+        hash *= 1099511628211ULL;
+    }
+
+    auto it = bucket_scan_cursors.find(db_id);
+    if (it == bucket_scan_cursors.end())
+    {
+        assert(false);
+        // No cursor to update for this DB. Avoid throwing; signal caller.
+        return 0;
+    }
+    it->second->cursor_id_ = hash;
+    return hash;
+}
+
+BucketScanCursor *RedisConnectionContext::FindBucketScanCursor(
+    uint64_t cursor_id)
+{
+    auto iter = bucket_scan_cursors.find(db_id);
+    if (iter == bucket_scan_cursors.end())
+    {
+        return nullptr;
+    }
+
+    if (iter->second->cursor_id_ != cursor_id)
+    {
+        return nullptr;
+    }
+
+    return iter->second.get();
 }
 
 }  // namespace EloqKV
