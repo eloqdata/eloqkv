@@ -2988,6 +2988,9 @@ function run_eloq_test(){
     # python3 redis_test/ttl_test/ttl_test_with_kv.py --dbtype redis --storage eloqdss-rocksdb-cloud-s3 --install_path ${eloqkv_install_path}
     # python3 redis_test/ttl_test/ttl_test_with_wal.py --dbtype redis --storage eloqdss-rocksdb-cloud-s3 --install_path ${eloqkv_install_path}
 
+    # run eloq_purger test
+    python3 redis_test/single_test/rocksdb_cloud_data_store_purger_test.py --dbtype redis --storage eloqdss-rocksdb-cloud-s3 --install_path ${eloqkv_install_path}
+
     # clean up test bucket
     cleanup_minio_bucket $ROCKSDB_CLOUD_BUCKET_NAME
 
