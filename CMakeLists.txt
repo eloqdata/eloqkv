@@ -514,7 +514,6 @@ elseif((WITH_DATA_STORE STREQUAL "ROCKSDB") OR(WITH_DATA_STORE STREQUAL "ROCKSDB
     SET(RESELOQ_RESOURCES ${RESELOQ_RESOURCES}
         store_handler/rocksdb_config.cpp
         store_handler/rocksdb_handler.cpp
-        store_handler/rocksdb_scanner.cpp
         store_handler/store_util.cpp
     )
 elseif((WITH_DATA_STORE STREQUAL "ELOQDSS_ROCKSDB_CLOUD_S3") OR
