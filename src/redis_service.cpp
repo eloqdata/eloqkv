@@ -6112,11 +6112,13 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
             return false;
         }
 
-        size_t &cache_idx = cmd->scan_cursor_->cache_idx_;
-        for (; cache_idx < cmd->scan_cursor_->cache_.size(); ++cache_idx)
+        for (size_t cache_idx = cmd->scan_cursor_->cache_idx_;
+             cache_idx < cmd->scan_cursor_->cache_.size();
+             ++cache_idx)
         {
             if (cmd->count_ > 0 && obj_cnt >= cmd->count_)
             {
+                cmd->scan_cursor_->cache_idx_ = cache_idx;
                 break;
             }
 
