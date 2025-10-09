@@ -2980,6 +2980,7 @@ function run_eloq_test(){
 
     # rm -rf runtime/*
     # python3 redis_test/datastore_test/datastore_scale_test.py --dbtype redis --storage eloqdss-rocksdb-cloud-s3 --install_path ${eloqkv_install_path}
+    python3 redis_test/single_test/branching_snapshot_test.py --dbtype redis --storage eloqdss-rocksdb-cloud-s3 --install_path ${eloqkv_install_path}
 
     # run ttl tests
     rm -rf runtime/*
