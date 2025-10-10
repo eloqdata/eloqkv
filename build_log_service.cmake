@@ -4,8 +4,6 @@ SET(TX_LOG_PROTOS_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/tx_service/tx-log-proto
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-error")
 
 option(BRPC_WITH_GLOG "With glog" ON)
-option(USE_ROCKSDB_LOG_STATE "Whether use rocksdb log state or in-memory log state" ON)
-message(NOTICE "USE_ROCKSDB_LOG_STATE : ${USE_ROCKSDB_LOG_STATE}")
 
 find_path(BRPC_INCLUDE_PATH NAMES brpc/stream.h)
 find_library(BRPC_LIB NAMES brpc)
@@ -102,42 +100,38 @@ endif()
 
 include_directories(${LEVELDB_INCLUDE_PATH})
 
-set(LOG_SHIPPING_THREADS_NUM 8)
+find_path(ROCKSDB_INCLUDE_PATH NAMES rocksdb/db.h)
 
-if(USE_ROCKSDB_LOG_STATE)
-  find_path(ROCKSDB_INCLUDE_PATH NAMES rocksdb/db.h)
-
-  if(NOT ROCKSDB_INCLUDE_PATH)
-    message(FATAL_ERROR "Fail to find RocksDB include path")
-  endif()
-
-  message(STATUS "ROCKSDB_INCLUDE_PATH: ${ROCKSDB_INCLUDE_PATH}")
-
-  find_library(ROCKSDB_LIB NAMES rocksdb)
-
-  if(NOT ROCKSDB_LIB)
-    message(FATAL_ERROR "Fail to find RocksDB lib path")
-  endif()
-
-  message(STATUS "ROCKSDB_LIB: ${ROCKSDB_LIB}")
-
-  set(LOG_INCLUDE_DIR
-    ${LOG_INCLUDE_DIR}
-    ${ROCKSDB_INCLUDE_PATH}
-  )
-  set(LOG_LIB
-    ${LOG_LIB}
-    ${ROCKSDB_LIB}
-  )
-
-  # add preprocessor definition USE_ROCKSDB_LOG_STATE
-  add_compile_definitions(USE_ROCKSDB_LOG_STATE)
-
-  # one shipping thread is enough for rocksdb version log state
-  set(LOG_SHIPPING_THREADS_NUM 1)
+if(NOT ROCKSDB_INCLUDE_PATH)
+  message(FATAL_ERROR "Fail to find RocksDB include path")
 endif()
 
+message(STATUS "ROCKSDB_INCLUDE_PATH: ${ROCKSDB_INCLUDE_PATH}")
+
+find_library(ROCKSDB_LIB NAMES rocksdb)
+
+if(NOT ROCKSDB_LIB)
+  message(FATAL_ERROR "Fail to find RocksDB lib path")
+endif()
+
+message(STATUS "ROCKSDB_LIB: ${ROCKSDB_LIB}")
+
+set(LOG_INCLUDE_DIR
+  ${LOG_INCLUDE_DIR}
+  ${ROCKSDB_INCLUDE_PATH}
+)
+set(LOG_LIB
+  ${LOG_LIB}
+  ${ROCKSDB_LIB}
+)
+
+# one shipping thread is enough for rocksdb version log state
+set(LOG_SHIPPING_THREADS_NUM 1)
+
 add_compile_definitions(LOG_SHIPPING_THREADS_NUM=${LOG_SHIPPING_THREADS_NUM})
+
+# Add for compatiable reason
+add_compile_definitions(LOG_STATE_TYPE_RKDB)
 
 set(LOG_INCLUDE_DIR
   ${LOG_SOURCE_DIR}/include
