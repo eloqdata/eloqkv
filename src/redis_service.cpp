@@ -6118,6 +6118,7 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
         {
             if (cmd->count_ > 0 && obj_cnt >= cmd->count_)
             {
+                // update cache index
                 cmd->scan_cursor_->cache_idx_ = cache_idx;
                 break;
             }
@@ -6302,8 +6303,26 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
                     cmd->scan_cursor_->cache_.emplace_back(sv);
                 }
 
-                save_point->prev_pause_idx_ = current_index;
-                save_point->pause_position_ = plan.CurrentPosition();
+                if (scan_batch_req.Result())
+                {
+                    if (current_index == plan_size)
+                    {
+                        // no more data
+                        is_scan_end = true;
+                    }
+                    else
+                    {
+                        // move to next plan
+                        save_point->prev_pause_idx_ = current_index + 1;
+                        save_point->pause_position_.clear();
+                    }
+                }
+                else
+                {
+                    save_point->prev_pause_idx_ = current_index;
+                    save_point->pause_position_ = plan.CurrentPosition();
+                }
+
                 break;
             }
 
