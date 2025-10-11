@@ -2386,7 +2386,7 @@ void RedisServiceImpl::RedisClusterSlots(std::vector<SlotInfo> &info)
                 }
             }
         }  // end-if
-    }      // end-for
+    }  // end-for
 
     if (info.size() > 1)
     {
