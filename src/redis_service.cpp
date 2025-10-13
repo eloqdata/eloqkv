@@ -297,6 +297,14 @@ DEFINE_string(txlog_rocksdb_cloud_endpoint_url,
 DEFINE_string(txlog_rocksdb_cloud_sst_file_cache_size,
               "1GB",
               "Local sst cache size for txlog");
+DEFINE_string(txlog_rocksdb_cloud_s3_url,
+              "",
+              "TxLog RocksDB cloud S3 URL. Format: s3://{bucket}/{path} or "
+              "http(s)://{host}:{port}/{bucket}/{path}. "
+              "Examples: s3://my-bucket/my-path, "
+              "http://localhost:9000/my-bucket/my-path. "
+              "This option takes precedence over legacy configuration options "
+              "if both are provided");
 #endif
 #ifdef WITH_CLOUD_AZ_INFO
 DEFINE_string(txlog_rocksdb_cloud_prefer_zone,
@@ -1697,6 +1705,16 @@ bool RedisServiceImpl::InitTxLogService(
             ? FLAGS_aws_secret_key
             : config_reader.GetString("store", "aws_secret_key", "");
 #endif /* LOG_STATE_TYPE_RKDB_S3 */
+
+    // Get the S3 URL configuration (new style)
+    txlog_rocksdb_cloud_config.s3_url_ =
+        !CheckCommandLineFlagIsDefault("txlog_rocksdb_cloud_s3_url")
+            ? FLAGS_txlog_rocksdb_cloud_s3_url
+            : config_reader.GetString("local",
+                                      "txlog_rocksdb_cloud_s3_url",
+                                      FLAGS_txlog_rocksdb_cloud_s3_url);
+
+    // Get legacy configuration
     txlog_rocksdb_cloud_config.endpoint_url_ =
         !CheckCommandLineFlagIsDefault("txlog_rocksdb_cloud_endpoint_url")
             ? FLAGS_txlog_rocksdb_cloud_endpoint_url
@@ -1783,6 +1801,50 @@ bool RedisServiceImpl::InitTxLogService(
         txlog_rocksdb_cloud_config.log_purger_starting_second_ =
             log_purger_tm.tm_sec;
     }
+
+    // Check if s3_url was explicitly set (prefer URL-based config)
+    // URL-based config takes precedence over legacy config if both are present
+    bool has_s3_url_explicit =
+        !CheckCommandLineFlagIsDefault("txlog_rocksdb_cloud_s3_url") ||
+        !config_reader.GetString("local", "txlog_rocksdb_cloud_s3_url", "")
+             .empty();
+
+    // If using S3 URL configuration, parse it and populate the fields
+    // This overrides any legacy configuration settings
+    if (has_s3_url_explicit)
+    {
+        txlog::S3UrlComponents url_components =
+            txlog::ParseS3Url(txlog_rocksdb_cloud_config.s3_url_);
+        if (!url_components.is_valid)
+        {
+            LOG(ERROR) << "Invalid txlog_rocksdb_cloud_s3_url: "
+                       << url_components.error_message
+                       << ". URL format: s3://{bucket}/{path} or "
+                          "http(s)://{host}:{port}/{bucket}/{path}. "
+                       << "Examples: s3://my-bucket/my-path, "
+                       << "http://localhost:9000/my-bucket/my-path";
+            return false;
+        }
+
+        // Populate config fields from parsed URL (overriding legacy configs)
+        txlog_rocksdb_cloud_config.bucket_name_ = url_components.bucket_name;
+        txlog_rocksdb_cloud_config.bucket_prefix_ =
+            "";  // No prefix in URL-based config
+        txlog_rocksdb_cloud_config.object_path_ = url_components.object_path;
+        txlog_rocksdb_cloud_config.endpoint_url_ = url_components.endpoint_url;
+
+        LOG(INFO) << "Using TxLog S3 URL configuration (overrides legacy "
+                     "config if present): "
+                  << txlog_rocksdb_cloud_config.s3_url_
+                  << " (bucket: " << txlog_rocksdb_cloud_config.bucket_name_
+                  << ", object_path: "
+                  << txlog_rocksdb_cloud_config.object_path_ << ", endpoint: "
+                  << (txlog_rocksdb_cloud_config.endpoint_url_.empty()
+                          ? "default"
+                          : txlog_rocksdb_cloud_config.endpoint_url_)
+                  << ")";
+    }
+
     if (FLAGS_bootstrap)
     {
         log_server_ = std::make_unique<::txlog::LogServer>(
@@ -2341,7 +2403,7 @@ void RedisServiceImpl::RedisClusterSlots(std::vector<SlotInfo> &info)
                 }
             }
         }  // end-if
-    }  // end-for
+    }      // end-for
 
     if (info.size() > 1)
     {
