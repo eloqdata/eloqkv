@@ -658,6 +658,9 @@ if(${BUILD_WITH_TESTS})
 
     add_test(NAME serialize/deserialize_test COMMAND object_serialize_deserialize_test WORKING_DIRECTORY ${CMAKE_BINARY_DIR})
     enable_testing()
+
+    set(VECTOR_INCLUDE_DIR ${PROJECT_SOURCE_DIR}/include/vector)
+    add_subdirectory(src/vector)
 endif()
 
 set_target_properties(eloqkv PROPERTIES
