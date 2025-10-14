@@ -308,6 +308,18 @@ public:
                                      std::vector<log_item_t> &items,
                                      txservice::TransactionExecution *txm);
 
+    /**
+     * @brief Check if a sharded log object exists
+     *
+     * @param base_log_name Base name for the log objects
+     * @param num_shards Total number of shards
+     * @param txm Transaction execution context (required, non-null)
+     * @return LogError::SUCCESS if all shards exist, error code otherwise
+     */
+    static LogError exists_sharded(const std::string &base_log_name,
+                                   uint32_t num_shards,
+                                   txservice::TransactionExecution *txm);
+
 private:
     /**
      * @brief Serialize metadata to string

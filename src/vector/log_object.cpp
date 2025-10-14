@@ -716,14 +716,20 @@ LogError LogObject::truncate_log(const std::string &log_name,
     size_t meta_data_size = meta_record.EncodedBlobSize();
     log_metadata_t meta = deserialize_metadata(meta_data, meta_data_size);
 
-    if (to_id < meta.head_item_sequence_id)
-    {
-        return LogError::INVALID_PARAMETER;
-    }
-
     if (to_id > meta.tail_item_sequence_id)
     {
         to_id = meta.tail_item_sequence_id;
+    }
+
+    if (meta.total_items == 0)
+    {
+        log_count = 0;
+        return LogError::SUCCESS;
+    }
+
+    if (to_id < meta.head_item_sequence_id)
+    {
+        return LogError::INVALID_PARAMETER;
     }
 
     // Delete all log items in the range
@@ -877,13 +883,17 @@ LogError LogObject::scan_log(const std::string &log_name,
     // Scan log items in the range by batch read
     std::vector<txservice::ScanBatchTuple> scan_batch_tuples;
     std::vector<txservice::EloqStringRecord> scan_batch_records;
+    size_t item_count = to_id - meta.head_item_sequence_id + 1;
+    scan_batch_tuples.reserve(item_count);
+    scan_batch_records.reserve(item_count);
     for (uint64_t seq_id = meta.head_item_sequence_id; seq_id <= to_id;
          seq_id++)
     {
         std::string item_key = get_log_item_key(log_name, seq_id);
-        txservice::EloqStringKey item_key_obj(item_key.data(), item_key.size());
+        txservice::TxKey item_tx_key =
+            txservice::EloqStringKey::Create(item_key.c_str(), item_key.size());
         scan_batch_records.emplace_back();
-        scan_batch_tuples.emplace_back(txservice::TxKey(&item_key_obj),
+        scan_batch_tuples.emplace_back(std::move(item_tx_key),
                                        &scan_batch_records.back());
     }
 
@@ -1148,6 +1158,36 @@ LogError LogObject::scan_sharded_log(const std::string &base_log_name,
         items.insert(items.end(),
                      std::make_move_iterator(shard_items.begin()),
                      std::make_move_iterator(shard_items.end()));
+    }
+
+    return LogError::SUCCESS;
+}
+
+LogError LogObject::exists_sharded(const std::string &base_log_name,
+                                   uint32_t num_shards,
+                                   txservice::TransactionExecution *txm)
+{
+    // Require non-null transaction execution context
+    if (txm == nullptr)
+    {
+        return LogError::INVALID_PARAMETER;
+    }
+
+    // Validate parameters
+    if (num_shards == 0)
+    {
+        return LogError::INVALID_PARAMETER;
+    }
+
+    // Check if all shards exist
+    for (uint32_t shard_id = 0; shard_id < num_shards; ++shard_id)
+    {
+        std::string shard_log_name =
+            get_shard_log_name(base_log_name, shard_id);
+        if (!exists(shard_log_name, txm))
+        {
+            return LogError::LOG_NOT_FOUND;
+        }
     }
 
     return LogError::SUCCESS;
