@@ -6028,10 +6028,11 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
     bool is_require_sort = true;
     bool is_read_local = false;
 
-    bool is_scan_end = true;
+    // bool is_scan_end = true;
     std::vector<std::string> &vct_rst = cmd->result_.vct_key_;
     int64_t obj_cnt = 0;
     std::unique_ptr<BucketScanCursor> scan_cursor_owner = nullptr;
+    size_t cache_idx = 0;
     if (cmd->scan_cursor_ == 0)
     {
         scan_cursor_owner = std::make_unique<BucketScanCursor>();
@@ -6055,14 +6056,13 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
             return false;
         }
 
-        for (size_t cache_idx = cmd->scan_cursor_->cache_idx_;
+        cache_idx = cmd->scan_cursor_->cache_idx_;
+        for (cache_idx = cmd->scan_cursor_->cache_idx_;
              cache_idx < cmd->scan_cursor_->cache_.size();
              ++cache_idx)
         {
             if (cmd->count_ > 0 && obj_cnt >= cmd->count_)
             {
-                // update cache index
-                cmd->scan_cursor_->cache_idx_ = cache_idx;
                 break;
             }
 
@@ -6072,8 +6072,10 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
     }
 
     BucketScanSavePoint *save_point = &cmd->scan_cursor_->save_point_;
+    bool more_plan = save_point->prev_pause_idx_ == UINT64_MAX ||
+                     save_point->prev_pause_idx_ < save_point->PlanSize();
 
-    if (cmd->count_ < 0 || obj_cnt < cmd->count_)
+    if ((cmd->count_ < 0 || obj_cnt < cmd->count_) && more_plan)
     {
         // Fetch catalog and acquire read lock on catalog table
         CatalogKey catalog_key(*redis_table_name);
@@ -6220,13 +6222,14 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
                 if (cmd->count_ > 0 && obj_cnt >= cmd->count_)
                 {
                     scan_batch_idx++;
-                    is_scan_end = false;
+                    // is_scan_end = false;
                     break;
                 }
             }
 
             if (cmd->count_ > 0 && obj_cnt >= cmd->count_)
             {
+                cache_idx = 0;
                 cmd->scan_cursor_->cache_idx_ = 0;
                 cmd->scan_cursor_->cache_.clear();
 
@@ -6248,16 +6251,16 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
 
                 if (scan_batch_req.Result())
                 {
-                    if (current_index == plan_size)
+                    if (current_index + 1 == plan_size)
                     {
                         // no more data
-                        is_scan_end = true;
+                        save_point->prev_pause_idx_ = plan_size;
+                        save_point->pause_position_.clear();
                     }
                     else
                     {
-                        // move to next plan
-                        save_point->prev_pause_idx_ = current_index + 1;
-                        save_point->pause_position_.clear();
+                        save_point->prev_pause_idx_ = current_index;
+                        save_point->pause_position_ = plan.CurrentPosition();
                     }
                 }
                 else
@@ -6265,7 +6268,6 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
                     save_point->prev_pause_idx_ = current_index;
                     save_point->pause_position_ = plan.CurrentPosition();
                 }
-
                 break;
             }
 
@@ -6277,6 +6279,14 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
                 {
                     plan = save_point->PickPlan(current_index);
                 }
+                else
+                {
+                    cache_idx = 0;
+                    cmd->scan_cursor_->cache_idx_ = 0;
+                    cmd->scan_cursor_->cache_.clear();
+                    save_point->prev_pause_idx_ = plan_size;
+                    save_point->pause_position_.clear();
+                }
             }
         }
 
@@ -6284,24 +6294,29 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
     }
     else
     {
-        if (save_point->prev_pause_idx_ + 1 == save_point->PlanSize())
+        // update cache idx
+        cmd->scan_cursor_->cache_idx_ = cache_idx;
+    }
+
+    bool is_scan_end = true;
+    if (save_point->prev_pause_idx_ == save_point->PlanSize() &&
+        cmd->scan_cursor_->cache_idx_ == cmd->scan_cursor_->cache_.size())
+    {
+        for (const auto &[node_group_id, bucket_scan_progress] :
+             save_point->pause_position_)
         {
-            for (const auto &[node_group_id, bucket_scan_progress] :
-                 save_point->pause_position_)
+            for (const auto &[core_idx, progress] : bucket_scan_progress)
             {
-                for (const auto &[core_idx, progress] : bucket_scan_progress)
+                if (!progress.AllFinished())
                 {
-                    if (!progress.AllFinished())
-                    {
-                        is_scan_end = false;
-                    }
+                    is_scan_end = false;
                 }
             }
         }
-        else
-        {
-            is_scan_end = false;
-        }
+    }
+    else
+    {
+        is_scan_end = false;
     }
 
     if (is_scan_end)
