@@ -1097,60 +1097,16 @@ bool RedisServiceImpl::Init(brpc::Server &brpc_server)
             dss_config_file_path,
             eloq_dss_data_path + "/DSMigrateLog",
             std::move(ds_factory));
-        std::vector<uint32_t> dss_shards = ds_config.GetShardsForThisNode();
-        std::unordered_map<uint32_t, std::unique_ptr<EloqDS::DataStore>>
-            dss_shards_map;
-        // setup rocksdb cloud data store
-        for (int shard_id : dss_shards)
-        {
-#if defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB_CLOUD_S3) ||                       \
-    defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB_CLOUD_GCS)
-            // TODO(lzx): move setup datastore to data_store_service
-            auto ds = std::make_unique<EloqDS::RocksDBCloudDataStore>(
-                rocksdb_cloud_config,
-                rocksdb_config,
-                (FLAGS_bootstrap || is_single_node),
-                enable_cache_replacement_,
-                shard_id,
-                data_store_service_.get());
-#elif defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB)
-            // TODO(lzx): move setup datastore to data_store_service
-            auto ds = std::make_unique<EloqDS::RocksDBDataStore>(
-                rocksdb_config,
-                (FLAGS_bootstrap || is_single_node),
-                enable_cache_replacement_,
-                shard_id,
-                data_store_service_.get());
 
-#elif defined(DATA_STORE_TYPE_ELOQDSS_ELOQSTORE)
-            auto ds = std::make_unique<EloqDS::EloqStoreDataStore>(
-                shard_id, data_store_service_.get());
-#endif
-            ds->Initialize();
-
-            // Start db if the shard status is not closed
-            if (ds_config.FetchDSShardStatus(shard_id) !=
-                EloqDS::DSShardStatus::Closed)
-            {
-                bool ret = ds->StartDB();
-                if (!ret)
-                {
-                    LOG(ERROR)
-                        << "Failed to start db instance in data store service";
-                    return false;
-                }
-            }
-            dss_shards_map[shard_id] = std::move(ds);
-        }
-
-        // setup local data store service
-        bool ret = data_store_service_->StartService();
+        // Start data store service. (Also create datastore in StartService() if
+        // needed)
+        bool ret = data_store_service_->StartService(
+            (FLAGS_bootstrap || is_single_node));
         if (!ret)
         {
             LOG(ERROR) << "Failed to start data store service";
             return false;
         }
-        data_store_service_->ConnectDataStore(std::move(dss_shards_map));
         // setup data store service client
         store_hd_ = std::make_unique<EloqDS::DataStoreServiceClient>(
             catalog_factory, ds_config, data_store_service_.get());
@@ -1985,7 +1941,6 @@ void RedisServiceImpl::Stop()
 #if ELOQDS
         if (data_store_service_ != nullptr)
         {
-            data_store_service_->DisconnectDataStore();
             data_store_service_ = nullptr;
         }
 #endif
