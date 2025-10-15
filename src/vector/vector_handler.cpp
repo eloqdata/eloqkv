@@ -1108,13 +1108,6 @@ VectorHandler::CreateAndInitializeIndex(const TxRecord::Uptr &h_record,
         return {nullptr, VectorOpResult::INDEX_INIT_FAILED};
     }
 
-    // Load the index from storage
-    if (std::filesystem::exists(config.storage_path) &&
-        !index_sptr->load(config.storage_path))
-    {
-        return {nullptr, VectorOpResult::INDEX_LOAD_FAILED};
-    }
-
     // Apply log items to the index
     if (LogObject::exists(build_log_name(config.name), txm))
     {

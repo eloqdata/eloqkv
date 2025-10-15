@@ -46,7 +46,6 @@ public:
 
     // VectorIndex interface implementation
     bool initialize(const IndexConfig &config) override;
-    bool load(const std::string &path) override;
     bool save(const std::string &path) override;
 
     IndexOpResult search(const std::vector<float> &query_vector,
@@ -92,6 +91,13 @@ private:
      * @return true if successful, false otherwise
      */
     bool initialize_usearch_index(const IndexConfig &config);
+
+    /**
+     * @brief Load an existing index from storage.
+     *
+     * @return true if loading successful, false otherwise
+     */
+    bool load();
 
 private:
     // usearch index instance

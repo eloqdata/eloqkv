@@ -12,6 +12,7 @@
 
 #include <glog/logging.h>
 
+#include <filesystem>
 #include <shared_mutex>
 #include <usearch/index.hpp>
 #include <usearch/index_dense.hpp>
@@ -33,56 +34,53 @@ bool HNSWVectorIndex::initialize(const IndexConfig &config)
     std::lock_guard<std::shared_mutex> lock(index_mutex_);
 
     config_ = config;
-    return initialize_usearch_index(config);
+    initialized_ = initialize_usearch_index(config) && load();
+    return initialized_;
 }
 
 /**
  * @brief Loads an HNSW index from disk into this instance.
  *
- * Attempts to load a usearch-backed index from the file at |path|. The method
- * acquires an exclusive lock for thread safety and will fail if |path| is
- * empty or the index is already initialized.
+ * Attempts to load a usearch-backed index from the file at |path|.
  *
  * On successful load the internal index is set and the instance becomes ready
  * (initialized_ = true). If loading fails or an exception is caught the
  * instance remains not-initialized (initialized_ = false).
  *
- * @param path Filesystem path to the serialized index file.
  * @return true if the index was loaded and the instance is initialized; false
  *         otherwise (invalid path, already initialized, load failure, or
  *         exception).
  */
-bool HNSWVectorIndex::load(const std::string &path)
+bool HNSWVectorIndex::load()
 {
-    std::lock_guard<std::shared_mutex> lock(index_mutex_);
-
-    if (path.empty())
+    if (config_.storage_path.empty())
     {
         return false;
     }
 
-    if (initialized_)
+    if (!std::filesystem::exists(config_.storage_path))
     {
-        return false;
+        // If the index file does not exist, return true
+        return true;
     }
 
     try
     {
         // Load the index from file using usearch API
-        auto load_result = usearch_index_.load(path.c_str());
+        auto load_result = usearch_index_.load(config_.storage_path.c_str());
         if (!load_result)
         {
             return false;
         }
 
-        // Update state
-        initialized_ = true;
-
+        if (!usearch_index_.try_reserve(index_limits_t(config_.max_elements)))
+        {
+            return false;
+        }
         return true;
     }
     catch (const std::exception &e)
     {
-        initialized_ = false;
         return false;
     }
 }
@@ -220,13 +218,10 @@ bool HNSWVectorIndex::initialize_usearch_index(const IndexConfig &config)
         }
 
         usearch_index_ = std::move(init_result);
-        initialized_ = true;
-
         return true;
     }
     catch (const std::exception &e)
     {
-        initialized_ = false;
         return false;
     }
 }
@@ -313,7 +308,7 @@ IndexOpResult HNSWVectorIndex::search(
                 query_vector.data(),
                 k,
                 [&filter](auto key) { return (*filter)(key); },
-                0,  // thread
+                thread_id,  // thread
                 exact);
 
             if (search_result.error)
@@ -393,7 +388,7 @@ IndexOpResult HNSWVectorIndex::add(const std::vector<float> &vector,
     try
     {
         // Add vector to usearch index
-        auto add_result = usearch_index_.add(id, vector.data(), 0, true);
+        auto add_result = usearch_index_.add(id, vector.data());
         if (add_result.error)
         {
             return IndexOpResult(VectorOpResult::INDEX_INTERNAL_ERROR,
@@ -437,7 +432,12 @@ IndexOpResult HNSWVectorIndex::add_batch(
 {
     std::shared_lock<std::shared_mutex> lock(index_mutex_);
 
-    assert(vectors.size() == ids.size());
+    if (vectors.size() != ids.size())
+    {
+        return IndexOpResult(VectorOpResult::INDEX_ADD_FAILED,
+                             "Vectors and ids size mismatch");
+    }
+
     if (!initialized_)
     {
         return IndexOpResult(VectorOpResult::INDEX_NOT_EXIST,
@@ -455,8 +455,7 @@ IndexOpResult HNSWVectorIndex::add_batch(
                                      "Vector dimension mismatch");
             }
 
-            auto add_result =
-                usearch_index_.add(ids[i], vectors[i].data(), 0, true);
+            auto add_result = usearch_index_.add(ids[i], vectors[i].data());
             if (add_result.error)
             {
                 return IndexOpResult(VectorOpResult::UNKNOWN,

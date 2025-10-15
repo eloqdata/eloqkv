@@ -50,15 +50,6 @@ public:
     virtual bool initialize(const IndexConfig &config) = 0;
 
     /**
-     * @brief Load an existing index from storage. This call blocks until the
-     * index is loaded.
-     *
-     * @param path Path to the index file
-     * @return true if loading successful, false otherwise
-     */
-    virtual bool load(const std::string &path) = 0;
-
-    /**
      * @brief Save the current index to storage. This call blocks until the
      * index is saved.
      *
