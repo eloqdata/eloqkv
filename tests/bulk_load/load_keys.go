@@ -15,7 +15,7 @@ import (
 )
 
 var (
-	server    = flag.String("server", "10.128.0.44", "Redis server address")
+	server    = flag.String("server", "127.0.0.1", "Redis server address")
 	port      = flag.Int("port", 6379, "Redis server port")
 	dataSize  = flag.Int("data_size", 512, "Value size in bytes")
 	totalKeys = flag.Int("total_keys", 0, "Total number of keys to insert")
