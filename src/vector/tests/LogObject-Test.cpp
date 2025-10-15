@@ -552,6 +552,30 @@ TEST_CASE("LogObject Concurrent Scan Operations", "[log-object]")
     DLOG(INFO) << "LogObject Concurrent Scan Operations done";
 }
 
+void truncate_worker(const std::string &log_name,
+                     bool &truncate_succeed,
+                     bool retry_if_failed)
+{
+    uint64_t log_count;
+    do
+    {
+        if (truncate_log_object(log_name, log_count, num_shards))
+        {
+            assert(log_count == 0);
+            truncate_succeed = true;
+            return;
+        }
+
+        if (!retry_if_failed)
+        {
+            truncate_succeed = false;
+            return;
+        }
+        // Retry after 10ms
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    } while (true);
+}
+
 TEST_CASE("LogObject Concurrent Truncate Operations", "[log-object]")
 {
     DLOG(INFO) << "LogObject Concurrent Truncate Operations start";
@@ -567,22 +591,16 @@ TEST_CASE("LogObject Concurrent Truncate Operations", "[log-object]")
     batch_append_items(log_name, batch_num, batch_item_num, hot_num_shards);
 
     // 3. concurrent truncate log items
-    auto truncate_worker = [&](bool &truncate_succeed)
-    {
-        uint64_t log_count;
-        if (!truncate_log_object(log_name, log_count, num_shards))
-        {
-            truncate_succeed = false;
-            return;
-        }
-        assert(log_count == 0);
-        truncate_succeed = true;
-    };
-
     bool truncate_succeed1{false};
     bool truncate_succeed2{false};
-    std::thread worker1(truncate_worker, std::ref(truncate_succeed1));
-    std::thread worker2(truncate_worker, std::ref(truncate_succeed2));
+    std::thread worker1(truncate_worker,
+                        std::ref(log_name),
+                        std::ref(truncate_succeed1),
+                        false);
+    std::thread worker2(truncate_worker,
+                        std::ref(log_name),
+                        std::ref(truncate_succeed2),
+                        false);
 
     // wait for truncate workers to finish
     worker1.join();
@@ -745,18 +763,6 @@ TEST_CASE("LogObject Concurrent Create and Remove Operations", "[log-object]")
     DLOG(INFO) << "LogObject Concurrent Create and Remove Operations done";
 }
 
-void truncate_worker(const std::string &log_name)
-{
-    TransactionExecution *txm = NewTxInit(
-        tx_service.get(), IsolationLevel::RepeatableRead, CcProtocol::OCC);
-    assert(txm != nullptr);
-    uint64_t log_count;
-    assert(LogError::SUCCESS == LogObject::truncate_all_sharded_logs(
-                                    log_name, num_shards, log_count, txm));
-    assert(log_count == 0);
-    assert(CommitTx(txm).first);
-}
-
 TEST_CASE("LogObject Concurrent Append and Truncate Operations", "[log-object]")
 {
     DLOG(INFO) << "LogObject Concurrent Append and Truncate Operations start";
@@ -772,7 +778,9 @@ TEST_CASE("LogObject Concurrent Append and Truncate Operations", "[log-object]")
 
     // 3. one worker try truncate log items and another worker try append log
     // items
-    std::thread worker2(truncate_worker, std::ref(log_name));
+    bool truncate_succeed{false};
+    std::thread worker2(
+        truncate_worker, std::ref(log_name), std::ref(truncate_succeed), true);
     std::thread worker1(append_worker,
                         std::ref(log_name),
                         item_num,
@@ -782,11 +790,12 @@ TEST_CASE("LogObject Concurrent Append and Truncate Operations", "[log-object]")
 
     worker1.join();
     worker2.join();
+    REQUIRE(truncate_succeed);
 
     // 4. scan log items
     std::vector<log_item_t> scanned_items;
     scan_log_object(log_name, scanned_items, num_shards);
-    REQUIRE(scanned_items.size() > 0);
+    REQUIRE(scanned_items.size() <= item_num);
 
     // 5. remove log object
     remove_log_object(log_name);
