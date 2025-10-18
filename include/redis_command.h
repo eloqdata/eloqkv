@@ -792,7 +792,6 @@ struct InfoCommand : public DirectCommand
     std::string enable_data_store_;
     std::string enable_wal_;
     uint32_t node_memory_limit_mb_{0};
-    uint32_t node_log_limit_mb_{0};
 
     int64_t data_memory_allocated_{0};
     int64_t data_memory_committed_{0};

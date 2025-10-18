@@ -1,4 +1,5 @@
 *.code-workspace
+.cursor
 .vscode
 .cursor
 .idea

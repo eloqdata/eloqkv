@@ -1541,7 +1541,6 @@ void InfoCommand::Execute(RedisServiceImpl *redis_impl,
     enable_data_store_ = redis_impl->GetEnableDataStore();
     enable_wal_ = redis_impl->GetEnableWal();
     node_memory_limit_mb_ = redis_impl->GetNodeMemoryLimitMB();
-    node_log_limit_mb_ = redis_impl->GetNodeLogLimitMB();
 
     if (set_section_.size() == 0 ||
         set_section_.find("memory") != set_section_.end())
@@ -2193,9 +2192,7 @@ void InfoCommand::OutputResult(OutputHandler *reply) const
         // result += "data_memory_frag_ratio: " + ;  // TODO
         result +=
             "\r\nnode_memory_limit:" + std::to_string(node_memory_limit_mb_) +
-            " mb";
-        result +=
-            "\r\nnode_log_limit:" + std::to_string(node_log_limit_mb_) + " mb ";
+            " mb ";
     }
 
     if (set_section_.size() == 0 ||

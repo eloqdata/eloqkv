@@ -25,6 +25,7 @@ project(eloqkv C CXX)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_STANDARD 17)
 
+add_compile_definitions(ELOQ_MODULE_ELOQKV)
 set(METRICS_LIB "eloq-metrics" CACHE STRING "metrics library name.")
 
 option(INI_USE_HEAP "Whether parse ini on heap" ON)
@@ -52,7 +53,7 @@ option(WITH_ASAN "Enable memory sanitize" OFF)
 message(NOTICE "WITH ASAN: ${WITH_ASAN}")
 
 # KV data store backend for redis server, Rocksdb, DynamoDB, RocksDB Cloud
-set(WITH_DATA_STORE "ROCKSDB" CACHE STRING "The KV data store for EloqKV")
+set(WITH_DATA_STORE "ELOQDSS_ROCKSDB" CACHE STRING "The KV data store for EloqKV")
 set_property(CACHE WITH_DATA_STORE PROPERTY STRINGS "DYNAMODB" "ROCKSDB" "ROCKSDB_CLOUD_S3" "ROCKSDB_CLOUD_GCS" "ELOQDSS_ROCKSDB_CLOUD_S3" "ELOQDSS_ROCKSDB_CLOUD_GCS" "ELOQDSS_ROCKSDB" "ELOQDSS_ELOQSTORE")
 message(NOTICE "With DATA_STORE: ${WITH_DATA_STORE}")
 
@@ -136,6 +137,7 @@ endif()
 
 option(VECTOR_INDEX_ENABLED "Enable vector index" OFF)
 message("VECTOR_INDEX_ENABLED: ${VECTOR_INDEX_ENABLED}")
+add_compile_definitions(ELOQ_MODULE_ELOQKV)
 
 add_definitions("-Wall -g")
 
@@ -224,167 +226,167 @@ endif()
 find_package(OpenSSL)
 include_directories(${OPENSSL_INCLUDE_DIR})
 
-if(WITH_DATA_STORE STREQUAL "DYNAMODB")
-    find_package(AWSSDK REQUIRED COMPONENTS dynamodb)
-endif()
+# if(WITH_DATA_STORE STREQUAL "DYNAMODB")
+#     find_package(AWSSDK REQUIRED COMPONENTS dynamodb)
+# endif()
 
-# Add RocksDB deps
-if((WITH_DATA_STORE STREQUAL "ROCKSDB") OR (WITH_DATA_STORE STREQUAL "ELOQDSS_ROCKSDB"))
-    find_path(ROCKSDB_INCLUDE_PATH NAMES rocksdb/db.h)
+# # Add RocksDB deps
+# if((WITH_DATA_STORE STREQUAL "ROCKSDB") OR (WITH_DATA_STORE STREQUAL "ELOQDSS_ROCKSDB"))
+#     find_path(ROCKSDB_INCLUDE_PATH NAMES rocksdb/db.h)
 
-    if(NOT ROCKSDB_INCLUDE_PATH)
-        message(FATAL_ERROR "Fail to find RocksDB include path")
-    endif()
+#     if(NOT ROCKSDB_INCLUDE_PATH)
+#         message(FATAL_ERROR "Fail to find RocksDB include path")
+#     endif()
 
-    message(STATUS "ROCKSDB_INCLUDE_PATH: ${ROCKSDB_INCLUDE_PATH}")
-    include_directories(${ROCKSDB_INCLUDE_PATH})
+#     message(STATUS "ROCKSDB_INCLUDE_PATH: ${ROCKSDB_INCLUDE_PATH}")
+#     include_directories(${ROCKSDB_INCLUDE_PATH})
 
-    find_library(ROCKSDB_LIB NAMES rocksdb)
+#     find_library(ROCKSDB_LIB NAMES rocksdb)
 
-    if(NOT ROCKSDB_LIB)
-        message(FATAL_ERROR "Fail to find RocksDB lib path")
-    endif()
+#     if(NOT ROCKSDB_LIB)
+#         message(FATAL_ERROR "Fail to find RocksDB lib path")
+#     endif()
 
-    message(STATUS "ROCKSDB_LIB: ${ROCKSDB_LIB}")
-    set(ROCKSDB_LIBRARIES ${ROCKSDB_LIBRARIES} ${ROCKSDB_LIB})
-endif()
+#     message(STATUS "ROCKSDB_LIB: ${ROCKSDB_LIB}")
+#     set(ROCKSDB_LIBRARIES ${ROCKSDB_LIBRARIES} ${ROCKSDB_LIB})
+# endif()
 
-if((WITH_DATA_STORE STREQUAL "ROCKSDB_CLOUD_S3") OR(WITH_DATA_STORE STREQUAL "ROCKSDB_CLOUD_GCS")
-    OR(WITH_DATA_STORE STREQUAL "ELOQDSS_ROCKSDB_CLOUD_S3") OR(WITH_DATA_STORE STREQUAL "ELOQDSS_ROCKSDB_CLOUD_GCS"))
-    if((WITH_DATA_STORE STREQUAL "ROCKSDB_CLOUD_S3") OR(WITH_DATA_STORE STREQUAL "ELOQDSS_ROCKSDB_CLOUD_S3"))
-        find_path(AWS_CORE_INCLUDE_PATH aws/core/Aws.h)
+# if((WITH_DATA_STORE STREQUAL "ROCKSDB_CLOUD_S3") OR(WITH_DATA_STORE STREQUAL "ROCKSDB_CLOUD_GCS")
+#     OR(WITH_DATA_STORE STREQUAL "ELOQDSS_ROCKSDB_CLOUD_S3") OR(WITH_DATA_STORE STREQUAL "ELOQDSS_ROCKSDB_CLOUD_GCS"))
+#     if((WITH_DATA_STORE STREQUAL "ROCKSDB_CLOUD_S3") OR(WITH_DATA_STORE STREQUAL "ELOQDSS_ROCKSDB_CLOUD_S3"))
+#         find_path(AWS_CORE_INCLUDE_PATH aws/core/Aws.h)
 
-        if((NOT AWS_CORE_INCLUDE_PATH))
-            message(FATAL_ERROR "Fail to find aws/core include path")
-        endif()
+#         if((NOT AWS_CORE_INCLUDE_PATH))
+#             message(FATAL_ERROR "Fail to find aws/core include path")
+#         endif()
 
-        message(STATUS "aws/core include path: ${AWS_CORE_INCLUDE_PATH}")
+#         message(STATUS "aws/core include path: ${AWS_CORE_INCLUDE_PATH}")
 
-        find_library(AWS_CORE_LIB aws-cpp-sdk-core)
+#         find_library(AWS_CORE_LIB aws-cpp-sdk-core)
 
-        if((NOT AWS_CORE_LIB))
-            message(FATAL_ERROR "Fail to find aws-cpp-sdk-core lib")
-        endif()
+#         if((NOT AWS_CORE_LIB))
+#             message(FATAL_ERROR "Fail to find aws-cpp-sdk-core lib")
+#         endif()
 
-        message(STATUS "aws-cpp-sdk-core library: ${AWS_CORE_LIB}")
+#         message(STATUS "aws-cpp-sdk-core library: ${AWS_CORE_LIB}")
 
-        find_path(AWS_KINESIS_INCLUDE_PATH aws/kinesis/KinesisClient.h)
+#         find_path(AWS_KINESIS_INCLUDE_PATH aws/kinesis/KinesisClient.h)
 
-        if((NOT AWS_KINESIS_INCLUDE_PATH))
-            message(FATAL_ERROR "Fail to find aws/kinesis include path")
-        endif()
+#         if((NOT AWS_KINESIS_INCLUDE_PATH))
+#             message(FATAL_ERROR "Fail to find aws/kinesis include path")
+#         endif()
 
-        message(STATUS "aws/kinesis include path: ${AWS_KINESIS_INCLUDE_PATH}")
+#         message(STATUS "aws/kinesis include path: ${AWS_KINESIS_INCLUDE_PATH}")
 
-        find_library(AWS_KINESIS_LIB aws-cpp-sdk-kinesis)
+#         find_library(AWS_KINESIS_LIB aws-cpp-sdk-kinesis)
 
-        if((NOT AWS_KINESIS_LIB))
-            message(FATAL_ERROR "Fail to find aws-cpp-sdk-kinesis lib")
-        endif()
+#         if((NOT AWS_KINESIS_LIB))
+#             message(FATAL_ERROR "Fail to find aws-cpp-sdk-kinesis lib")
+#         endif()
 
-        message(STATUS "aws-cpp-sdk-kinesis library: ${AWS_KINESIS_LIB}")
+#         message(STATUS "aws-cpp-sdk-kinesis library: ${AWS_KINESIS_LIB}")
 
-        find_path(AWS_KINESIS_INCLUDE_PATH aws/kinesis/KinesisClient.h)
+#         find_path(AWS_KINESIS_INCLUDE_PATH aws/kinesis/KinesisClient.h)
 
-        if((NOT AWS_KINESIS_INCLUDE_PATH))
-            message(FATAL_ERROR "Fail to find aws/kinesis include path")
-        endif()
+#         if((NOT AWS_KINESIS_INCLUDE_PATH))
+#             message(FATAL_ERROR "Fail to find aws/kinesis include path")
+#         endif()
 
-        message(STATUS "aws/kinesis include path: ${AWS_KINESIS_INCLUDE_PATH}")
+#         message(STATUS "aws/kinesis include path: ${AWS_KINESIS_INCLUDE_PATH}")
 
-        find_library(AWS_KINESIS_LIB aws-cpp-sdk-kinesis)
+#         find_library(AWS_KINESIS_LIB aws-cpp-sdk-kinesis)
 
-        if((NOT AWS_KINESIS_LIB))
-            message(FATAL_ERROR "Fail to find aws-cpp-sdk-kinesis lib")
-        endif()
+#         if((NOT AWS_KINESIS_LIB))
+#             message(FATAL_ERROR "Fail to find aws-cpp-sdk-kinesis lib")
+#         endif()
 
-        message(STATUS "aws-cpp-sdk-kinesis library: ${AWS_KINESIS_LIB}")
+#         message(STATUS "aws-cpp-sdk-kinesis library: ${AWS_KINESIS_LIB}")
 
-        find_path(AWS_S3_INCLUDE_PATH aws/s3/S3Client.h)
+#         find_path(AWS_S3_INCLUDE_PATH aws/s3/S3Client.h)
 
-        if((NOT AWS_S3_INCLUDE_PATH))
-            message(FATAL_ERROR "Fail to find aws/s3 include path")
-        endif()
+#         if((NOT AWS_S3_INCLUDE_PATH))
+#             message(FATAL_ERROR "Fail to find aws/s3 include path")
+#         endif()
 
-        message(STATUS "aws/s3 include path: ${AWS_S3_INCLUDE_PATH}")
+#         message(STATUS "aws/s3 include path: ${AWS_S3_INCLUDE_PATH}")
 
-        find_library(AWS_S3_LIB aws-cpp-sdk-s3)
+#         find_library(AWS_S3_LIB aws-cpp-sdk-s3)
 
-        if((NOT AWS_S3_LIB))
-            message(FATAL_ERROR "Fail to find aws-cpp-sdk-s3 lib")
-        endif()
+#         if((NOT AWS_S3_LIB))
+#             message(FATAL_ERROR "Fail to find aws-cpp-sdk-s3 lib")
+#         endif()
 
-        message(STATUS "aws-cpp-sdk-s3 library: ${AWS_S3_LIB}")
+#         message(STATUS "aws-cpp-sdk-s3 library: ${AWS_S3_LIB}")
 
-        set(ROCKSDB_INCLUDE_PATH ${ROCKSDB_INCLUDE_PATH} ${AWS_CORE_INCLUDE_PATH})
-        set(ROCKSDB_INCLUDE_PATH ${ROCKSDB_INCLUDE_PATH} ${AWS_KINESIS_INCLUDE_PATH})
-        set(ROCKSDB_INCLUDE_PATH ${ROCKSDB_INCLUDE_PATH} ${AWS_S3_INCLUDE_PATH})
+#         set(ROCKSDB_INCLUDE_PATH ${ROCKSDB_INCLUDE_PATH} ${AWS_CORE_INCLUDE_PATH})
+#         set(ROCKSDB_INCLUDE_PATH ${ROCKSDB_INCLUDE_PATH} ${AWS_KINESIS_INCLUDE_PATH})
+#         set(ROCKSDB_INCLUDE_PATH ${ROCKSDB_INCLUDE_PATH} ${AWS_S3_INCLUDE_PATH})
 
-        set(ROCKSDB_LIBRARIES ${ROCKSDB_LIBRARIES} ${AWS_CORE_LIB})
-        set(ROCKSDB_LIBRARIES ${ROCKSDB_LIBRARIES} ${AWS_KINESIS_LIB})
-        set(ROCKSDB_LIBRARIES ${ROCKSDB_LIBRARIES} ${AWS_S3_LIB})
+#         set(ROCKSDB_LIBRARIES ${ROCKSDB_LIBRARIES} ${AWS_CORE_LIB})
+#         set(ROCKSDB_LIBRARIES ${ROCKSDB_LIBRARIES} ${AWS_KINESIS_LIB})
+#         set(ROCKSDB_LIBRARIES ${ROCKSDB_LIBRARIES} ${AWS_S3_LIB})
 
-        find_library(ROCKSDB_CLOUD_LIB NAMES rocksdb-cloud-aws)
-    elseif((WITH_DATA_STORE STREQUAL "ROCKSDB_CLOUD_GCS") OR(WITH_DATA_STORE STREQUAL "ELOQDSS_ROCKSDB_CLOUD_GCS"))
-        find_path(GCP_CS_INCLUDE_PATH google/cloud/storage/client.h)
+#         find_library(ROCKSDB_CLOUD_LIB NAMES rocksdb-cloud-aws)
+#     elseif((WITH_DATA_STORE STREQUAL "ROCKSDB_CLOUD_GCS") OR(WITH_DATA_STORE STREQUAL "ELOQDSS_ROCKSDB_CLOUD_GCS"))
+#         find_path(GCP_CS_INCLUDE_PATH google/cloud/storage/client.h)
 
-        if((NOT GCP_CS_INCLUDE_PATH))
-            message(FATAL_ERROR "Fail to find google/cloud/storage include path")
-        endif()
+#         if((NOT GCP_CS_INCLUDE_PATH))
+#             message(FATAL_ERROR "Fail to find google/cloud/storage include path")
+#         endif()
 
-        message(STATUS "google/cloud/storage include path: ${GCP_CS_INCLUDE_PATH}")
+#         message(STATUS "google/cloud/storage include path: ${GCP_CS_INCLUDE_PATH}")
 
-        find_library(GCP_COMMON_LIB google_cloud_cpp_common)
+#         find_library(GCP_COMMON_LIB google_cloud_cpp_common)
 
-        if((NOT GCP_COMMON_LIB))
-            message(FATAL_ERROR "Fail to find google_cloud_cpp_common lib")
-        endif()
+#         if((NOT GCP_COMMON_LIB))
+#             message(FATAL_ERROR "Fail to find google_cloud_cpp_common lib")
+#         endif()
 
-        message(STATUS "google_cloud_cpp_common library: ${GCP_COMMON_LIB}")
+#         message(STATUS "google_cloud_cpp_common library: ${GCP_COMMON_LIB}")
 
-        find_library(GCP_CS_LIB google_cloud_cpp_storage)
+#         find_library(GCP_CS_LIB google_cloud_cpp_storage)
 
-        if((NOT GCP_CS_LIB))
-            message(FATAL_ERROR "Fail to find google_cloud_cpp_storage lib")
-        endif()
+#         if((NOT GCP_CS_LIB))
+#             message(FATAL_ERROR "Fail to find google_cloud_cpp_storage lib")
+#         endif()
 
-        message(STATUS "google_cloud_cpp_storage library: ${GCP_CS_LIB}")
+#         message(STATUS "google_cloud_cpp_storage library: ${GCP_CS_LIB}")
 
-        set(ROCKSDB_LIBRARIES ${ROCKSDB_LIBRARIES} ${GCP_COMMON_LIB})
-        set(ROCKSDB_LIBRARIES ${ROCKSDB_LIBRARIES} ${GCP_CS_LIB})
+#         set(ROCKSDB_LIBRARIES ${ROCKSDB_LIBRARIES} ${GCP_COMMON_LIB})
+#         set(ROCKSDB_LIBRARIES ${ROCKSDB_LIBRARIES} ${GCP_CS_LIB})
 
-        find_library(ROCKSDB_CLOUD_LIB NAMES rocksdb-cloud-gcp)
-    endif()
+#         find_library(ROCKSDB_CLOUD_LIB NAMES rocksdb-cloud-gcp)
+#     endif()
 
-    # Common RocksDB Cloud setup (outside the S3/GCS specific blocks)
-    find_path(ROCKSDB_CLOUD_INCLUDE_PATH NAMES rocksdb/db.h PATH_SUFFIXES "rocksdb_cloud_header")
+#     # Common RocksDB Cloud setup (outside the S3/GCS specific blocks)
+#     find_path(ROCKSDB_CLOUD_INCLUDE_PATH NAMES rocksdb/db.h PATH_SUFFIXES "rocksdb_cloud_header")
 
-    if(NOT ROCKSDB_CLOUD_INCLUDE_PATH)
-        message(FATAL_ERROR "Fail to find RocksDB Cloud include path")
-    endif()
+#     if(NOT ROCKSDB_CLOUD_INCLUDE_PATH)
+#         message(FATAL_ERROR "Fail to find RocksDB Cloud include path")
+#     endif()
 
-    message(STATUS "ROCKSDB_CLOUD_INCLUDE_PATH: ${ROCKSDB_CLOUD_INCLUDE_PATH}")
-    set(ROCKSDB_INCLUDE_PATH ${ROCKSDB_INCLUDE_PATH} ${ROCKSDB_CLOUD_INCLUDE_PATH})
-    include_directories(${ROCKSDB_INCLUDE_PATH})
+#     message(STATUS "ROCKSDB_CLOUD_INCLUDE_PATH: ${ROCKSDB_CLOUD_INCLUDE_PATH}")
+#     set(ROCKSDB_INCLUDE_PATH ${ROCKSDB_INCLUDE_PATH} ${ROCKSDB_CLOUD_INCLUDE_PATH})
+#     include_directories(${ROCKSDB_INCLUDE_PATH})
 
-    if(NOT ROCKSDB_CLOUD_LIB)
-        message(FATAL_ERROR "Fail to find RocksDB Cloud lib path")
-    endif()
+#     if(NOT ROCKSDB_CLOUD_LIB)
+#         message(FATAL_ERROR "Fail to find RocksDB Cloud lib path")
+#     endif()
 
-    message(STATUS "ROCKSDB_CLOUD_LIB: ${ROCKSDB_CLOUD_LIB}")
-    set(ROCKSDB_LIBRARIES ${ROCKSDB_LIBRARIES} ${ROCKSDB_CLOUD_LIB})
-endif()
+#     message(STATUS "ROCKSDB_CLOUD_LIB: ${ROCKSDB_CLOUD_LIB}")
+#     set(ROCKSDB_LIBRARIES ${ROCKSDB_LIBRARIES} ${ROCKSDB_CLOUD_LIB})
+# endif()
 
-if(WITH_DATA_STORE STREQUAL "DYNAMODB")
-    SET(RESELOQ_LIBRARY ${RESELOQ_LIBRARY} ${AWSSDK_LINK_LIBRARIES})
-elseif(WITH_DATA_STORE STREQUAL "ROCKSDB")
-    SET(RESELOQ_LIBRARY ${RESELOQ_LIBRARY} ${ROCKSDB_LIBRARIES})
-elseif((WITH_DATA_STORE STREQUAL "ROCKSDB_CLOUD_S3") OR(WITH_DATA_STORE STREQUAL "ROCKSDB_CLOUD_GCS")
-    OR(WITH_DATA_STORE STREQUAL "ELOQDSS_ROCKSDB_CLOUD_S3") OR(WITH_DATA_STORE STREQUAL "ELOQDSS_ROCKSDB_CLOUD_GCS"))
-    SET(RESELOQ_LIBRARY ${RESELOQ_LIBRARY} ${ROCKSDB_LIBRARIES})
-elseif(WITH_DATA_STORE STREQUAL "ELOQDSS_ELOQSTORE")
-    SET(RESELOQ_LIBRARY ${RESELOQ_LIBRARY} eloqstore)
-endif()
+# if(WITH_DATA_STORE STREQUAL "DYNAMODB")
+#     SET(RESELOQ_LIBRARY ${RESELOQ_LIBRARY} ${AWSSDK_LINK_LIBRARIES})
+# elseif(WITH_DATA_STORE STREQUAL "ROCKSDB")
+#     SET(RESELOQ_LIBRARY ${RESELOQ_LIBRARY} ${ROCKSDB_LIBRARIES})
+# elseif((WITH_DATA_STORE STREQUAL "ROCKSDB_CLOUD_S3") OR(WITH_DATA_STORE STREQUAL "ROCKSDB_CLOUD_GCS")
+#     OR(WITH_DATA_STORE STREQUAL "ELOQDSS_ROCKSDB_CLOUD_S3") OR(WITH_DATA_STORE STREQUAL "ELOQDSS_ROCKSDB_CLOUD_GCS"))
+#     SET(RESELOQ_LIBRARY ${RESELOQ_LIBRARY} ${ROCKSDB_LIBRARIES})
+# elseif(WITH_DATA_STORE STREQUAL "ELOQDSS_ELOQSTORE")
+#     SET(RESELOQ_LIBRARY ${RESELOQ_LIBRARY} eloqstore)
+# endif()
 
 set(DYNAMIC_LIB
     ${CMAKE_THREAD_LIBS_INIT}
@@ -399,19 +401,19 @@ set(DYNAMIC_LIB
     dl
 )
 
-if((WITH_DATA_STORE STREQUAL "ELOQDSS_ROCKSDB_CLOUD_S3") OR
-    (WITH_DATA_STORE STREQUAL "ELOQDSS_ROCKSDB_CLOUD_GCS") OR
-    (WITH_DATA_STORE STREQUAL "ELOQDSS_ROCKSDB") OR
-    (WITH_DATA_STORE STREQUAL "ELOQDSS_ELOQSTORE"))
-    set(DS_PROTO_DIR ${CMAKE_CURRENT_SOURCE_DIR}/store_handler/eloq_data_store_service)
-    message(NOTICE "data store service proto dir: ${DS_PROTO_DIR}")
-    set(PROTO_SRC ${DS_PROTO_DIR})
-    set(PROTO_NAME ds_request)
-    execute_process(
-        COMMAND protoc ./${PROTO_NAME}.proto --cpp_out=./
-        WORKING_DIRECTORY ${PROTO_SRC}
-    )
-endif()
+# if((WITH_DATA_STORE STREQUAL "ELOQDSS_ROCKSDB_CLOUD_S3") OR
+#     (WITH_DATA_STORE STREQUAL "ELOQDSS_ROCKSDB_CLOUD_GCS") OR
+#     (WITH_DATA_STORE STREQUAL "ELOQDSS_ROCKSDB") OR
+#     (WITH_DATA_STORE STREQUAL "ELOQDSS_ELOQSTORE"))
+#     set(DS_PROTO_DIR ${CMAKE_CURRENT_SOURCE_DIR}/data_substrate/data_substrate/store_handler/eloq_data_store_service)
+#     message(NOTICE "data store service proto dir: ${DS_PROTO_DIR}")
+#     set(PROTO_SRC ${DS_PROTO_DIR})
+#     set(PROTO_NAME ds_request)
+#     execute_process(
+#         COMMAND protoc ./${PROTO_NAME}.proto --cpp_out=./
+#         WORKING_DIRECTORY ${PROTO_SRC}
+#     )
+# endif()
 
 if(BRPC_WITH_GLOG)
     find_path(GLOG_INCLUDE_PATH NAMES glog/logging.h)
@@ -442,11 +444,9 @@ endif()
 
 if(WITH_DATA_STORE STREQUAL "ELOQDSS_ELOQSTORE")
     option(WITH_TXSERVICE "Whether compile eloqstore with txservice" ON)
-    set(ELOQSTORE_PARENT_DIR ${CMAKE_CURRENT_SOURCE_DIR}/store_handler/eloq_data_store_service CACHE PATH "EloqStore parent directory")
-    INCLUDE(${CMAKE_CURRENT_SOURCE_DIR}/store_handler/eloq_data_store_service/build_eloq_store.cmake)
+    set(ELOQSTORE_PARENT_DIR ${CMAKE_CURRENT_SOURCE_DIR}/data_substrate/data_substrate/store_handler/eloq_data_store_service CACHE PATH "EloqStore parent directory")
+    INCLUDE(${CMAKE_CURRENT_SOURCE_DIR}/data_substrate/data_substrate/store_handler/eloq_data_store_service/build_eloq_store.cmake)
 endif()
-
-add_subdirectory(tx_service/abseil-cpp)
 
 if(VECTOR_INDEX_ENABLED)
     add_compile_definitions(VECTOR_INDEX_ENABLED)
@@ -481,17 +481,8 @@ if(VECTOR_INDEX_ENABLED)
     set(DYNAMIC_LIB ${DYNAMIC_LIB} ${CURL_LIBRARIES})
 endif()
 
-INCLUDE(build_tx_service.cmake)
-
-if(WITH_LOG_SERVICE)
-    if(OPEN_LOG_SERVICE)
-        include(build_log_service.cmake)
-    else()
-        include(build_eloq_log_service.cmake)
-    endif()
-endif()
-
-INCLUDE(build_eloq_metrics.cmake)
+# Build data_substrate library first
+add_subdirectory(data_substrate)
 
 SET(RESELOQ_RESOURCES
     src/redis/commands.c
@@ -506,7 +497,6 @@ SET(RESELOQ_RESOURCES
     src/eloq_key.cpp
     src/eloq_string.cpp
     src/lua_interpreter.cpp
-    src/metrics_registry_impl.cpp
     src/pub_sub_manager.cpp
     src/redis_service.cpp
     src/redis_command.cpp
@@ -540,92 +530,91 @@ if(NOT(WITH_DATA_STORE STREQUAL "ELOQDSS_ELOQSTORE"))
     SET(RESELOQ_RESOURCES ${RESELOQ_RESOURCES} ${INI_SOURCES})
 endif()
 
-SET(RESELOQ_LIBRARY ${RESELOQ_LIBRARY} txservice ${METRICS_LIB})
-
-if(WITH_LOG_SERVICE)
-    SET(RESELOQ_LIBRARY ${RESELOQ_LIBRARY} logservice)
-endif()
+SET(RESELOQ_LIBRARY ${RESELOQ_LIBRARY} data_substrate)
 
 # crcspeed
 SET(CRCSPEED_SOURCES crcspeed/crcspeed.c crcspeed/crc16speed.c crcspeed/crc64speed.c)
 SET(RESELOQ_RESOURCES ${RESELOQ_RESOURCES} ${CRCSPEED_SOURCES})
 
-if(WITH_DATA_STORE STREQUAL "DYNAMODB")
-    SET(RESELOQ_RESOURCES ${RESELOQ_RESOURCES}
-        store_handler/dynamo_handler.cpp
-        store_handler/dynamo_scanner.cpp
-        store_handler/dynamo_handler_typed.cpp
-    )
-elseif((WITH_DATA_STORE STREQUAL "ROCKSDB") OR(WITH_DATA_STORE STREQUAL "ROCKSDB_CLOUD_S3") OR(WITH_DATA_STORE STREQUAL "ROCKSDB_CLOUD_GCS"))
-    SET(RESELOQ_RESOURCES ${RESELOQ_RESOURCES}
-        store_handler/rocksdb_config.cpp
-        store_handler/rocksdb_handler.cpp
-        store_handler/store_util.cpp
-    )
-elseif((WITH_DATA_STORE STREQUAL "ELOQDSS_ROCKSDB_CLOUD_S3") OR
-    (WITH_DATA_STORE STREQUAL "ELOQDSS_ROCKSDB_CLOUD_GCS"))
-    SET(RESELOQ_RESOURCES ${RESELOQ_RESOURCES}
-        store_handler/data_store_service_client.cpp
-        store_handler/data_store_service_client_closure.cpp
-        store_handler/data_store_service_scanner.cpp
-        store_handler/store_util.cpp
-        store_handler/eloq_data_store_service/thread_worker_pool.cpp
-        store_handler/eloq_data_store_service/data_store_service.cpp
-        store_handler/eloq_data_store_service/data_store_fault_inject.cpp
-        store_handler/eloq_data_store_service/data_store_service_config.cpp
-        store_handler/eloq_data_store_service/rocksdb_data_store_common.cpp
-        store_handler/eloq_data_store_service/rocksdb_cloud_data_store.cpp
-        store_handler/eloq_data_store_service/ds_request.pb.cc
-        store_handler/eloq_data_store_service/rocksdb_config.cpp
-        store_handler/eloq_data_store_service/purger_event_listener.cpp
-        store_handler/eloq_data_store_service/purger_sliding_window.cpp
-    )
-elseif(WITH_DATA_STORE STREQUAL "ELOQDSS_ROCKSDB")
-    SET(RESELOQ_RESOURCES ${RESELOQ_RESOURCES}
-        store_handler/data_store_service_client.cpp
-        store_handler/data_store_service_client_closure.cpp
-        store_handler/data_store_service_scanner.cpp
-        store_handler/store_util.cpp
-        store_handler/eloq_data_store_service/thread_worker_pool.cpp
-        store_handler/eloq_data_store_service/data_store_service.cpp
-        store_handler/eloq_data_store_service/data_store_fault_inject.cpp
-        store_handler/eloq_data_store_service/data_store_service_config.cpp
-        store_handler/eloq_data_store_service/rocksdb_data_store_common.cpp
-        store_handler/eloq_data_store_service/rocksdb_data_store.cpp
-        store_handler/eloq_data_store_service/ds_request.pb.cc
-        store_handler/eloq_data_store_service/rocksdb_config.cpp
-    )
-elseif(WITH_DATA_STORE STREQUAL "ELOQDSS_ELOQSTORE")
-    SET(RESELOQ_RESOURCES ${RESELOQ_RESOURCES}
-        store_handler/data_store_service_client.cpp
-        store_handler/data_store_service_scanner.cpp
-        store_handler/data_store_service_client_closure.cpp
-        store_handler/store_util.cpp
-        store_handler/eloq_data_store_service/thread_worker_pool.cpp
-        store_handler/eloq_data_store_service/data_store_service.cpp
-        store_handler/eloq_data_store_service/data_store_fault_inject.cpp
-        store_handler/eloq_data_store_service/data_store_service_config.cpp
-        store_handler/eloq_data_store_service/eloq_store_data_store.cpp
-        store_handler/eloq_data_store_service/ds_request.pb.cc
-        store_handler/eloq_data_store_service/eloq_store_config.cpp
-    )
-endif()
+# if(WITH_DATA_STORE STREQUAL "DYNAMODB")
+#     SET(RESELOQ_RESOURCES ${RESELOQ_RESOURCES}
+#         data_substrate/store_handler/dynamo_handler.cpp
+#         data_substrate/store_handler/dynamo_scanner.cpp
+#         data_substrate/store_handler/dynamo_handler_typed.cpp
+#     )
+# elseif((WITH_DATA_STORE STREQUAL "ROCKSDB") OR(WITH_DATA_STORE STREQUAL "ROCKSDB_CLOUD_S3") OR(WITH_DATA_STORE STREQUAL "ROCKSDB_CLOUD_GCS"))
+#     SET(RESELOQ_RESOURCES ${RESELOQ_RESOURCES}
+#         data_substrate/store_handler/rocksdb_config.cpp
+#         data_substrate/store_handler/rocksdb_handler.cpp
+#         data_substrate/store_handler/rocksdb_scanner.cpp
+#         data_substrate/store_handler/store_util.cpp
+#     )
+# elseif((WITH_DATA_STORE STREQUAL "ELOQDSS_ROCKSDB_CLOUD_S3") OR
+#     (WITH_DATA_STORE STREQUAL "ELOQDSS_ROCKSDB_CLOUD_GCS"))
+#     SET(RESELOQ_RESOURCES ${RESELOQ_RESOURCES}
+#         data_substrate/store_handler/data_store_service_client.cpp
+#         data_substrate/store_handler/data_store_service_client_closure.cpp
+#         data_substrate/store_handler/data_store_service_scanner.cpp
+#         data_substrate/store_handler/store_util.cpp
+#         data_substrate/store_handler/eloq_data_store_service/thread_worker_pool.cpp
+#         data_substrate/store_handler/eloq_data_store_service/data_store_service.cpp
+#         data_substrate/store_handler/eloq_data_store_service/data_store_fault_inject.cpp
+#         data_substrate/store_handler/eloq_data_store_service/data_store_service_config.cpp
+#         data_substrate/store_handler/eloq_data_store_service/rocksdb_data_store_common.cpp
+#         data_substrate/store_handler/eloq_data_store_service/rocksdb_cloud_data_store.cpp
+#         data_substrate/store_handler/eloq_data_store_service/ds_request.pb.cc
+#         data_substrate/store_handler/eloq_data_store_service/rocksdb_config.cpp
+#         data_substrate/store_handler/eloq_data_store_service/purger_event_listener.cpp
+#         data_substrate/store_handler/eloq_data_store_service/purger_sliding_window.cpp
+#     )
+# elseif(WITH_DATA_STORE STREQUAL "ELOQDSS_ROCKSDB")
+#     SET(RESELOQ_RESOURCES ${RESELOQ_RESOURCES}
+#         data_substrate/store_handler/data_store_service_client.cpp
+#         data_substrate/store_handler/data_store_service_client_closure.cpp
+#         data_substrate/store_handler/data_store_service_scanner.cpp
+#         data_substrate/store_handler/store_util.cpp
+#         data_substrate/store_handler/eloq_data_store_service/thread_worker_pool.cpp
+#         data_substrate/store_handler/eloq_data_store_service/data_store_service.cpp
+#         data_substrate/store_handler/eloq_data_store_service/data_store_fault_inject.cpp
+#         data_substrate/store_handler/eloq_data_store_service/data_store_service_config.cpp
+#         data_substrate/store_handler/eloq_data_store_service/rocksdb_data_store_common.cpp
+#         data_substrate/store_handler/eloq_data_store_service/rocksdb_data_store.cpp
+#         data_substrate/store_handler/eloq_data_store_service/ds_request.pb.cc
+#         data_substrate/store_handler/eloq_data_store_service/rocksdb_config.cpp
+#     )
+# elseif(WITH_DATA_STORE STREQUAL "ELOQDSS_ELOQSTORE")
+#     SET(RESELOQ_RESOURCES ${RESELOQ_RESOURCES}
+#         data_substrate/store_handler/data_store_service_client.cpp
+#         data_substrate/store_handler/data_store_service_scanner.cpp
+#         data_substrate/store_handler/data_store_service_client_closure.cpp
+#         data_substrate/store_handler/store_util.cpp
+#         data_substrate/store_handler/eloq_data_store_service/thread_worker_pool.cpp
+#         data_substrate/store_handler/eloq_data_store_service/data_store_service.cpp
+#         data_substrate/store_handler/eloq_data_store_service/data_store_fault_inject.cpp
+#         data_substrate/store_handler/eloq_data_store_service/data_store_service_config.cpp
+#         data_substrate/store_handler/eloq_data_store_service/eloq_store_data_store.cpp
+#         data_substrate/store_handler/eloq_data_store_service/ds_request.pb.cc
+#         data_substrate/store_handler/eloq_data_store_service/eloq_store_config.cpp
+#     )
+# endif()
 
 # Set up base include directories
 set(INCLUDE_DIRS
     ${PROJECT_SOURCE_DIR}/
     ${PROJECT_SOURCE_DIR}/include
     ${PROJECT_SOURCE_DIR}/include/redis
-    ${PROJECT_SOURCE_DIR}/store_handler
-    ${PROJECT_SOURCE_DIR}/tx_service/abseil-cpp
-    ${PROJECT_SOURCE_DIR}/eloq_metrics/include
-    ${PROJECT_SOURCE_DIR}/tx_service/include
-    ${PROJECT_SOURCE_DIR}/tx_service/include/cc
-    ${PROJECT_SOURCE_DIR}/tx_service/include/remote
-    ${PROJECT_SOURCE_DIR}/tx_service/include/fault
-    ${PROJECT_SOURCE_DIR}/tx_service/include/store
-    ${PROJECT_SOURCE_DIR}/tx_service/tx-log-protos
-    ${PROJECT_SOURCE_DIR}/store_handler/eloq_data_store_service
+)
+
+# Add data_substrate include directories from the library
+target_include_directories(data_substrate INTERFACE
+    ${CMAKE_CURRENT_SOURCE_DIR}/data_substrate
+    ${CMAKE_CURRENT_SOURCE_DIR}/data_substrate/core/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/data_substrate/tx_service/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/data_substrate/eloq_metrics/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/data_substrate/store_handler
+    ${CMAKE_CURRENT_SOURCE_DIR}/data_substrate/tx_service/abseil-cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/data_substrate/tx_service/tx-log-protos
+    ${CMAKE_CURRENT_SOURCE_DIR}/data_substrate/store_handler/eloq_data_store_service
 )
 
 if(VECTOR_INDEX_ENABLED)
@@ -634,9 +623,9 @@ endif()
 
 if(WITH_LOG_SERVICE)
     if(OPEN_LOG_SERVICE)
-        list(APPEND INCLUDE_DIRS ${PROJECT_SOURCE_DIR}/log_service/include)
+        target_include_directories(data_substrate INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/data_substrate/log_service/include)
     else()
-        list(APPEND INCLUDE_DIRS ${PROJECT_SOURCE_DIR}/eloq_log_service/include)
+        target_include_directories(data_substrate INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/data_substrate/eloq_log_service/include)
     endif()
 endif()
 

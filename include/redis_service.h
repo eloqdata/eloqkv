@@ -37,36 +37,9 @@
 #include "error_messages.h"
 #include "pub_sub_manager.h"
 #include "store_handler/kv_store.h"
+#include "INIReader.h"
 
-#if (defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB_CLOUD_S3) ||                      \
-     defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB_CLOUD_GCS) ||                     \
-     defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB) ||                               \
-     defined(DATA_STORE_TYPE_ELOQDSS_ELOQSTORE))
-#define ELOQDS 1
-#endif
-
-#if ELOQDS
-#include "data_store_service.h"
-#include "store_handler/data_store_service_client.h"
-#endif
-
-#if defined(DATA_STORE_TYPE_DYNAMODB) ||                                       \
-    defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB_CLOUD_S3) ||                       \
-    defined(LOG_STATE_TYPE_RKDB_S3)
-#include <aws/core/Aws.h>
-#endif
-
-#if defined(DATA_STORE_TYPE_ROCKSDB)
-#include "store_handler/rocksdb_handler.h"
-#endif
-
-#ifdef DATA_STORE_TYPE_DYNAMODB
-#include "store_handler/dynamo_handler.h"
-#endif
-
-#if (WITH_LOG_SERVICE)
-#include "log_server.h"
-#endif
+#include "store/data_store_handler.h"
 
 #include "eloq_catalog_factory.h"
 #include "lua_interpreter.h"
@@ -193,18 +166,6 @@ public:
     ~RedisServiceImpl() override;
 
     bool Init(brpc::Server &brpc_server);
-
-    bool InitTxLogService(
-        uint32_t node_id,
-        int txlog_group_replica_num,
-        const std::string &log_path,
-        const std::string &local_ip,
-        uint16_t local_tx_port,
-        bool enable_brpc_builtin_services,
-        const INIReader &config_reader,
-        std::unordered_map<uint32_t, std::vector<NodeConfig>> &ng_configs,
-        std::vector<std::string> &txlog_ips,
-        std::vector<uint16_t> &txlog_ports);
 
     void Stop();
 
@@ -494,17 +455,13 @@ public:
     {
         return node_memory_limit_mb_;
     }
-    uint32_t GetNodeLogLimitMB() const
-    {
-        return node_log_limit_mb_;
-    }
     int GetEventDispatcherNum() const
     {
         return event_dispatcher_num_;
     }
     TxService *GetTxService()
     {
-        return tx_service_.get();
+        return tx_service_;
     }
     const char *GetVersion() const
     {
@@ -572,26 +529,9 @@ private:
     typedef std::unordered_map<std::string, RedisCommandHandler *> CommandMap;
     CommandMap command_map_;
 
-    std::unique_ptr<TxService> tx_service_;
-#if defined(DATA_STORE_TYPE_DYNAMODB) ||                                       \
-    defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB_CLOUD_S3) ||                       \
-    defined(LOG_STATE_TYPE_RKDB_S3)
-    Aws::SDKOptions aws_options_;
-#endif
+    TxService *tx_service_;
 
-#if defined(DATA_STORE_TYPE_DYNAMODB)
-    std::unique_ptr<EloqDS::DynamoHandler> store_hd_;
-#elif defined(DATA_STORE_TYPE_ROCKSDB)
-    std::unique_ptr<RocksDBHandlerImpl> store_hd_;
-#elif ELOQDS
-    std::unique_ptr<EloqDS::DataStoreServiceClient> store_hd_;
-    std::unique_ptr<EloqDS::DataStoreService> data_store_service_;
-#endif
-
-#if (WITH_LOG_SERVICE)
-    std::unique_ptr<::txlog::LogServer> log_server_;
-#endif
-    RedisCatalogFactory catalog_factory_;
+    store::DataStoreHandler *store_hd_;
 
     std::vector<TableName> redis_table_names_;
 
@@ -619,7 +559,6 @@ private:
     uint64_t start_sec_;  // The start second since The Epoch
     std::string config_file_;
     uint32_t node_memory_limit_mb_;
-    uint32_t node_log_limit_mb_;
     int event_dispatcher_num_;
     const char *version_;
     // Isolation level and concurrency control protocol of MULTI/EXEC or lua

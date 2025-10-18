@@ -1,0 +1,46 @@
+---
+# by @Samuel Maynard
+# ---
+# Our C++ format is an adaption of Google's standards to the standards laid out
+# in the "Standard Development and Coding Practices" document which was
+# compiled by the Advacned Technology department.
+# There are many more format style options than are listed here. They can be
+# found at https://clang.llvm.org/docs/ClangFormatStyleOptions.html
+# When an option is not sepecified, it defaults to Google's style (this can be
+# changed with the BasedOnStyle option)
+Language: Cpp
+BasedOnStyle: Google
+AccessModifierOffset: -4
+AllowShortFunctionsOnASingleLine: None
+AllowShortIfStatementsOnASingleLine: false
+AllowShortLoopsOnASingleLine: false
+BinPackArguments: false
+BinPackParameters: false
+BreakBeforeBraces: Allman
+DerivePointerAlignment: false
+FixNamespaceComments: true
+IncludeBlocks:   Regroup
+IncludeCategories:
+  - Regex:           '^"pch.h"'
+    Priority:        -1
+  - Regex:           '^"stdafx.h"'
+    Priority:        -1
+  - Regex:           '^<ext/.*\.h>'
+    Priority:        2
+  - Regex:           '^<.*\.h>'
+    Priority:        1
+  - Regex:           '^<.*'
+    Priority:        2
+  - Regex:           '.*'
+    Priority:        3
+IndentWidth: 4
+IndentCaseLabels: false
+MaxEmptyLinesToKeep: 1
+NamespaceIndentation: None
+PointerAlignment: Right
+SpaceAfterCStyleCast: true
+SpacesInContainerLiterals: false
+---
+Language: Proto
+BasedOnStyle: Google
+...
