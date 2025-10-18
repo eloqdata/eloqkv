@@ -1,15 +1,15 @@
-[submodule "eloq_metrics"]
-	path = eloq_metrics
-	url = https://github.com/eloqdata/eloq-metrics.git
-[submodule "tx_service"]
-	path = tx_service
-	url = https://github.com/eloqdata/tx_service.git
 [submodule "crcspeed"]
 	path = crcspeed
 	url = https://github.com/mattsta/crcspeed
-[submodule "store_handler"]
-	path = store_handler
+[submodule "data_substrate/tx_service"]
+	path = data_substrate/tx_service
+	url = https://github.com/eloqdata/tx_service.git
+[submodule "data_substrate/eloq_metrics"]
+	path = data_substrate/eloq_metrics
+	url = https://github.com/eloqdata/eloq-metrics.git
+[submodule "data_substrate/store_handler"]
+	path = data_substrate/store_handler
 	url = https://github.com/eloqdata/store_handler.git
-[submodule "log_service"]
-	path = log_service
+[submodule "data_substrate/log_service"]
+	path = data_substrate/log_service
 	url = https://github.com/eloqdata/log_service.git
