@@ -1,4 +1,5 @@
 *.code-workspace
+.cursor
 .vscode
 .cursor
 .idea
@@ -72,3 +73,4 @@ compile_commands*
 
 eloq_data
 eloq_log_service
+install

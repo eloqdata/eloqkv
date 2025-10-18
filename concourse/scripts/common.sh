@@ -148,8 +148,11 @@ function run_build() {
   cmake \
     -S /home/$current_user/workspace/eloqkv \
     -B /home/$current_user/workspace/eloqkv/cmake \
+    -DCMAKE_INSTALL_PREFIX=/home/$current_user/workspace/eloqkv/install \
     -DCMAKE_BUILD_TYPE=$build_type \
     -DWITH_DATA_STORE=$kv_store_type \
+    -DELOQ_MODULE_ENABLED=ON \
+    -DEXT_TX_PROC_ENABLED=ON \
     -DBUILD_WITH_TESTS=ON \
     -DWITH_LOG_SERVICE=ON
 
@@ -166,6 +169,8 @@ function run_build() {
       echo "CMake build for target '$target' failed."
       exit $exit_status
     fi
+
+    cmake --install /home/$current_user/workspace/eloqkv/cmake
   }
 
   # Run builds for the specified targets
@@ -178,21 +183,16 @@ function run_build() {
   set -e
 
   # compile log service to setup redis cluster later
-  cd /home/$current_user/workspace/eloqkv/log_service
+  cd /home/$current_user/workspace/eloqkv/data_substrate/log_service
   cmake -B bld -DCMAKE_BUILD_TYPE=$build_type && cmake --build bld -j 8
-
-  set +e
-  mkdir -p "/home/$current_user/workspace/eloqkv/cmake/install/bin"
-  set -e
-  cp /home/$current_user/workspace/eloqkv/cmake/eloqkv  /home/$current_user/workspace/eloqkv/cmake/install/bin/
-  cp /home/$current_user/workspace/eloqkv/log_service/bld/launch_sv  /home/$current_user/workspace/eloqkv/cmake/install/bin/
+  cp /home/$current_user/workspace/eloqkv/data_substrate/log_service/bld/launch_sv  /home/$current_user/workspace/eloqkv/install/bin/
 
 case "$kv_store_type" in
   ELOQDSS_*)
       echo "build dss_server"
-      cd /home/$current_user/workspace/eloqkv/store_handler/eloq_data_store_service
+      cd /home/$current_user/workspace/eloqkv/data_substrate/store_handler/eloq_data_store_service
       cmake -B bld -DCMAKE_BUILD_TYPE=$build_type -DWITH_DATA_STORE=$kv_store_type && cmake --build bld -j8
-      cp /home/$current_user/workspace/eloqkv/store_handler/eloq_data_store_service/bld/dss_server  /home/$current_user/workspace/eloqkv/cmake/install/bin/
+      cp /home/$current_user/workspace/eloqkv/data_substrate/store_handler/eloq_data_store_service/bld/dss_server  /home/$current_user/workspace/eloqkv/install/bin/
       ;;
 esac
 
@@ -203,14 +203,19 @@ esac
 function run_build_ent() {
   local build_type=$1
   local kv_store_type=$2
+  local txlog_log_state=$3
 
   # compile eloqkv
   cd /home/$current_user/workspace/eloqkv
   cmake \
     -S /home/$current_user/workspace/eloqkv \
     -B /home/$current_user/workspace/eloqkv/cmake \
+    -DCMAKE_INSTALL_PREFIX=/home/$current_user/workspace/eloqkv/install \
     -DCMAKE_BUILD_TYPE=$build_type \
     -DWITH_DATA_STORE=$kv_store_type \
+    -DWITH_LOG_STATE=$txlog_log_state \
+    -DELOQ_MODULE_ENABLED=ON \
+    -DEXT_TX_PROC_ENABLED=ON \
     -DBUILD_WITH_TESTS=ON \
     -DWITH_LOG_SERVICE=ON \
     -DOPEN_LOG_SERVICE=OFF \
@@ -219,44 +224,33 @@ function run_build_ent() {
   # Define the output log file
   log_file="/tmp/compile_info.log"
 
-  # Function to run cmake build and check for errors
   run_cmake_build() {
-    local target=$1
-    cmake --build /home/$current_user/workspace/eloqkv/cmake --target "$target" -j 8
+    cmake --build /home/$current_user/workspace/eloqkv/cmake -j 8
     local exit_status=$?
 
     if [ $exit_status -ne 0 ]; then
-      echo "CMake build for target '$target' failed."
+      echo "CMake build failed."
       exit $exit_status
     fi
   }
 
-  # Run builds for the specified targets
-  targets=("eloqkv" "host_manager" "object_serialize_deserialize_test")
-
   set +e
-  for target in "${targets[@]}"; do
-    run_cmake_build "$target"
-  done
+  run_cmake_build
   set -e
+
+  cmake --install /home/$current_user/workspace/eloqkv/cmake
 
   # compile log service to setup redis cluster later
-  cd /home/$current_user/workspace/eloqkv/eloq_log_service
+  cd /home/$current_user/workspace/eloqkv/data_substrate/eloq_log_service
   cmake -B bld -DCMAKE_BUILD_TYPE=$build_type && cmake --build bld -j 8
-
-  set +e
-  mkdir -p "/home/$current_user/workspace/eloqkv/cmake/install/bin"
-  set -e
-  cp /home/$current_user/workspace/eloqkv/cmake/eloqkv  /home/$current_user/workspace/eloqkv/cmake/install/bin/
-  cp /home/$current_user/workspace/eloqkv/cmake/host_manager  /home/$current_user/workspace/eloqkv/cmake/install/bin/
-  cp /home/$current_user/workspace/eloqkv/eloq_log_service/bld/launch_sv  /home/$current_user/workspace/eloqkv/cmake/install/bin/
+  cp /home/$current_user/workspace/eloqkv/data_substrate/eloq_log_service/bld/launch_sv  /home/$current_user/workspace/eloqkv/install/bin/
 
 case "$kv_store_type" in
   ELOQDSS_*)
       echo "build dss_server"
-      cd /home/$current_user/workspace/eloqkv/store_handler/eloq_data_store_service
+      cd /home/$current_user/workspace/eloqkv/data_substrate/store_handler/eloq_data_store_service
       cmake -B bld -DCMAKE_BUILD_TYPE=$build_type -DWITH_DATA_STORE=$kv_store_type && cmake --build bld -j8
-      cp /home/$current_user/workspace/eloqkv/store_handler/eloq_data_store_service/bld/dss_server  /home/$current_user/workspace/eloqkv/cmake/install/bin/
+      cp /home/$current_user/workspace/eloqkv/data_substrate/store_handler/eloq_data_store_service/bld/dss_server  /home/$current_user/workspace/eloqkv/install/bin/
       ;;
 esac
 
@@ -276,7 +270,7 @@ function run_eloq_ttl_tests() {
   echo "keyspace name is, ${keyspace_name}"
 
   cd /home/$current_user/workspace/eloqkv
-  local exe_path="/home/$current_user/workspace/eloqkv/cmake/eloqkv"
+  local exe_path="/home/$current_user/workspace/eloqkv/install/bin/eloqkv"
   local python_test_file="/home/$current_user/workspace/eloq_test/redis_test/single_test/test_ttl_eloqkv.py"
   python3 $python_test_file $exe_path ${test_case} --enable_wal=${enable_wal} --enable_data_store=${enable_data_store} --kv_type=${kv_type} --cass_host=${CASS_HOST} --cass_keyspace=${keyspace_name} --cass_bin="/home/$current_user/workspace/apache-cassandra-4.0.6/bin/"
 
@@ -286,6 +280,9 @@ function run_eloqkv_tests() {
   local build_type=$1
   local kv_store_type=$2
   local eloqkv_base_path="/home/$current_user/workspace/eloqkv"
+
+  # clean data dir
+  rm -rf /tmp/eloq_data
 
   cd ${eloqkv_base_path}
 
@@ -298,7 +295,8 @@ function run_eloqkv_tests() {
 
     # run redis
     echo "redirecting output to /tmp/ to prevent ci pipeline crash"
-    /home/$current_user/workspace/eloqkv/cmake/eloqkv \
+    env LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH} \
+    /home/$current_user/workspace/eloqkv/install/bin/eloqkv \
       --port=6379 \
       --core_number=2 \
       --enable_wal=true \
@@ -306,7 +304,7 @@ function run_eloqkv_tests() {
       --cass_hosts=$CASS_HOST \
       --cass_keyspace=$keyspace_name \
       --maxclients=1000000 \
-      --checkpoint_interval=36000 \
+      --checkpointer_interval=36000 \
       --enable_io_uring=${enable_io_uring} \
       --logtostderr=true \
       >/tmp/redis_server_single_node_before_replay.log 2>&1 \
@@ -339,7 +337,8 @@ function run_eloqkv_tests() {
 
     # run redis
     echo "redirecting output to /tmp/ to prevent ci pipeline crash"
-    /home/$current_user/workspace/eloqkv/cmake/eloqkv \
+    env LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH} \
+    /home/$current_user/workspace/eloqkv/install/bin/eloqkv \
       --port=6379 \
       --core_number=2 \
       --enable_wal=true \
@@ -347,7 +346,7 @@ function run_eloqkv_tests() {
       --cass_hosts=$CASS_HOST \
       --cass_keyspace=$keyspace_name \
       --maxclients=1000000 \
-      --checkpoint_interval=36000 \
+      --checkpointer_interval=36000 \
       --enable_io_uring=${enable_io_uring} \
       --logtostderr=true \
       >/tmp/redis_server_single_node_after_replay.log 2>&1 \
@@ -401,7 +400,8 @@ function run_eloqkv_tests() {
 
     # run redis with wal disabled.
     echo "redirecting output to /tmp/ to prevent ci pipeline crash"
-    /home/$current_user/workspace/eloqkv/cmake/eloqkv \
+    env LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH} \
+    /home/$current_user/workspace/eloqkv/install/bin/eloqkv \
         --port=6379 \
         --core_number=2 \
         --enable_wal=false \
@@ -409,7 +409,7 @@ function run_eloqkv_tests() {
         --cass_hosts=$CASS_HOST \
         --cass_keyspace=$keyspace_name \
         --maxclients=1000000 \
-        --checkpoint_interval=10 \
+        --checkpointer_interval=10 \
         --enable_io_uring=${enable_io_uring} \
         --logtostderr=true \
         >/tmp/redis_server_single_node_no_wal.log 2>&1 \
@@ -435,13 +435,14 @@ function run_eloqkv_tests() {
 
     # run redis with wal and data store disabled.
     echo "redirecting output to /tmp/ to prevent ci pipeline crash"
-    /home/$current_user/workspace/eloqkv/cmake/eloqkv \
+    env LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH} \
+    /home/$current_user/workspace/eloqkv/install/bin/eloqkv \
         --port=6379 \
         --core_number=2 \
         --enable_wal=false \
         --enable_data_store=false \
         --maxclients=1000000 \
-        --checkpoint_interval=10 \
+        --checkpointer_interval=10 \
         --enable_io_uring=${enable_io_uring} \
         --logtostderr=true \
         >/tmp/redis_server_single_node_no_wal_no_data_store.log 2>&1 \
@@ -464,7 +465,8 @@ function run_eloqkv_tests() {
 
     echo "bootstrap rocksdb"
 
-    /home/$current_user/workspace/eloqkv/cmake/eloqkv \
+    env LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH} \
+    /home/$current_user/workspace/eloqkv/install/bin/eloqkv \
       --port=6379 \
       --core_number=2 \
       --enable_wal=true \
@@ -478,13 +480,14 @@ function run_eloqkv_tests() {
 
     # run redis
     echo "redirecting output to /tmp/ to prevent ci pipeline crash"
-    /home/$current_user/workspace/eloqkv/cmake/eloqkv \
+    env LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH} \
+    /home/$current_user/workspace/eloqkv/install/bin/eloqkv \
       --port=6379 \
       --core_number=2 \
       --enable_wal=true \
       --enable_data_store=true \
       --maxclients=1000000 \
-      --checkpoint_interval=36000 \
+      --checkpointer_interval=36000 \
       --enable_io_uring=${enable_io_uring} \
       --logtostderr=true \
       >/tmp/redis_server_single_node_before_replay.log 2>&1 \
@@ -517,13 +520,14 @@ function run_eloqkv_tests() {
 
     # run redis
     echo "redirecting output to /tmp/ to prevent ci pipeline crash"
-    /home/$current_user/workspace/eloqkv/cmake/eloqkv \
+    env LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH} \
+    /home/$current_user/workspace/eloqkv/install/bin/eloqkv \
       --port=6379 \
       --core_number=2 \
       --enable_wal=true \
       --enable_data_store=true \
       --maxclients=1000000 \
-      --checkpoint_interval=36000 \
+      --checkpointer_interval=36000 \
       --enable_io_uring=${enable_io_uring} \
       --logtostderr=true \
       >/tmp/redis_server_single_node_after_replay.log 2>&1 \
@@ -577,13 +581,14 @@ function run_eloqkv_tests() {
 
     # run redis with wal disabled.
     echo "redirecting output to /tmp/ to prevent ci pipeline crash"
-    /home/$current_user/workspace/eloqkv/cmake/eloqkv \
+    env LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH} \
+    /home/$current_user/workspace/eloqkv/install/bin/eloqkv \
         --port=6379 \
         --core_number=2 \
         --enable_wal=false \
         --enable_data_store=true \
         --maxclients=1000000 \
-        --checkpoint_interval=10 \
+        --checkpointer_interval=10 \
         --enable_io_uring=${enable_io_uring} \
         --logtostderr=true \
         >/tmp/redis_server_single_node_no_wal.log 2>&1 \
@@ -606,13 +611,14 @@ function run_eloqkv_tests() {
 
     # run redis with wal and data store disabled.
     echo "redirecting output to /tmp/ to prevent ci pipeline crash"
-    /home/$current_user/workspace/eloqkv/cmake/eloqkv \
+    env LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH} \
+    /home/$current_user/workspace/eloqkv/install/bin/eloqkv \
         --port=6379 \
         --core_number=2 \
         --enable_wal=false \
         --enable_data_store=false \
         --maxclients=1000000 \
-        --checkpoint_interval=10 \
+        --checkpointer_interval=10 \
         --enable_io_uring=${enable_io_uring} \
         --logtostderr=true \
         >/tmp/redis_server_single_node_no_wal_no_data_store.log 2>&1 \
@@ -648,7 +654,8 @@ function run_eloqkv_tests() {
 
     # run redis
     echo "redirecting output to /tmp/ to prevent ci pipeline crash"
-    /home/$current_user/workspace/eloqkv/cmake/eloqkv \
+    env LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH} \
+    /home/$current_user/workspace/eloqkv/install/bin/eloqkv \
       --port=6379 \
       --core_number=2 \
       --enable_wal=true \
@@ -659,7 +666,7 @@ function run_eloqkv_tests() {
       --aws_secret_key=$aws_secret_key \
       --dynamodb_keyspace=$keyspace_name \
       --maxclients=1000000 \
-      --checkpoint_interval=10 \
+      --checkpointer_interval=10 \
       --enable_io_uring=${enable_io_uring} \
       --logtostderr=true \
       >/tmp/redis_server_single_node_before_replay.log 2>&1 \
@@ -692,7 +699,8 @@ function run_eloqkv_tests() {
 
     # run redis
     echo "redirecting output to /tmp/ to prevent ci pipeline crash"
-    /home/$current_user/workspace/eloqkv/cmake/eloqkv \
+    env LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH} \
+    /home/$current_user/workspace/eloqkv/install/bin/eloqkv \
       --port=6379 \
       --core_number=2 \
       --enable_wal=true \
@@ -703,7 +711,7 @@ function run_eloqkv_tests() {
       --aws_secret_key=$aws_secret_key \
       --dynamodb_keyspace=$keyspace_name \
       --maxclients=1000000 \
-      --checkpoint_interval=10 \
+      --checkpointer_interval=10 \
       --enable_io_uring=${enable_io_uring} \
       --logtostderr=true \
       >/tmp/redis_server_single_node_after_replay.log 2>&1 \
@@ -757,7 +765,8 @@ function run_eloqkv_tests() {
 
     # run redis with wal disabled.
     echo "redirecting output to /tmp/ to prevent ci pipeline crash"
-    /home/$current_user/workspace/eloqkv/cmake/eloqkv \
+    env LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH} \
+    /home/$current_user/workspace/eloqkv/install/bin/eloqkv \
         --port=6379 \
         --core_number=2 \
         --enable_wal=false \
@@ -768,7 +777,7 @@ function run_eloqkv_tests() {
         --aws_secret_key=$aws_secret_key \
         --dynamodb_keyspace=$keyspace_name \
         --maxclients=1000000 \
-        --checkpoint_interval=10 \
+        --checkpointer_interval=10 \
         --enable_io_uring=${enable_io_uring} \
         --logtostderr=true \
         >/tmp/redis_server_single_node_no_wal.log 2>&1 \
@@ -793,13 +802,14 @@ function run_eloqkv_tests() {
 
     # run redis with wal and data store disabled.
     echo "redirecting output to /tmp/ to prevent ci pipeline crash"
-    /home/$current_user/workspace/eloqkv/cmake/eloqkv \
+    env LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH} \
+    /home/$current_user/workspace/eloqkv/install/bin/eloqkv \
         --port=6379 \
         --core_number=2 \
         --enable_wal=false \
         --enable_data_store=false \
         --maxclients=1000000 \
-        --checkpoint_interval=10 \
+        --checkpointer_interval=10 \
         --enable_io_uring=${enable_io_uring} \
         --logtostderr=true \
         >/tmp/redis_server_single_node_no_wal_no_data_store.log 2>&1 \
@@ -829,8 +839,14 @@ function run_eloqkv_tests() {
     local rocksdb_cloud_aws_secret_access_key=${ROCKSDB_CLOUD_AWS_SECRET_ACCESS_KEY}
     local rocksdb_cloud_bucket_name=${ROCKSDB_CLOUD_BUCKET_NAME}
     local rocksdb_cloud_object_path=${ROCKSDB_CLOUD_OBJECT_PATH}
+    local rocksdb_cloud_bucket_prefix=${ROCKSDB_CLOUD_BUCKET_PREFIX}
+    local txlog_rocksdb_cloud_bucket_prefix=${ROCKSDB_CLOUD_BUCKET_PREFIX}
+    local txlog_rocksdb_cloud_bucket_name=${ROCKSDB_CLOUD_BUCKET_NAME}
+    local txlog_rocksdb_cloud_object_path=${TXLOG_ROCKSDB_CLOUD_OBJECT_PATH}
+    local txlog_rocksdb_cloud_s3_endpoint_url=${ROCKSDB_CLOUD_S3_ENDPOINT}
 
-    /home/$current_user/workspace/eloqkv/cmake/eloqkv \
+    env LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH} \
+    /home/$current_user/workspace/eloqkv/install/bin/eloqkv \
       --port=6379 \
       --core_number=2 \
       --enable_wal=true \
@@ -840,6 +856,11 @@ function run_eloqkv_tests() {
       --aws_secret_key="${rocksdb_cloud_aws_secret_access_key}" \
       --rocksdb_cloud_bucket_name=${rocksdb_cloud_bucket_name} \
       --rocksdb_cloud_object_path=${rocksdb_cloud_object_path} \
+      --rocksdb_cloud_bucket_prefix=${rocksdb_cloud_bucket_prefix} \
+      --txlog_rocksdb_cloud_bucket_prefix=${txlog_rocksdb_cloud_bucket_prefix} \
+      --txlog_rocksdb_cloud_bucket_name=${txlog_rocksdb_cloud_bucket_name} \
+      --txlog_rocksdb_cloud_object_path=${txlog_rocksdb_cloud_object_path} \
+      --txlog_rocksdb_cloud_s3_endpoint_url="${txlog_rocksdb_cloud_s3_endpoint_url}" \
       --enable_io_uring=${enable_io_uring} \
       --bootstrap=true &
 
@@ -849,7 +870,8 @@ function run_eloqkv_tests() {
 
     # run redis
     echo "redirecting output to /tmp/ to prevent ci pipeline crash"
-    /home/$current_user/workspace/eloqkv/cmake/eloqkv \
+    env LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH} \
+    /home/$current_user/workspace/eloqkv/install/bin/eloqkv \
       --port=6379 \
       --core_number=2 \
       --enable_wal=true \
@@ -859,9 +881,14 @@ function run_eloqkv_tests() {
       --aws_secret_key="${rocksdb_cloud_aws_secret_access_key}" \
       --rocksdb_cloud_bucket_name=${rocksdb_cloud_bucket_name} \
       --rocksdb_cloud_object_path=${rocksdb_cloud_object_path} \
+      --rocksdb_cloud_bucket_prefix=${rocksdb_cloud_bucket_prefix} \
+      --txlog_rocksdb_cloud_bucket_prefix=${txlog_rocksdb_cloud_bucket_prefix} \
+      --txlog_rocksdb_cloud_bucket_name=${txlog_rocksdb_cloud_bucket_name} \
+      --txlog_rocksdb_cloud_object_path=${txlog_rocksdb_cloud_object_path} \
+      --txlog_rocksdb_cloud_s3_endpoint_url="${txlog_rocksdb_cloud_s3_endpoint_url}" \
       --rocksdb_cloud_purger_periodicity_secs=30 \
       --maxclients=1000000 \
-      --checkpoint_interval=36000 \
+      --checkpointer_interval=36000 \
       --enable_io_uring=${enable_io_uring} \
       --logtostderr=true \
       >/tmp/redis_server_single_node_before_replay.log 2>&1 \
@@ -894,7 +921,8 @@ function run_eloqkv_tests() {
 
     # run redis
     echo "redirecting output to /tmp/ to prevent ci pipeline crash"
-    /home/$current_user/workspace/eloqkv/cmake/eloqkv \
+    env LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH} \
+    /home/$current_user/workspace/eloqkv/install/bin/eloqkv \
       --port=6379 \
       --core_number=2 \
       --enable_wal=true \
@@ -904,9 +932,14 @@ function run_eloqkv_tests() {
       --aws_secret_key="${rocksdb_cloud_aws_secret_access_key}" \
       --rocksdb_cloud_bucket_name=${rocksdb_cloud_bucket_name} \
       --rocksdb_cloud_object_path=${rocksdb_cloud_object_path} \
+      --rocksdb_cloud_bucket_prefix=${rocksdb_cloud_bucket_prefix} \
+      --txlog_rocksdb_cloud_bucket_prefix=${txlog_rocksdb_cloud_bucket_prefix} \
+      --txlog_rocksdb_cloud_bucket_name=${txlog_rocksdb_cloud_bucket_name} \
+      --txlog_rocksdb_cloud_object_path=${txlog_rocksdb_cloud_object_path} \
+      --txlog_rocksdb_cloud_s3_endpoint_url="${txlog_rocksdb_cloud_s3_endpoint_url}" \
       --rocksdb_cloud_purger_periodicity_secs=30 \
       --maxclients=1000000 \
-      --checkpoint_interval=36000 \
+      --checkpointer_interval=36000 \
       --enable_io_uring=${enable_io_uring} \
       --logtostderr=true \
       >/tmp/redis_server_single_node_after_replay.log 2>&1 \
@@ -960,7 +993,8 @@ function run_eloqkv_tests() {
 
     # run redis with wal disabled.
     echo "redirecting output to /tmp/ to prevent ci pipeline crash"
-    /home/$current_user/workspace/eloqkv/cmake/eloqkv \
+    env LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH} \
+    /home/$current_user/workspace/eloqkv/install/bin/eloqkv \
         --port=6379 \
         --core_number=2 \
         --enable_wal=false \
@@ -970,9 +1004,14 @@ function run_eloqkv_tests() {
         --aws_secret_key="${rocksdb_cloud_aws_secret_access_key}" \
         --rocksdb_cloud_bucket_name=${rocksdb_cloud_bucket_name} \
         --rocksdb_cloud_object_path=${rocksdb_cloud_object_path} \
+        --rocksdb_cloud_bucket_prefix=${rocksdb_cloud_bucket_prefix} \
+        --txlog_rocksdb_cloud_bucket_prefix=${txlog_rocksdb_cloud_bucket_prefix} \
+        --txlog_rocksdb_cloud_bucket_name=${txlog_rocksdb_cloud_bucket_name} \
+        --txlog_rocksdb_cloud_object_path=${txlog_rocksdb_cloud_object_path} \
+        --txlog_rocksdb_cloud_s3_endpoint_url="${txlog_rocksdb_cloud_s3_endpoint_url}" \
         --rocksdb_cloud_purger_periodicity_secs=30 \
         --maxclients=1000000 \
-        --checkpoint_interval=10 \
+        --checkpointer_interval=10 \
         --enable_io_uring=${enable_io_uring} \
         --logtostderr=true \
         >/tmp/redis_server_single_node_no_wal.log 2>&1 \
@@ -995,7 +1034,8 @@ function run_eloqkv_tests() {
 
     # run redis with wal and data store disabled.
     echo "redirecting output to /tmp/ to prevent ci pipeline crash"
-    /home/$current_user/workspace/eloqkv/cmake/eloqkv \
+    env LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH} \
+    /home/$current_user/workspace/eloqkv/install/bin/eloqkv \
         --port=6379 \
         --core_number=2 \
         --enable_wal=false \
@@ -1005,9 +1045,14 @@ function run_eloqkv_tests() {
         --aws_secret_key="${rocksdb_cloud_aws_secret_access_key}" \
         --rocksdb_cloud_bucket_name=${rocksdb_cloud_bucket_name} \
         --rocksdb_cloud_object_path=${rocksdb_cloud_object_path} \
+        --rocksdb_cloud_bucket_prefix=${rocksdb_cloud_bucket_prefix} \
+        --txlog_rocksdb_cloud_bucket_prefix=${txlog_rocksdb_cloud_bucket_prefix} \
+        --txlog_rocksdb_cloud_bucket_name=${txlog_rocksdb_cloud_bucket_name} \
+        --txlog_rocksdb_cloud_object_path=${txlog_rocksdb_cloud_object_path} \
+        --txlog_rocksdb_cloud_s3_endpoint_url="${txlog_rocksdb_cloud_s3_endpoint_url}" \
         --rocksdb_cloud_purger_periodicity_secs=30 \
         --maxclients=1000000 \
-        --checkpoint_interval=10 \
+        --checkpointer_interval=10 \
         --enable_io_uring=${enable_io_uring} \
         --logtostderr=true \
         >/tmp/redis_server_single_node_no_wal_no_data_store.log 2>&1 \
@@ -1037,12 +1082,13 @@ function run_eloqkv_tests() {
     local node_memory_limit_mb=8192
     local eloq_store_worker_num=2
     local eloq_store_data_path="/tmp/eloqkv_data/eloq_store"
-    local eloqkv_bin_path="/home/$current_user/workspace/eloqkv/cmake/eloqkv"
+    local eloqkv_bin_path="/home/$current_user/workspace/eloqkv/install/bin/eloqkv"
 
     # run redis with small ckpt interval.
     rm -rf ${eloq_data_path}/*
     echo "redirecting output to /tmp/ to prevent ci pipeline crash" >> /tmp/redis_single_node.log
     echo "small ckpt interval with wal and data store." >> /tmp/redis_single_node.log
+    env LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH} \
     ${eloqkv_bin_path} \
         --port=6379 \
         --core_number=2 \
@@ -1054,7 +1100,7 @@ function run_eloqkv_tests() {
         --eloq_store_data_path=${eloq_store_data_path} \
         --maxclients=1000000 \
 	      --logtostderr=true \
-        --checkpoint_interval=1 \
+        --checkpointer_interval=1 \
 	      --kickout_data_for_test=true \
         >/tmp/redis_server_single_node_small_ckpt_interval.log 2>&1 \
         &
@@ -1080,6 +1126,7 @@ function run_eloqkv_tests() {
     rm -rf ${eloq_data_path}/*
     echo "redirecting output to /tmp/ to prevent ci pipeline crash" >> /tmp/redis_single_node.log
     echo "big ckpt interval before replay with wal and data store." >> /tmp/redis_single_node.log
+    env LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH} \
     ${eloqkv_bin_path} \
       --port=6379 \
       --core_number=2 \
@@ -1091,7 +1138,7 @@ function run_eloqkv_tests() {
       --eloq_store_data_path=${eloq_store_data_path} \
       --maxclients=1000000 \
       --logtostderr=true \
-      --checkpoint_interval=36000 \
+      --checkpointer_interval=36000 \
       >/tmp/redis_server_single_node_before_replay.log 2>&1 \
       &
     local redis_pid=$!
@@ -1125,6 +1172,7 @@ function run_eloqkv_tests() {
     # run redis
     echo "redirecting output to /tmp/ to prevent ci pipeline crash" >> /tmp/redis_single_node.log
     echo "big ckpt interval after replay with wal and data store." >> /tmp/redis_single_node.log
+    env LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH} \
     ${eloqkv_bin_path} \
       --port=6379 \
       --core_number=2 \
@@ -1136,7 +1184,7 @@ function run_eloqkv_tests() {
       --eloq_store_data_path=${eloq_store_data_path} \
       --maxclients=1000000 \
       --logtostderr=true \
-      --checkpoint_interval=36000 \
+      --checkpointer_interval=36000 \
       >/tmp/redis_server_single_node_after_replay.log 2>&1 \
       &
     local redis_pid=$!
@@ -1206,7 +1254,7 @@ function run_eloqkv_tests() {
         --eloq_store_data_path=${eloq_store_data_path} \
         --maxclients=1000000 \
         --logtostderr=true \
-        --checkpoint_interval=10 \
+        --checkpointer_interval=10 \
         >/tmp/redis_server_single_node_no_wal_default_ckpt_interval.log 2>&1 \
         &
     local redis_pid=$!
@@ -1242,7 +1290,7 @@ function run_eloqkv_tests() {
         --eloq_store_data_path=${eloq_store_data_path} \
         --maxclients=1000000 \
         --logtostderr=true \
-        --checkpoint_interval=1 \
+        --checkpointer_interval=1 \
 	      --kickout_data_for_test=true \
         >/tmp/redis_server_single_node_nowal_small_ckpt_interval.log 2>&1 \
         &
@@ -1280,7 +1328,7 @@ function run_eloqkv_tests() {
         --eloq_store_data_path=${eloq_store_data_path} \
         --maxclients=1000000 \
         --logtostderr=true \
-        --checkpoint_interval=10 \
+        --checkpointer_interval=10 \
         >/tmp/redis_server_single_node_no_wal_no_data_store_default_ckpt_interval.log 2>&1 \
         &
     local redis_pid=$!
@@ -1392,7 +1440,7 @@ function start_dss_server() {
     rm -rf ${dss_data_path}
     mkdir ${dss_data_path}
     echo "starting dss_server"
-    ${eloqkv_base_path}/store_handler/eloq_data_store_service/bld/dss_server \
+    ${eloqkv_base_path}/data_substrate/store_handler/eloq_data_store_service/bld/dss_server \
       ${dss_server_configs} \
       --data_path=${dss_data_path} \
       --ip=$dss_ip \
@@ -1427,7 +1475,8 @@ function run_eloqkv_cluster_tests() {
 
     for port in "${ports[@]}"; do
       echo "redirecting output to /tmp/ to prevent ci pipeline crash"
-      /home/$current_user/workspace/eloqkv/cmake/eloqkv \
+      env LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH} \
+      /home/$current_user/workspace/eloqkv/install/bin/eloqkv \
         --port=$port \
         --core_number=2 \
         --enable_wal=false \
@@ -1436,7 +1485,7 @@ function run_eloqkv_cluster_tests() {
         --event_dispatcher_num=1 \
         --auto_redirect=true \
         --maxclients=1000000 \
-        --checkpoint_interval=36000 \
+        --checkpointer_interval=36000 \
         --ip_port_list=127.0.0.1:6379,127.0.0.1:7379,127.0.0.1:8379 \
         --txlog_service_list=$log_service_ip_port \
         --txlog_group_replica_num=3 \
@@ -1479,7 +1528,8 @@ function run_eloqkv_cluster_tests() {
     /home/$current_user/workspace/apache-cassandra-4.0.6/bin/cqlsh $CASS_HOST -e "DROP KEYSPACE IF EXISTS $keyspace_name;"
 
     echo "bootstrap before start cluster to avoid contention"
-    /home/$current_user/workspace/eloqkv/cmake/eloqkv \
+    env LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH} \
+    /home/$current_user/workspace/eloqkv/install/bin/eloqkv \
       --port=6379 \
       --core_number=2 \
       --enable_wal=false \
@@ -1488,7 +1538,7 @@ function run_eloqkv_cluster_tests() {
       --event_dispatcher_num=1 \
       --auto_redirect=true \
       --maxclients=1000000 \
-      --checkpoint_interval=36000 \
+      --checkpointer_interval=36000 \
       --ip_port_list=127.0.0.1:6379,127.0.0.1:7379,127.0.0.1:8379 \
       --cass_hosts=$CASS_HOST \
       --cass_port=9042 \
@@ -1512,7 +1562,8 @@ function run_eloqkv_cluster_tests() {
     redis_pids=()
     local index=0
     for port in "${ports[@]}"; do
-      /home/$current_user/workspace/eloqkv/cmake/eloqkv \
+      env LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH} \
+      /home/$current_user/workspace/eloqkv/install/bin/eloqkv \
         --port=$port \
         --core_number=2 \
         --enable_wal=false \
@@ -1556,7 +1607,7 @@ function run_eloqkv_cluster_tests() {
     local log_service_ip_port="127.0.0.1:9000"
 
     rm -rf /tmp/log_data
-    /home/$current_user/workspace/eloqkv/cmake/install/bin/launch_sv \
+    /home/$current_user/workspace/eloqkv/install/bin/launch_sv \
       -conf=$log_service_ip_port \
       -node_id=0 \
       -storage_path="/tmp/log_data" \
@@ -1573,7 +1624,8 @@ function run_eloqkv_cluster_tests() {
     /home/$current_user/workspace/apache-cassandra-4.0.6/bin/cqlsh $CASS_HOST -e "DROP KEYSPACE IF EXISTS $keyspace_name;"
 
     echo "bootstrap before start cluster to avoid contention"
-    /home/$current_user/workspace/eloqkv/cmake/eloqkv \
+    env LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH} \
+    /home/$current_user/workspace/eloqkv/install/bin/eloqkv \
       --port=6379 \
       --core_number=2 \
       --enable_wal=true \
@@ -1582,7 +1634,7 @@ function run_eloqkv_cluster_tests() {
       --event_dispatcher_num=1 \
       --auto_redirect=true \
       --maxclients=1000000 \
-      --checkpoint_interval=36000 \
+      --checkpointer_interval=36000 \
       --ip_port_list=127.0.0.1:6379,127.0.0.1:7379,127.0.0.1:8379 \
       --txlog_service_list=$log_service_ip_port \
       --txlog_group_replica_num=3 \
@@ -1610,7 +1662,8 @@ function run_eloqkv_cluster_tests() {
 
     for port in "${ports[@]}"; do
       echo "redirecting output to /tmp/ to prevent ci pipeline crash"
-      /home/$current_user/workspace/eloqkv/cmake/eloqkv \
+      env LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH} \
+      /home/$current_user/workspace/eloqkv/install/bin/eloqkv \
         --port=$port \
         --core_number=2 \
         --enable_wal=true \
@@ -1619,7 +1672,7 @@ function run_eloqkv_cluster_tests() {
         --event_dispatcher_num=1 \
         --auto_redirect=true \
         --maxclients=1000000 \
-        --checkpoint_interval=36000 \
+        --checkpointer_interval=36000 \
         --ip_port_list=127.0.0.1:6379,127.0.0.1:7379,127.0.0.1:8379 \
         --txlog_service_list=$log_service_ip_port \
         --txlog_group_replica_num=3 \
@@ -1668,7 +1721,8 @@ function run_eloqkv_cluster_tests() {
     redis_pids=()
     local index=0
     for port in "${ports[@]}"; do
-      /home/$current_user/workspace/eloqkv/cmake/eloqkv \
+      env LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH} \
+      /home/$current_user/workspace/eloqkv/install/bin/eloqkv \
         --port=$port \
         --core_number=2 \
         --enable_wal=true \
@@ -1677,7 +1731,7 @@ function run_eloqkv_cluster_tests() {
         --event_dispatcher_num=1 \
         --auto_redirect=true \
         --maxclients=1000000 \
-        --checkpoint_interval=36000 \
+        --checkpointer_interval=36000 \
         --ip_port_list=127.0.0.1:6379,127.0.0.1:7379,127.0.0.1:8379 \
         --txlog_service_list=127.0.0.1:9000 \
         --txlog_group_replica_num=3 \
@@ -1734,25 +1788,47 @@ function run_eloqkv_cluster_tests() {
     /home/$current_user/workspace/apache-cassandra-4.0.6/bin/cqlsh $CASS_HOST -e "DROP KEYSPACE IF EXISTS $keyspace_name;"
 
   elif [[ $kv_store_type = "ROCKSDB" ]]; then
-    # echo "bootstrap before start cluster to avoid contention"
-    # /home/$current_user/workspace/eloqkv/cmake/eloqkv \
-    #   --port=6379 \
-    #   --core_number=2 \
-    #   --enable_wal=false \
-    #   --enable_data_store=false \
-    #   --eloq_data_path="/tmp/redis_server_data_bootstrap" \
-    #   --event_dispatcher_num=1 \
-    #   --auto_redirect=true \
-    #   --maxclients=1000000 \
-    #   --checkpoint_interval=36000 \
-    #   --ip_port_list=127.0.0.1:6379,127.0.0.1:7379,127.0.0.1:8379 \
-    #   --txlog_service_list=$log_service_ip_port \
-    #   --txlog_group_replica_num=3 \
-    #   --logtostderr=true \
-    #   --bootstrap \
-    #   --enable_io_uring=${enable_io_uring} \
-    #   >/tmp/redis_server_multi_node_bootstrap.log 2>&1 \
-    #   &
+    echo "starting log service"
+    local log_service_ip_port="127.0.0.1:9000"
+
+    rm -rf /tmp/log_data
+    /home/$current_user/workspace/eloqkv/install/bin/launch_sv \
+      -conf=$log_service_ip_port \
+      -node_id=0 \
+      -storage_path="/tmp/log_data" \
+      --logtostderr=true \
+      >/tmp/redis_log_service.log 2>&1 \
+      &
+
+    local log_service_pid=$!
+    echo "log_service is started, pid: $log_service_pid"
+    # wait for log service to be ready
+    sleep 10
+
+    echo "bootstrap before start cluster to avoid contention"
+    env LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH} \
+    /home/$current_user/workspace/eloqkv/install/bin/eloqkv \
+      --port=6379 \
+      --core_number=2 \
+      --enable_wal=false \
+      --enable_data_store=false \
+      --eloq_data_path="/tmp/redis_server_data_0" \
+      --event_dispatcher_num=1 \
+      --auto_redirect=true \
+      --maxclients=1000000 \
+      --checkpointer_interval=36000 \
+      --ip_port_list=127.0.0.1:6379,127.0.0.1:7379,127.0.0.1:8379 \
+      --txlog_service_list=$log_service_ip_port \
+      --txlog_group_replica_num=3 \
+      --logtostderr=true \
+      --bootstrap \
+      --enable_io_uring=${enable_io_uring} \
+      >/tmp/redis_server_multi_node_bootstrap.log 2>&1 \
+      &
+
+    echo "bootstrap is started, pid: $!"
+    # wait for bootstrap to finish
+    sleep 20
 
     # echo "bootstrap is started, pid: $!"
     # # wait for bootstrap to finish
@@ -1768,7 +1844,8 @@ function run_eloqkv_cluster_tests() {
 
     for port in "${ports[@]}"; do
       echo "redirecting output to /tmp/ to prevent ci pipeline crash"
-      /home/$current_user/workspace/eloqkv/cmake/eloqkv \
+      env LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH} \
+      /home/$current_user/workspace/eloqkv/install/bin/eloqkv \
         --port=$port \
         --core_number=2 \
         --enable_wal=false \
@@ -1778,7 +1855,7 @@ function run_eloqkv_cluster_tests() {
         --event_dispatcher_num=1 \
         --auto_redirect=true \
         --maxclients=1000000 \
-        --checkpoint_interval=36000 \
+        --checkpointer_interval=36000 \
         --ip_port_list=127.0.0.1:6379,127.0.0.1:7379,127.0.0.1:8379 \
         --txlog_service_list=$log_service_ip_port \
         --txlog_group_replica_num=3 \
@@ -1804,6 +1881,7 @@ function run_eloqkv_cluster_tests() {
       fi
     done
 
+    kill $log_service_pid
     wait_until_finished
 
   elif [[ $kv_store_type = "DYNAMODB" ]]; then
@@ -1818,7 +1896,8 @@ function run_eloqkv_cluster_tests() {
 
     for port in "${ports[@]}"; do
       echo "redirecting output to /tmp/ to prevent ci pipeline crash"
-      /home/$current_user/workspace/eloqkv/cmake/eloqkv \
+      env LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH} \
+      /home/$current_user/workspace/eloqkv/install/bin/eloqkv \
         --port=$port \
         --core_number=2 \
         --enable_wal=false \
@@ -1827,7 +1906,7 @@ function run_eloqkv_cluster_tests() {
         --event_dispatcher_num=1 \
         --auto_redirect=true \
         --maxclients=1000000 \
-        --checkpoint_interval=36000 \
+        --checkpointer_interval=36000 \
         --ip_port_list=127.0.0.1:6379,127.0.0.1:7379,127.0.0.1:8379 \
         --txlog_service_list=$log_service_ip_port \
         --txlog_group_replica_num=3 \
@@ -1868,7 +1947,8 @@ function run_eloqkv_cluster_tests() {
     local aws_secret_key=${AWS_SECRET_ACCESS_KEY}
 
     echo "bootstrap before start cluster to avoid contention"
-    /home/$current_user/workspace/eloqkv/cmake/eloqkv \
+    env LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH} \
+    /home/$current_user/workspace/eloqkv/install/bin/eloqkv \
       --port=6379 \
       --core_number=2 \
       --enable_wal=false \
@@ -1877,7 +1957,7 @@ function run_eloqkv_cluster_tests() {
       --event_dispatcher_num=1 \
       --auto_redirect=true \
       --maxclients=1000000 \
-      --checkpoint_interval=10 \
+      --checkpointer_interval=10 \
       --ip_port_list=127.0.0.1:6379,127.0.0.1:7379,127.0.0.1:8379 \
       --dynamodb_endpoint=$dynamodb_endpoint \
       --dynamodb_region=$dynamodb_region \
@@ -1898,7 +1978,8 @@ function run_eloqkv_cluster_tests() {
     local index=0
     redis_pids=()
     for port in "${ports[@]}"; do
-      /home/$current_user/workspace/eloqkv/cmake/eloqkv \
+      env LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH} \
+      /home/$current_user/workspace/eloqkv/install/bin/eloqkv \
         --port=$port \
         --core_number=2 \
         --enable_wal=false \
@@ -1909,7 +1990,7 @@ function run_eloqkv_cluster_tests() {
         --aws_access_key_id=$aws_access_key_id \
         --aws_secret_key=$aws_secret_key \
         --dynamodb_keyspace=$keyspace_name \
-        --checkpoint_interval=10 \
+        --checkpointer_interval=10 \
         --logtostderr=true \
         --maxclients=1000000 \
         --enable_io_uring=${enable_io_uring} \
@@ -1941,7 +2022,7 @@ function run_eloqkv_cluster_tests() {
     local log_service_ip_port="127.0.0.1:9000"
 
     rm -rf /tmp/log_data
-    /home/$current_user/workspace/eloqkv/cmake/install/bin/ \
+    /home/$current_user/workspace/eloqkv/install/bin/launch_sv \
       -conf=$log_service_ip_port \
       -node_id=0 \
       -storage_path="/tmp/log_data" \
@@ -1961,7 +2042,8 @@ function run_eloqkv_cluster_tests() {
     echo "dynamo keyspace name is, ${keyspace_name}"
 
     echo "bootstrap before start cluster to avoid contention"
-    /home/$current_user/workspace/eloqkv/cmake/eloqkv \
+    env LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH} \
+    /home/$current_user/workspace/eloqkv/install/bin/eloqkv \
       --port=6379 \
       --core_number=2 \
       --enable_wal=true \
@@ -1970,7 +2052,7 @@ function run_eloqkv_cluster_tests() {
       --event_dispatcher_num=1 \
       --auto_redirect=true \
       --maxclients=1000000 \
-      --checkpoint_interval=10 \
+      --checkpointer_interval=10 \
       --ip_port_list=127.0.0.1:6379,127.0.0.1:7379,127.0.0.1:8379 \
       --txlog_service_list=$log_service_ip_port \
       --txlog_group_replica_num=3 \
@@ -1996,7 +2078,8 @@ function run_eloqkv_cluster_tests() {
 
     for port in "${ports[@]}"; do
       echo "redirecting output to /tmp/ to prevent ci pipeline crash"
-      /home/$current_user/workspace/eloqkv/cmake/eloqkv \
+      env LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH} \
+      /home/$current_user/workspace/eloqkv/install/bin/eloqkv \
         --port=$port \
         --core_number=2 \
         --enable_wal=true \
@@ -2005,7 +2088,7 @@ function run_eloqkv_cluster_tests() {
         --event_dispatcher_num=1 \
         --auto_redirect=true \
         --maxclients=1000000 \
-        --checkpoint_interval=10 \
+        --checkpointer_interval=10 \
         --ip_port_list=127.0.0.1:6379,127.0.0.1:7379,127.0.0.1:8379 \
         --txlog_service_list=$log_service_ip_port \
         --txlog_group_replica_num=3 \
@@ -2052,7 +2135,8 @@ function run_eloqkv_cluster_tests() {
     redis_pids=()
     local index=0
     for port in "${ports[@]}"; do
-      /home/$current_user/workspace/eloqkv/cmake/eloqkv \
+      env LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH} \
+      /home/$current_user/workspace/eloqkv/install/bin/eloqkv \
         --port=$port \
         --core_number=2 \
         --enable_wal=true \
@@ -2061,7 +2145,7 @@ function run_eloqkv_cluster_tests() {
         --event_dispatcher_num=1 \
         --auto_redirect=true \
         --maxclients=1000000 \
-        --checkpoint_interval=10 \
+        --checkpointer_interval=10 \
         --ip_port_list=127.0.0.1:6379,127.0.0.1:7379,127.0.0.1:8379 \
         --txlog_service_list=$log_service_ip_port \
         --txlog_group_replica_num=3 \
@@ -2118,6 +2202,17 @@ function run_eloqkv_cluster_tests() {
   elif [[ $kv_store_type = "ELOQDSS_ROCKSDB_CLOUD_S3" ]]; then
     echo "run_eloqkv_cluster_tests for ELOQDSS_ROCKSDB_CLOUD_S3"
 
+    local rocksdb_cloud_s3_endpoint_url=${ROCKSDB_CLOUD_S3_ENDPOINT}
+    local rocksdb_cloud_aws_access_key_id=${ROCKSDB_CLOUD_AWS_ACCESS_KEY_ID}
+    local rocksdb_cloud_aws_secret_access_key=${ROCKSDB_CLOUD_AWS_SECRET_ACCESS_KEY}
+    local rocksdb_cloud_bucket_name=${ROCKSDB_CLOUD_BUCKET_NAME}
+    local rocksdb_cloud_object_path=${ROCKSDB_CLOUD_OBJECT_PATH}
+    local rocksdb_cloud_bucket_prefix=${ROCKSDB_CLOUD_BUCKET_PREFIX}
+    local txlog_rocksdb_cloud_bucket_prefix=${ROCKSDB_CLOUD_BUCKET_PREFIX}
+    local txlog_rocksdb_cloud_bucket_name=${ROCKSDB_CLOUD_BUCKET_NAME}
+    local txlog_rocksdb_cloud_object_path=${TXLOG_ROCKSDB_CLOUD_OBJECT_PATH}
+    local txlog_rocksdb_cloud_s3_endpoint_url=${ROCKSDB_CLOUD_S3_ENDPOINT}
+
     stop_and_clean_dss_server $kv_store_type
     start_dss_server "127.0.0.1" "9100" $kv_store_type
     local dss_server_ip_port="127.0.0.1:9100"
@@ -2132,7 +2227,8 @@ function run_eloqkv_cluster_tests() {
 
     for port in "${ports[@]}"; do
       echo "redirecting output to /tmp/ to prevent ci pipeline crash"
-      /home/$current_user/workspace/eloqkv/cmake/eloqkv \
+      env LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH} \
+      /home/$current_user/workspace/eloqkv/install/bin/eloqkv \
         --port=$port \
         --core_number=2 \
         --enable_wal=false \
@@ -2141,11 +2237,21 @@ function run_eloqkv_cluster_tests() {
         --event_dispatcher_num=1 \
         --auto_redirect=true \
         --maxclients=1000000 \
-        --checkpoint_interval=36000 \
+        --checkpointer_interval=36000 \
         --ip_port_list=127.0.0.1:6379,127.0.0.1:7379,127.0.0.1:8379 \
         --txlog_service_list=$log_service_ip_port \
         --txlog_group_replica_num=3 \
         --eloq_dss_peer_node=$dss_server_ip_port \
+        --rocksdb_cloud_s3_endpoint_url="${rocksdb_cloud_s3_endpoint_url}" \
+        --aws_access_key_id="${rocksdb_cloud_aws_access_key_id}" \
+        --aws_secret_key="${rocksdb_cloud_aws_secret_access_key}" \
+        --rocksdb_cloud_bucket_name=${rocksdb_cloud_bucket_name} \
+        --rocksdb_cloud_object_path=${rocksdb_cloud_object_path} \
+        --rocksdb_cloud_bucket_prefix=${rocksdb_cloud_bucket_prefix} \
+        --txlog_rocksdb_cloud_bucket_prefix=${txlog_rocksdb_cloud_bucket_prefix} \
+        --txlog_rocksdb_cloud_bucket_name=${txlog_rocksdb_cloud_bucket_name} \
+        --txlog_rocksdb_cloud_object_path=${txlog_rocksdb_cloud_object_path} \
+        --txlog_rocksdb_cloud_s3_endpoint_url="${txlog_rocksdb_cloud_s3_endpoint_url}" \
         --logtostderr=true \
         >/tmp/redis_server_multi_node_$index.log 2>&1 \
         &
@@ -2175,7 +2281,8 @@ function run_eloqkv_cluster_tests() {
     rm -rf /tmp/redis_server_data*
 
     echo "bootstrap before start cluster to avoid contention"
-    /home/$current_user/workspace/eloqkv/cmake/eloqkv \
+    env LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH} \
+    /home/$current_user/workspace/eloqkv/install/bin/eloqkv \
       --port=6379 \
       --core_number=2 \
       --enable_wal=false \
@@ -2184,9 +2291,19 @@ function run_eloqkv_cluster_tests() {
       --event_dispatcher_num=1 \
       --auto_redirect=true \
       --maxclients=1000000 \
-      --checkpoint_interval=36000 \
+      --checkpointer_interval=36000 \
       --ip_port_list=127.0.0.1:6379,127.0.0.1:7379,127.0.0.1:8379 \
       --eloq_dss_peer_node=$dss_server_ip_port \
+      --rocksdb_cloud_s3_endpoint_url="${rocksdb_cloud_s3_endpoint_url}" \
+      --aws_access_key_id="${rocksdb_cloud_aws_access_key_id}" \
+      --aws_secret_key="${rocksdb_cloud_aws_secret_access_key}" \
+      --rocksdb_cloud_bucket_name=${rocksdb_cloud_bucket_name} \
+      --rocksdb_cloud_object_path=${rocksdb_cloud_object_path} \
+      --rocksdb_cloud_bucket_prefix=${rocksdb_cloud_bucket_prefix} \
+      --txlog_rocksdb_cloud_bucket_prefix=${txlog_rocksdb_cloud_bucket_prefix} \
+      --txlog_rocksdb_cloud_bucket_name=${txlog_rocksdb_cloud_bucket_name} \
+      --txlog_rocksdb_cloud_object_path=${txlog_rocksdb_cloud_object_path} \
+      --txlog_rocksdb_cloud_s3_endpoint_url="${txlog_rocksdb_cloud_s3_endpoint_url}" \
       --logtostderr=true \
       --bootstrap \
       >/tmp/redis_server_multi_node_bootstrap.log 2>&1 \
@@ -2200,13 +2317,24 @@ function run_eloqkv_cluster_tests() {
     redis_pids=()
     local index=0
     for port in "${ports[@]}"; do
-      /home/$current_user/workspace/eloqkv/cmake/eloqkv \
+      env LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH} \
+      /home/$current_user/workspace/eloqkv/install/bin/eloqkv \
         --port=$port \
         --core_number=2 \
         --enable_wal=false \
         --enable_data_store=true \
         --eloq_data_path="/tmp/redis_server_data_$index" \
         --eloq_dss_peer_node=$dss_server_ip_port \
+        --rocksdb_cloud_s3_endpoint_url="${rocksdb_cloud_s3_endpoint_url}" \
+        --aws_access_key_id="${rocksdb_cloud_aws_access_key_id}" \
+        --aws_secret_key="${rocksdb_cloud_aws_secret_access_key}" \
+        --rocksdb_cloud_bucket_name=${rocksdb_cloud_bucket_name} \
+        --rocksdb_cloud_object_path=${rocksdb_cloud_object_path} \
+        --rocksdb_cloud_bucket_prefix=${rocksdb_cloud_bucket_prefix} \
+        --txlog_rocksdb_cloud_bucket_prefix=${txlog_rocksdb_cloud_bucket_prefix} \
+        --txlog_rocksdb_cloud_bucket_name=${txlog_rocksdb_cloud_bucket_name} \
+        --txlog_rocksdb_cloud_object_path=${txlog_rocksdb_cloud_object_path} \
+        --txlog_rocksdb_cloud_s3_endpoint_url="${txlog_rocksdb_cloud_s3_endpoint_url}" \
         --maxclients=1000000 \
         --logtostderr=true \
         >/tmp/redis_server_multi_node_$index.log 2>&1 \
@@ -2236,7 +2364,7 @@ function run_eloqkv_cluster_tests() {
     local log_service_ip_port="127.0.0.1:9000"
 
     rm -rf /tmp/log_data
-    /home/$current_user/workspace/eloqkv/cmake/install/bin/launch_sv \
+    /home/$current_user/workspace/eloqkv/install/bin/launch_sv \
       -conf=$log_service_ip_port \
       -node_id=0 \
       -storage_path="/tmp/log_data" \
@@ -2255,7 +2383,8 @@ function run_eloqkv_cluster_tests() {
     rm -rf /tmp/redis_server_data*
 
     echo "bootstrap before start cluster to avoid contention"
-    /home/$current_user/workspace/eloqkv/cmake/eloqkv \
+    env LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH} \
+    /home/$current_user/workspace/eloqkv/install/bin/eloqkv \
       --port=6379 \
       --core_number=2 \
       --enable_wal=true \
@@ -2264,11 +2393,21 @@ function run_eloqkv_cluster_tests() {
       --event_dispatcher_num=1 \
       --auto_redirect=true \
       --maxclients=1000000 \
-      --checkpoint_interval=36000 \
+      --checkpointer_interval=36000 \
       --ip_port_list=127.0.0.1:6379,127.0.0.1:7379,127.0.0.1:8379 \
       --txlog_service_list=$log_service_ip_port \
       --txlog_group_replica_num=3 \
       --eloq_dss_peer_node=$dss_server_ip_port \
+      --rocksdb_cloud_s3_endpoint_url="${rocksdb_cloud_s3_endpoint_url}" \
+      --aws_access_key_id="${rocksdb_cloud_aws_access_key_id}" \
+      --aws_secret_key="${rocksdb_cloud_aws_secret_access_key}" \
+      --rocksdb_cloud_bucket_name=${rocksdb_cloud_bucket_name} \
+      --rocksdb_cloud_object_path=${rocksdb_cloud_object_path} \
+      --rocksdb_cloud_bucket_prefix=${rocksdb_cloud_bucket_prefix} \
+      --txlog_rocksdb_cloud_bucket_prefix=${txlog_rocksdb_cloud_bucket_prefix} \
+      --txlog_rocksdb_cloud_bucket_name=${txlog_rocksdb_cloud_bucket_name} \
+      --txlog_rocksdb_cloud_object_path=${txlog_rocksdb_cloud_object_path} \
+      --txlog_rocksdb_cloud_s3_endpoint_url="${txlog_rocksdb_cloud_s3_endpoint_url}" \
       --logtostderr=true \
       --bootstrap \
       >/tmp/redis_server_multi_node_bootstrap.log 2>&1 \
@@ -2285,7 +2424,8 @@ function run_eloqkv_cluster_tests() {
 
     for port in "${ports[@]}"; do
       echo "redirecting output to /tmp/ to prevent ci pipeline crash"
-      /home/$current_user/workspace/eloqkv/cmake/eloqkv \
+      env LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH} \
+      /home/$current_user/workspace/eloqkv/install/bin/eloqkv \
         --port=$port \
         --core_number=2 \
         --enable_wal=true \
@@ -2294,11 +2434,21 @@ function run_eloqkv_cluster_tests() {
         --event_dispatcher_num=1 \
         --auto_redirect=true \
         --maxclients=1000000 \
-        --checkpoint_interval=36000 \
+        --checkpointer_interval=36000 \
         --ip_port_list=127.0.0.1:6379,127.0.0.1:7379,127.0.0.1:8379 \
         --txlog_service_list=$log_service_ip_port \
         --txlog_group_replica_num=3 \
         --eloq_dss_peer_node=$dss_server_ip_port \
+        --rocksdb_cloud_s3_endpoint_url="${rocksdb_cloud_s3_endpoint_url}" \
+        --aws_access_key_id="${rocksdb_cloud_aws_access_key_id}" \
+        --aws_secret_key="${rocksdb_cloud_aws_secret_access_key}" \
+        --rocksdb_cloud_bucket_name=${rocksdb_cloud_bucket_name} \
+        --rocksdb_cloud_object_path=${rocksdb_cloud_object_path} \
+        --rocksdb_cloud_bucket_prefix=${rocksdb_cloud_bucket_prefix} \
+        --txlog_rocksdb_cloud_bucket_prefix=${txlog_rocksdb_cloud_bucket_prefix} \
+        --txlog_rocksdb_cloud_bucket_name=${txlog_rocksdb_cloud_bucket_name} \
+        --txlog_rocksdb_cloud_object_path=${txlog_rocksdb_cloud_object_path} \
+        --txlog_rocksdb_cloud_s3_endpoint_url="${txlog_rocksdb_cloud_s3_endpoint_url}" \
         --logtostderr=true \
         >/tmp/redis_server_multi_node_$index.log 2>&1 \
         &
@@ -2336,7 +2486,8 @@ function run_eloqkv_cluster_tests() {
     redis_pids=()
     local index=0
     for port in "${ports[@]}"; do
-      /home/$current_user/workspace/eloqkv/cmake/eloqkv \
+      env LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH} \
+      /home/$current_user/workspace/eloqkv/install/bin/eloqkv \
         --port=$port \
         --core_number=2 \
         --enable_wal=true \
@@ -2345,11 +2496,21 @@ function run_eloqkv_cluster_tests() {
         --event_dispatcher_num=1 \
         --auto_redirect=true \
         --maxclients=1000000 \
-        --checkpoint_interval=36000 \
+        --checkpointer_interval=36000 \
         --ip_port_list=127.0.0.1:6379,127.0.0.1:7379,127.0.0.1:8379 \
         --txlog_service_list=127.0.0.1:9000 \
         --txlog_group_replica_num=3 \
         --eloq_dss_peer_node=$dss_server_ip_port \
+        --rocksdb_cloud_s3_endpoint_url="${rocksdb_cloud_s3_endpoint_url}" \
+        --aws_access_key_id="${rocksdb_cloud_aws_access_key_id}" \
+        --aws_secret_key="${rocksdb_cloud_aws_secret_access_key}" \
+        --rocksdb_cloud_bucket_name=${rocksdb_cloud_bucket_name} \
+        --rocksdb_cloud_object_path=${rocksdb_cloud_object_path} \
+        --rocksdb_cloud_bucket_prefix=${rocksdb_cloud_bucket_prefix} \
+        --txlog_rocksdb_cloud_bucket_prefix=${txlog_rocksdb_cloud_bucket_prefix} \
+        --txlog_rocksdb_cloud_bucket_name=${txlog_rocksdb_cloud_bucket_name} \
+        --txlog_rocksdb_cloud_object_path=${txlog_rocksdb_cloud_object_path} \
+        --txlog_rocksdb_cloud_s3_endpoint_url="${txlog_rocksdb_cloud_s3_endpoint_url}" \
         --logtostderr=true \
         >/tmp/redis_server_multi_node_no_wal_$index.log 2>&1 \
         &
@@ -2401,7 +2562,7 @@ function run_eloqkv_cluster_tests() {
     local node_memory_limit_mb=8192
     local dss_peer_node="127.0.0.1:9100"
     local ports=(6379 7379 8379)
-    local eloqkv_bin_path="/home/$current_user/workspace/eloqkv/cmake/eloqkv"
+    local eloqkv_bin_path="/home/$current_user/workspace/eloqkv/install/bin/eloqkv"
 
     #
     # pure memory mode does not need log service
@@ -2427,7 +2588,7 @@ function run_eloqkv_cluster_tests() {
         --auto_redirect=true \
         --maxclients=1000000 \
         --logtostderr=true \
-        --checkpoint_interval=36000 \
+        --checkpointer_interval=36000 \
         --ip_port_list=127.0.0.1:6379,127.0.0.1:7379,127.0.0.1:8379 \
         --txlog_group_replica_num=3 \
         >/tmp/redis_server_multi_node_nowal_nostore_$index.log 2>&1 \
@@ -2475,7 +2636,7 @@ function run_eloqkv_cluster_tests() {
       --event_dispatcher_num=1 \
       --auto_redirect=true \
       --maxclients=1000000 \
-      --checkpoint_interval=36000 \
+      --checkpointer_interval=36000 \
       --ip_port_list=127.0.0.1:6379,127.0.0.1:7379,127.0.0.1:8379 \
       --eloq_dss_peer_node=${dss_peer_node} \
       --bootstrap \
@@ -2505,7 +2666,7 @@ function run_eloqkv_cluster_tests() {
         --auto_redirect=true \
         --maxclients=1000000 \
         --logtostderr=true \
-        --checkpoint_interval=1 \
+        --checkpointer_interval=1 \
 	      --kickout_data_for_test=true \
         --ip_port_list=127.0.0.1:6379,127.0.0.1:7379,127.0.0.1:8379 \
         --txlog_group_replica_num=3 \
@@ -2559,7 +2720,7 @@ function run_eloqkv_cluster_tests() {
       --event_dispatcher_num=1 \
       --auto_redirect=true \
       --maxclients=1000000 \
-      --checkpoint_interval=36000 \
+      --checkpointer_interval=36000 \
       --ip_port_list=127.0.0.1:6379,127.0.0.1:7379,127.0.0.1:8379 \
       --eloq_dss_peer_node=${dss_peer_node} \
       --bootstrap \
@@ -2624,7 +2785,7 @@ function run_eloqkv_cluster_tests() {
     local log_service_ip_port="127.0.0.1:9000"
 
     rm -rf /tmp/log_data
-    /home/$current_user/workspace/eloqkv/cmake/install/bin/launch_sv \
+    /home/$current_user/workspace/eloqkv/install/bin/launch_sv \
       -conf=$log_service_ip_port \
       -node_id=0 \
       -storage_path="/tmp/log_data" \
@@ -2655,7 +2816,7 @@ function run_eloqkv_cluster_tests() {
       --event_dispatcher_num=1 \
       --auto_redirect=true \
       --maxclients=1000000 \
-      --checkpoint_interval=36000 \
+      --checkpointer_interval=36000 \
       --ip_port_list=127.0.0.1:6379,127.0.0.1:7379,127.0.0.1:8379 \
       --txlog_service_list=$log_service_ip_port \
       --txlog_group_replica_num=3 \
@@ -2687,7 +2848,7 @@ function run_eloqkv_cluster_tests() {
         --auto_redirect=true \
         --maxclients=1000000 \
         --logtostderr=true \
-        --checkpoint_interval=36000 \
+        --checkpointer_interval=36000 \
         --ip_port_list=127.0.0.1:6379,127.0.0.1:7379,127.0.0.1:8379 \
         --txlog_service_list=$log_service_ip_port \
         --txlog_group_replica_num=3 \
@@ -2743,7 +2904,7 @@ function run_eloqkv_cluster_tests() {
         --auto_redirect=true \
         --maxclients=1000000 \
         --logtostderr=true \
-        --checkpoint_interval=36000 \
+        --checkpointer_interval=36000 \
         --ip_port_list=127.0.0.1:6379,127.0.0.1:7379,127.0.0.1:8379 \
         --txlog_service_list=$log_service_ip_port \
         --txlog_group_replica_num=3 \
@@ -2812,7 +2973,7 @@ function run_eloq_test(){
   # https://github.com/grpc/grpc/blob/master/doc/fork_support.md
   export GRPC_ENABLE_FORK_SUPPORT=0
 
-  local eloqkv_install_path="/home/$current_user/workspace/eloqkv/cmake/install"
+  local eloqkv_install_path="/home/$current_user/workspace/eloqkv/install"
 
   if [ ! -d "/home/$current_user/workspace/eloq_test/" ]; then
     echo "/home/$current_user/workspace/eloq_test/ not exists, exit !!!"

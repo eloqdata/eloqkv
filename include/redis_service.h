@@ -33,44 +33,15 @@
 #include <utility>
 #include <vector>
 
+#include "INIReader.h"
 #include "eloq_metrics/include/meter.h"
+#include "eloqkv_catalog_factory.h"
 #include "error_messages.h"
-#include "pub_sub_manager.h"
-#include "store_handler/kv_store.h"
-
-#if (defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB_CLOUD_S3) ||                      \
-     defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB_CLOUD_GCS) ||                     \
-     defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB) ||                               \
-     defined(DATA_STORE_TYPE_ELOQDSS_ELOQSTORE))
-#define ELOQDS 1
-#endif
-
-#if ELOQDS
-#include "data_store_service.h"
-#include "store_handler/data_store_service_client.h"
-#endif
-
-#if defined(DATA_STORE_TYPE_DYNAMODB) ||                                       \
-    defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB_CLOUD_S3) ||                       \
-    defined(LOG_STATE_TYPE_RKDB_S3)
-#include <aws/core/Aws.h>
-#endif
-
-#if defined(DATA_STORE_TYPE_ROCKSDB)
-#include "store_handler/rocksdb_handler.h"
-#endif
-
-#ifdef DATA_STORE_TYPE_DYNAMODB
-#include "store_handler/dynamo_handler.h"
-#endif
-
-#if (WITH_LOG_SERVICE)
-#include "log_server.h"
-#endif
-
-#include "eloq_catalog_factory.h"
 #include "lua_interpreter.h"
+#include "pub_sub_manager.h"
 #include "redis_command.h"
+#include "store/data_store_handler.h"
+#include "store_handler/kv_store.h"
 #include "tx_request.h"
 
 extern "C"
@@ -190,21 +161,9 @@ class RedisServiceImpl : public brpc::RedisService
 public:
     explicit RedisServiceImpl(const std::string &config_file,
                               const char *version);
-    ~RedisServiceImpl() override;
+    ~RedisServiceImpl() = default;
 
     bool Init(brpc::Server &brpc_server);
-
-    bool InitTxLogService(
-        uint32_t node_id,
-        int txlog_group_replica_num,
-        const std::string &log_path,
-        const std::string &local_ip,
-        uint16_t local_tx_port,
-        bool enable_brpc_builtin_services,
-        const INIReader &config_reader,
-        std::unordered_map<uint32_t, std::vector<NodeConfig>> &ng_configs,
-        std::vector<std::string> &txlog_ips,
-        std::vector<uint16_t> &txlog_ports);
 
     void Stop();
 
@@ -217,10 +176,6 @@ public:
     uint16_t TxPortToRedisPort(uint16_t tx_port) const
     {
         return tx_port - 10000;
-    }
-    uint16_t RedisPortToTxPort(uint16_t redis_port) const
-    {
-        return redis_port + 10000;
     }
 
     // Get all replica node status of node groups.
@@ -494,17 +449,13 @@ public:
     {
         return node_memory_limit_mb_;
     }
-    uint32_t GetNodeLogLimitMB() const
-    {
-        return node_log_limit_mb_;
-    }
     int GetEventDispatcherNum() const
     {
         return event_dispatcher_num_;
     }
     TxService *GetTxService()
     {
-        return tx_service_.get();
+        return tx_service_;
     }
     const char *GetVersion() const
     {
@@ -554,15 +505,6 @@ private:
 
     void AddHandlers();
 
-    bool InitMetricsRegistry();
-
-    /**
-     * Currently, this method only register connection-related metrics here.
-     * After registration is completed, the background thread collects data at a
-     * frequency of once per second.
-     */
-    void RegisterRedisMetrics();
-
     inline bool CheckAndUpdateRedisCmdRound(RedisCommandType cmd_type) const;
 
     inline std::string_view GetCommandAccessType(
@@ -572,26 +514,9 @@ private:
     typedef std::unordered_map<std::string, RedisCommandHandler *> CommandMap;
     CommandMap command_map_;
 
-    std::unique_ptr<TxService> tx_service_;
-#if defined(DATA_STORE_TYPE_DYNAMODB) ||                                       \
-    defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB_CLOUD_S3) ||                       \
-    defined(LOG_STATE_TYPE_RKDB_S3)
-    Aws::SDKOptions aws_options_;
-#endif
+    TxService *tx_service_;
 
-#if defined(DATA_STORE_TYPE_DYNAMODB)
-    std::unique_ptr<EloqDS::DynamoHandler> store_hd_;
-#elif defined(DATA_STORE_TYPE_ROCKSDB)
-    std::unique_ptr<RocksDBHandlerImpl> store_hd_;
-#elif ELOQDS
-    std::unique_ptr<EloqDS::DataStoreServiceClient> store_hd_;
-    std::unique_ptr<EloqDS::DataStoreService> data_store_service_;
-#endif
-
-#if (WITH_LOG_SERVICE)
-    std::unique_ptr<::txlog::LogServer> log_server_;
-#endif
-    RedisCatalogFactory catalog_factory_;
+    store::DataStoreHandler *store_hd_;
 
     std::vector<TableName> redis_table_names_;
 
@@ -613,13 +538,11 @@ private:
     bool enable_redis_stats_;
     bool skip_kv_;
     bool skip_wal_;
-    bool enable_cache_replacement_;
     uint32_t core_num_;
     uint32_t redis_port_;
     uint64_t start_sec_;  // The start second since The Epoch
     std::string config_file_;
     uint32_t node_memory_limit_mb_;
-    uint32_t node_log_limit_mb_;
     int event_dispatcher_num_;
     const char *version_;
     // Isolation level and concurrency control protocol of MULTI/EXEC or lua
@@ -634,16 +557,10 @@ private:
     // read and write-write conflict are both retried.
     bool retry_on_occ_error_{false};
 
-    std::unique_ptr<metrics::MetricsRegistry> metrics_registry_{nullptr};
-    std::string metrics_port_{"18081"};
-    metrics::CommonLabels redis_common_labels_{};
-    std::unique_ptr<metrics::Meter> redis_meter_{nullptr};
-
 #ifdef VECTOR_INDEX_ENABLED
     // Vector index related
     std::unique_ptr<txservice::TxWorkerPool> vector_index_worker_pool_{nullptr};
 #endif
-
     mutable std::vector<std::vector<std::size_t>> redis_cmd_current_rounds_{};
     const metrics::Map<std::string_view, std::string_view> cmd_access_types_{
         {"append", "write"},
@@ -848,7 +765,6 @@ private:
         {"zunionstore", "write"},
     };
 
-    PubSubManager pub_sub_mgr_;
     // general indicator for stopping service, e.g. metrics collector
     std::atomic<bool> stopping_indicator_{false};
     std::optional<std::thread> metrics_collector_thd_;
@@ -856,5 +772,4 @@ private:
     friend class MultiTransactionHandler;
 };
 
-bool CheckCommandLineFlagIsDefault(const char *name);
 }  // namespace EloqKV
