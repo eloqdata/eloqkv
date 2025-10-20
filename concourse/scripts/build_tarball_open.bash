@@ -74,7 +74,7 @@ cmake .. \
   -DOPEN_LOG_SERVICE=ON \
   -DDISABLE_CKPT_REPORT=ON \
   -DDISABLE_CODE_LINE_IN_LOG=ON \
-  -DFORK_HM_PROCESS=ON \
+  -DFORK_HM_PROCESS=OFF \
   -DWITH_ASAN="${ASAN}"
 
 cmake --build . --config "${BUILD_TYPE}" -j"${NCORE}"
