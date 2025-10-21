@@ -182,35 +182,142 @@ inline PersistStrategy string_to_persist_strategy(const std::string_view &sv)
 struct IndexConfig
 {
     IndexConfig() = default;
-    IndexConfig(const std::string &name,
-                size_t dimension,
+    IndexConfig(size_t dimension,
                 Algorithm algorithm,
                 DistanceMetric metric,
-                int64_t threshold,
-                const std::string &storage_path,
                 std::unordered_map<std::string, std::string> &&alg_params)
-        : name(name),
-          dimension(dimension),
+        : dimension(dimension),
           algorithm(algorithm),
           distance_metric(metric),
-          persist_threshold(threshold),
-          storage_path(storage_path),
           params(std::move(alg_params))
     {
     }
 
-    std::string name = "";                  ///< Index name
     size_t dimension = 0;                   ///< Vector dimension
     size_t max_elements = 1000000;          ///< Maximum number of elements
     Algorithm algorithm = Algorithm::HNSW;  ///< Algorithm type
     DistanceMetric distance_metric =
         DistanceMetric::L2SQ;  ///< Distance metric type
-    int64_t persist_threshold =
-        10000;  ///< Persist threshold, -1 means MANUAL strategy.
-    std::string storage_path = "";  ///< Path for persistent storage
 
-    std::unordered_map<std::string, std::string>
-        params;  ///< Index type specific parameters
+    /// Index type specific parameters (e.g., m, ef_construction, ef_search for
+    /// HNSW) Marked mutable to allow adding default parameters in
+    /// initialize_usearch_index()
+    mutable std::unordered_map<std::string, std::string> params;
+
+    /**
+     * @brief Encode IndexConfig to binary format
+     * @param encoded_str Output string to append encoded data
+     */
+    void Encode(std::string &encoded_str) const;
+
+    /**
+     * @brief Decode IndexConfig from binary format
+     * @param buf Buffer containing encoded data
+     * @param buff_size Size of the buffer
+     * @param offset Current offset in buffer (updated after decoding)
+     */
+    void Decode(const char *buf, size_t buff_size, size_t &offset);
+};
+
+/**
+ * @brief Unified metadata for vector index combining configuration and state
+ *
+ * Design rationale:
+ * - name: Index identifier (metadata, not algorithm config)
+ * - persist_threshold: Persistence strategy (metadata, not algorithm config)
+ * - file_path: Full path to persisted index file (runtime state)
+ * - config_: Embedded algorithm configuration (eliminates duplication)
+ * - timestamps: Lifecycle tracking (runtime state)
+ */
+class VectorIndexMetadata
+{
+public:
+    VectorIndexMetadata() = default;
+
+    /**
+     * @brief Constructor from configuration and metadata parameters
+     *
+     * @param name Index name
+     * @param config Algorithm configuration
+     * @param persist_threshold Persistence threshold (-1 for manual)
+     * @param storage_base_path Base directory for index files (used to generate
+     * file_path)
+     */
+    VectorIndexMetadata(const std::string &name,
+                        const IndexConfig &config,
+                        int64_t persist_threshold,
+                        const std::string &storage_base_path);
+
+    /**
+     * @brief Encode metadata to binary format
+     * @param encoded_str Output string to append encoded data
+     */
+    void Encode(std::string &encoded_str) const;
+
+    /**
+     * @brief Decode metadata from binary format
+     * @param buf Buffer containing encoded data
+     * @param buff_size Size of the buffer
+     * @param offset Current offset in buffer (updated after decoding)
+     * @param version Version timestamp for created_ts initialization
+     */
+    void Decode(const char *buf,
+                size_t buff_size,
+                size_t &offset,
+                uint64_t version);
+
+    // Configuration accessors (immutable)
+    const std::string &Name() const
+    {
+        return name_;
+    }
+    const IndexConfig &Config() const
+    {
+        return config_;
+    }
+
+    // Metadata accessors
+    int64_t PersistThreshold() const
+    {
+        return persist_threshold_;
+    }
+
+    // State accessors (mutable)
+    const std::string &FilePath() const
+    {
+        return file_path_;
+    }
+    void SetFilePath(const std::string &path)
+    {
+        file_path_ = path;
+    }
+
+    uint64_t CreatedTs() const
+    {
+        return created_ts_;
+    }
+    uint64_t LastPersistTs() const
+    {
+        return last_persist_ts_;
+    }
+    void SetLastPersistTs(uint64_t ts)
+    {
+        last_persist_ts_ = ts;
+    }
+
+private:
+    // Index name
+    std::string name_;
+    // Embedded algorithm configuration
+    IndexConfig config_;
+    // Persistence threshold (-1 = manual)
+    int64_t persist_threshold_{10000};
+    // Full path to persisted index file (with timestamp)
+    std::string file_path_;
+    // Creation timestamp
+    uint64_t created_ts_{0};
+    // Last persistence timestamp
+    uint64_t last_persist_ts_{0};
 };
 
 /**

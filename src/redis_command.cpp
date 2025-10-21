@@ -19971,7 +19971,8 @@ void InfoVecIndexCommand::OutputResult(OutputHandler *reply,
 {
     if (result_.err_code_ == RD_OK)
     {
-        auto &alg_params = metadata_.VecAlgParams();
+        const EloqVec::IndexConfig &config = metadata_.Config();
+        auto &alg_params = config.params;
         size_t len = (8 + alg_params.size()) * 2;
         reply->OnArrayStart(len);
         reply->OnString("index_name");
@@ -19979,12 +19980,12 @@ void InfoVecIndexCommand::OutputResult(OutputHandler *reply,
         reply->OnString("status");
         reply->OnString("ready");
         reply->OnString("dimensions");
-        reply->OnInt(metadata_.Dimension());
+        reply->OnInt(config.dimension);
         reply->OnString("algorithm");
-        reply->OnString(EloqVec::algorithm_to_string(metadata_.VecAlgorithm()));
+        reply->OnString(EloqVec::algorithm_to_string(config.algorithm));
         reply->OnString("metric");
         reply->OnString(
-            EloqVec::distance_metric_to_string(metadata_.VecMetric()));
+            EloqVec::distance_metric_to_string(config.distance_metric));
         reply->OnString("threshold");
         reply->OnInt(metadata_.PersistThreshold());
         // algorithm parameters

@@ -32,17 +32,15 @@ namespace EloqVec
 {
 static std::unique_ptr<VectorIndex> vector_index(nullptr);
 static IndexConfig index_config;
+static std::string index_path = "hnsw_vector_index.index";
 
 void SetUpIndexConfig()
 {
-    index_config.name = "test_vector_cache_hnsw";
     index_config.dimension = 4;
     index_config.algorithm = Algorithm::HNSW;
     index_config.distance_metric = DistanceMetric::COSINE;
-    index_config.storage_path = "./hnsw_vector_index.index";
     index_config.params = {
         {"m", "16"}, {"ef_construction", "128"}, {"ef_search", "64"}};
-    index_config.persist_threshold = 10000;
     index_config.max_elements = 100000;
 }
 
@@ -125,14 +123,14 @@ TEST_CASE("VectorCache HNSW Save & ReInit Operation", "[vector-cache-hnsw]")
     IndexOpResult res = vector_index->add(vector, 301);
     REQUIRE(res.error == VectorOpResult::SUCCEED);
 
-    bool result = vector_index->save(index_config.storage_path);
+    bool result = vector_index->save(index_path);
     REQUIRE(result);
 
     // reinitialize the index
     vector_index.reset();
     vector_index = EloqVec::create_hnsw_vector_index();
     REQUIRE(vector_index != nullptr);
-    REQUIRE(vector_index->initialize(index_config));
+    REQUIRE(vector_index->initialize(index_config, index_path));
     REQUIRE(vector_index->is_ready());
 
     // get the vector
@@ -536,10 +534,10 @@ int main(int argc, char **argv)
     EloqVec::SetUpIndexConfig();
 
     // clean up the index file
-    if (!EloqVec::index_config.storage_path.empty() &&
-        std::filesystem::exists(EloqVec::index_config.storage_path))
+    if (!EloqVec::index_path.empty() &&
+        std::filesystem::exists(EloqVec::index_path))
     {
-        std::filesystem::remove(EloqVec::index_config.storage_path);
+        std::filesystem::remove(EloqVec::index_path);
     }
 
     if (!EloqVec::HNSWVectorIndex::validate_config(EloqVec::index_config))
@@ -550,7 +548,8 @@ int main(int argc, char **argv)
 
     // create and initialize the hnsw vector index
     EloqVec::vector_index = EloqVec::create_hnsw_vector_index();
-    if (!EloqVec::vector_index->initialize(EloqVec::index_config))
+    if (!EloqVec::vector_index->initialize(EloqVec::index_config,
+                                           EloqVec::index_path))
     {
         DLOG(ERROR) << "Failed to initialize hnsw vector";
         return -1;

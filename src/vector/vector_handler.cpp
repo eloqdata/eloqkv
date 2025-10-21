@@ -84,174 +84,6 @@ inline void deserialize_vector(const std::string &vec_str,
     }
 }
 
-VectorMetadata::VectorMetadata(const IndexConfig &vec_spec)
-    : name_(vec_spec.name),
-      dimension_(vec_spec.dimension),
-      algorithm_(vec_spec.algorithm),
-      metric_(vec_spec.distance_metric),
-      alg_params_(vec_spec.params),
-      file_path_(vec_spec.storage_path),
-      persist_threshold_(vec_spec.persist_threshold)
-{
-    uint64_t ts = LocalCcShards::ClockTs();
-    file_path_.append("/")
-        .append(name_)
-        .append("-")
-        .append(std::to_string(ts))
-        .append(".index");
-    created_ts_ = 0;
-    last_persist_ts_ = 0;
-}
-
-void VectorMetadata::Encode(std::string &encoded_str) const
-{
-    /**
-     * The format of the encoded metadata:
-     * nameLen | name | dimension | algorithm | metric | paramCount | key1Len |
-     * key1 | value1Len | value1 | ... | filePathLen | filePath |
-     * persistThreshold | createdTs | lastPersistTs
-     * 1. nameLen is a 2-byte integer representing the length of the name. 2.
-     * name is a string. 3. dimension is a 8-byte integer representing the
-     * dimension. 4. algorithm is a 1-byte integer representing the
-     * algorithm. 5. metric is a 1-byte integer representing the metric. 6.
-     * paramCount is a 4-byte integer representing the number of algorithm
-     * parameters. 7. For each parameter: keyLen (4-byte) | key (string) |
-     * valueLen (4-byte) | value (string). 8. filePathLen is a 4-byte integer
-     * representing the length of the file path. 9. filePath is a string. 10.
-     * persistThreshold is a 8-byte integer representing the persist
-     * threshold. 11. createdTs is a 8-byte integer representing the creation
-     * timestamp. 12. lastPersistTs is a 8-byte integer representing the last
-     * persist timestamp.
-     */
-    uint16_t name_len = static_cast<uint16_t>(name_.size());
-    size_t len_sizeof = sizeof(uint16_t);
-    const char *val_ptr = reinterpret_cast<const char *>(&name_len);
-    encoded_str.append(val_ptr, len_sizeof);
-    encoded_str.append(name_.data(), name_len);
-
-    len_sizeof = sizeof(size_t);
-    val_ptr = reinterpret_cast<const char *>(&dimension_);
-    encoded_str.append(val_ptr, len_sizeof);
-
-    len_sizeof = sizeof(uint8_t);
-    val_ptr = reinterpret_cast<const char *>(&algorithm_);
-    encoded_str.append(val_ptr, len_sizeof);
-
-    len_sizeof = sizeof(uint8_t);
-    val_ptr = reinterpret_cast<const char *>(&metric_);
-    encoded_str.append(val_ptr, len_sizeof);
-
-    // Serialize algorithm parameters with the following format:
-    // param_count | key1_len | key1 | value1_len | value1 | key2_len | key2 |
-    // value2_len | value2 | ...
-    uint32_t param_count = static_cast<uint32_t>(alg_params_.size());
-    len_sizeof = sizeof(uint32_t);
-    val_ptr = reinterpret_cast<const char *>(&param_count);
-    encoded_str.append(val_ptr, len_sizeof);
-
-    // Serialize each key-value pair
-    for (const auto &param : alg_params_)
-    {
-        // Write key length and key
-        uint32_t key_len = static_cast<uint32_t>(param.first.size());
-        val_ptr = reinterpret_cast<const char *>(&key_len);
-        encoded_str.append(val_ptr, len_sizeof);
-        encoded_str.append(param.first.data(), key_len);
-
-        // Write value length and value
-        uint32_t value_len = static_cast<uint32_t>(param.second.size());
-        val_ptr = reinterpret_cast<const char *>(&value_len);
-        encoded_str.append(val_ptr, len_sizeof);
-        encoded_str.append(param.second.data(), value_len);
-    }
-
-    len_sizeof = sizeof(uint32_t);
-    uint32_t file_path_len = static_cast<uint32_t>(file_path_.size());
-    val_ptr = reinterpret_cast<const char *>(&file_path_len);
-    encoded_str.append(val_ptr, len_sizeof);
-    encoded_str.append(file_path_.data(), file_path_len);
-
-    len_sizeof = sizeof(int64_t);
-    val_ptr = reinterpret_cast<const char *>(&persist_threshold_);
-    encoded_str.append(val_ptr, len_sizeof);
-
-    len_sizeof = sizeof(uint64_t);
-    val_ptr = reinterpret_cast<const char *>(&created_ts_);
-    encoded_str.append(val_ptr, len_sizeof);
-
-    // persist ts
-    len_sizeof = sizeof(uint64_t);
-    val_ptr = reinterpret_cast<const char *>(&last_persist_ts_);
-    encoded_str.append(val_ptr, len_sizeof);
-}
-
-void VectorMetadata::Decode(const char *buf,
-                            size_t buff_size,
-                            size_t &offset,
-                            uint64_t version)
-{
-    uint16_t name_len = *reinterpret_cast<const uint16_t *>(buf + offset);
-    offset += sizeof(uint16_t);
-    name_.clear();
-    name_.reserve(name_len);
-    std::copy(buf + offset, buf + offset + name_len, std::back_inserter(name_));
-    offset += name_len;
-
-    dimension_ = *reinterpret_cast<const size_t *>(buf + offset);
-    offset += sizeof(size_t);
-
-    algorithm_ = static_cast<Algorithm>(
-        *reinterpret_cast<const uint8_t *>(buf + offset));
-    offset += sizeof(uint8_t);
-
-    metric_ = static_cast<DistanceMetric>(
-        *reinterpret_cast<const uint8_t *>(buf + offset));
-    offset += sizeof(uint8_t);
-
-    uint32_t param_count = *reinterpret_cast<const uint32_t *>(buf + offset);
-    offset += sizeof(uint32_t);
-    // Clear existing parameters
-    alg_params_.clear();
-    // Deserialize each key-value pair
-    for (uint32_t i = 0; i < param_count; ++i)
-    {
-        // Read key length and key
-        uint32_t key_len = *reinterpret_cast<const uint32_t *>(buf + offset);
-        offset += sizeof(uint32_t);
-        std::string key(buf + offset, key_len);
-        offset += key_len;
-
-        // Read value length and value
-        uint32_t value_len = *reinterpret_cast<const uint32_t *>(buf + offset);
-        offset += sizeof(uint32_t);
-        std::string value(buf + offset, value_len);
-        offset += value_len;
-
-        // Store the key-value pair
-        alg_params_.emplace(std::move(key), std::move(value));
-    }
-
-    uint32_t file_path_len = *reinterpret_cast<const uint32_t *>(buf + offset);
-    offset += sizeof(uint32_t);
-    file_path_.clear();
-    file_path_.reserve(file_path_len);
-    std::copy(buf + offset,
-              buf + offset + file_path_len,
-              std::back_inserter(file_path_));
-    offset += file_path_len;
-
-    persist_threshold_ = *reinterpret_cast<const int64_t *>(buf + offset);
-    offset += sizeof(int64_t);
-
-    created_ts_ = *reinterpret_cast<const uint64_t *>(buf + offset);
-    created_ts_ = created_ts_ == 0 ? version : created_ts_;
-    offset += sizeof(uint64_t);
-
-    // Deserialize persistence tracking fields
-    last_persist_ts_ = *reinterpret_cast<const uint64_t *>(buf + offset);
-    offset += sizeof(uint64_t);
-}
-
 static std::unique_ptr<VectorHandler> vector_handler_instance = nullptr;
 static std::once_flag vector_handler_once;
 
@@ -295,12 +127,13 @@ VectorHandler &VectorHandler::Instance()
  *   - INDEX_EXISTED: an index with the given name already exists.
  *   - INDEX_META_OP_FAILED: a metadata table or log operation failed.
  */
-VectorOpResult VectorHandler::Create(const IndexConfig &idx_spec)
+VectorOpResult VectorHandler::Create(const VectorIndexMetadata &index_metadata)
 {
     TransactionExecution *txm =
         NewTxInit(tx_service_, IsolationLevel::RepeatableRead, CcProtocol::OCC);
     // For the internal table, there is no need to acquire read lock on catalog.
-    std::string h_key = build_metadata_key(idx_spec.name);
+    const std::string &index_name = index_metadata.Name();
+    std::string h_key = build_metadata_key(index_name);
     TxKey tx_key = EloqStringKey::Create(h_key.c_str(), h_key.size());
     TxRecord::Uptr h_record = EloqStringRecord::Create();
     ReadTxRequest read_req(
@@ -322,12 +155,13 @@ VectorOpResult VectorHandler::Create(const IndexConfig &idx_spec)
 
     // The index does not exist, create it
     // 1. Check if the configuration is valid
+    const IndexConfig &config = index_metadata.Config();
     bool is_valid = false;
-    switch (idx_spec.algorithm)
+    switch (config.algorithm)
     {
     case Algorithm::HNSW:
     {
-        is_valid = HNSWVectorIndex::validate_config(idx_spec);
+        is_valid = HNSWVectorIndex::validate_config(config);
         break;
     }
     default:
@@ -342,9 +176,8 @@ VectorOpResult VectorHandler::Create(const IndexConfig &idx_spec)
     }
 
     // 2. encode the index metadata
-    VectorMetadata vec_meta(idx_spec);
     std::string encoded_str;
-    vec_meta.Encode(encoded_str);
+    index_metadata.Encode(encoded_str);
     h_record->SetEncodedBlob(
         reinterpret_cast<const unsigned char *>(encoded_str.data()),
         encoded_str.size());
@@ -364,7 +197,7 @@ VectorOpResult VectorHandler::Create(const IndexConfig &idx_spec)
 
     // 4. create the sharded log objects
     LogError log_err = LogObject::create_sharded_logs(
-        build_log_name(idx_spec.name), VECTOR_INDEX_LOG_SHARD_COUNT, txm);
+        build_log_name(index_name), VECTOR_INDEX_LOG_SHARD_COUNT, txm);
     if (log_err != LogError::SUCCESS)
     {
         AbortTx(txm);
@@ -422,7 +255,7 @@ VectorOpResult VectorHandler::Drop(const std::string &name)
 
     // 3. Decode metadata to get file path before deletion
     uint64_t index_version = read_req.Result().second;
-    VectorMetadata metadata;
+    VectorIndexMetadata metadata;
     const char *blob_data = h_record->EncodedBlobData();
     size_t blob_size = h_record->EncodedBlobSize();
     size_t offset = 0;
@@ -482,7 +315,7 @@ VectorOpResult VectorHandler::Drop(const std::string &name)
 }
 
 VectorOpResult VectorHandler::Info(const std::string &name,
-                                   VectorMetadata &metadata)
+                                   VectorIndexMetadata &metadata)
 {
     TransactionExecution *txm =
         NewTxInit(tx_service_, IsolationLevel::RepeatableRead, CcProtocol::OCC);
@@ -553,7 +386,7 @@ VectorOpResult VectorHandler::Search(const std::string &name,
     }
 
     // 3. Get or create the vector index from cache
-    auto [index_sptr, get_result] = GetOrCreateIndex(name, h_record, txm);
+    auto [cache, get_result] = GetOrCreateIndex(name, h_record, txm);
     if (get_result != VectorOpResult::SUCCEED)
     {
         AbortTx(txm);
@@ -562,7 +395,7 @@ VectorOpResult VectorHandler::Search(const std::string &name,
 
     // 4. Perform vector search
     auto search_result =
-        index_sptr->search(query_vector, k_count, thread_id, vector_result);
+        cache.index_->search(query_vector, k_count, thread_id, vector_result);
     CommitTx(txm);
     return search_result.error;
 }
@@ -595,7 +428,7 @@ VectorOpResult VectorHandler::Add(const std::string &name,
         return VectorOpResult::INDEX_NOT_EXIST;
     }
     // 3. Get or create the vector index from cache
-    auto [index_sptr, get_result] = GetOrCreateIndex(name, h_record, txm);
+    auto [cache, get_result] = GetOrCreateIndex(name, h_record, txm);
     if (get_result != VectorOpResult::SUCCEED)
     {
         AbortTx(txm);
@@ -624,18 +457,18 @@ VectorOpResult VectorHandler::Add(const std::string &name,
         return VectorOpResult::INDEX_LOG_OP_FAILED;
     }
     // 4. Add the vector to the index
-    auto add_result = index_sptr->add(vector, id);
+    auto add_result = cache.index_->add(vector, id);
     if (add_result.error == VectorOpResult::SUCCEED)
     {
         auto res_pair = CommitTx(txm);
         if (!res_pair.first)
         {
             // Remove the vector from the index cache.
-            index_sptr->remove(id);
+            cache.index_->remove(id);
             return VectorOpResult::INDEX_ADD_FAILED;
         }
 
-        if (index_sptr->get_persist_threshold() == -1)
+        if (cache.metadata_->PersistThreshold() == -1)
         {
             // No need to persist the index.
             return VectorOpResult::SUCCEED;
@@ -647,7 +480,7 @@ VectorOpResult VectorHandler::Add(const std::string &name,
         if (pending_persist_indexes_.find(name) ==
                 pending_persist_indexes_.end() &&
             estimate_log_count >=
-                static_cast<uint64_t>(index_sptr->get_persist_threshold()))
+                static_cast<uint64_t>(cache.metadata_->PersistThreshold()))
         {
             pending_persist_indexes_.insert(name);
             vector_index_worker_pool_->SubmitWork(
@@ -693,7 +526,7 @@ VectorOpResult VectorHandler::Update(const std::string &name,
     }
 
     // 3. Get or create the vector index from cache
-    auto [index_sptr, get_result] = GetOrCreateIndex(name, h_record, txm);
+    auto [cache, get_result] = GetOrCreateIndex(name, h_record, txm);
     if (get_result != VectorOpResult::SUCCEED)
     {
         AbortTx(txm);
@@ -725,7 +558,7 @@ VectorOpResult VectorHandler::Update(const std::string &name,
 
     // 4. Update the vector in the index
     std::vector<float> update_vec;
-    auto idx_res = index_sptr->get(id, update_vec);
+    auto idx_res = cache.index_->get(id, update_vec);
     if (idx_res.error != VectorOpResult::SUCCEED || update_vec.size() == 0)
     {
         // The index operation failed or the vector with this id does not exist.
@@ -733,18 +566,18 @@ VectorOpResult VectorHandler::Update(const std::string &name,
         return idx_res.error;
     }
 
-    idx_res = index_sptr->update(vector, id);
+    idx_res = cache.index_->update(vector, id);
     if (idx_res.error == VectorOpResult::SUCCEED)
     {
         auto res_pair = CommitTx(txm);
         if (!res_pair.first)
         {
             // Restore the vector to the index cache.
-            index_sptr->update(update_vec, id);
+            cache.index_->update(update_vec, id);
             return VectorOpResult::INDEX_UPDATE_FAILED;
         }
 
-        if (index_sptr->get_persist_threshold() == -1)
+        if (cache.metadata_->PersistThreshold() == -1)
         {
             // No need to persist the index.
             return VectorOpResult::SUCCEED;
@@ -756,7 +589,7 @@ VectorOpResult VectorHandler::Update(const std::string &name,
         if (pending_persist_indexes_.find(name) ==
                 pending_persist_indexes_.end() &&
             estimate_log_count >=
-                static_cast<uint64_t>(index_sptr->get_persist_threshold()))
+                static_cast<uint64_t>(cache.metadata_->PersistThreshold()))
         {
             pending_persist_indexes_.insert(name);
             vector_index_worker_pool_->SubmitWork(
@@ -800,7 +633,7 @@ VectorOpResult VectorHandler::Delete(const std::string &name, uint64_t id)
     }
 
     // 3. Get or create the vector index from cache
-    auto [index_sptr, get_result] = GetOrCreateIndex(name, h_record, txm);
+    auto [cache, get_result] = GetOrCreateIndex(name, h_record, txm);
     if (get_result != VectorOpResult::SUCCEED)
     {
         AbortTx(txm);
@@ -834,7 +667,7 @@ VectorOpResult VectorHandler::Delete(const std::string &name, uint64_t id)
 
     // 4. Delete the vector from the index
     std::vector<float> deleted_vector;
-    auto idx_res = index_sptr->get(id, deleted_vector);
+    auto idx_res = cache.index_->get(id, deleted_vector);
     if (idx_res.error != VectorOpResult::SUCCEED || deleted_vector.size() == 0)
     {
         // The index operation failed or the vector with this id does not exist.
@@ -842,18 +675,18 @@ VectorOpResult VectorHandler::Delete(const std::string &name, uint64_t id)
         return idx_res.error;
     }
 
-    idx_res = index_sptr->remove(id);
+    idx_res = cache.index_->remove(id);
     if (idx_res.error == VectorOpResult::SUCCEED)
     {
         auto res_pair = CommitTx(txm);
         if (!res_pair.first)
         {
             // Restore the vector to the index cache.
-            index_sptr->add(deleted_vector, id);
+            cache.index_->add(deleted_vector, id);
             return VectorOpResult::INDEX_DELETE_FAILED;
         }
 
-        if (index_sptr->get_persist_threshold() == -1)
+        if (cache.metadata_->PersistThreshold() == -1)
         {
             // No need to persist the index.
             return VectorOpResult::SUCCEED;
@@ -865,7 +698,7 @@ VectorOpResult VectorHandler::Delete(const std::string &name, uint64_t id)
         if (pending_persist_indexes_.find(name) ==
                 pending_persist_indexes_.end() &&
             estimate_log_count >=
-                static_cast<uint64_t>(index_sptr->get_persist_threshold()))
+                static_cast<uint64_t>(cache.metadata_->PersistThreshold()))
         {
             pending_persist_indexes_.insert(name);
             vector_index_worker_pool_->SubmitWork(
@@ -918,7 +751,7 @@ VectorOpResult VectorHandler::BatchAdd(
     }
 
     // 3. Get or create the vector index from cache
-    auto [index_sptr, get_result] = GetOrCreateIndex(name, h_record, txm);
+    auto [cache, get_result] = GetOrCreateIndex(name, h_record, txm);
     if (get_result != VectorOpResult::SUCCEED)
     {
         AbortTx(txm);
@@ -985,7 +818,7 @@ VectorOpResult VectorHandler::BatchAdd(
     }
 
     // 4. Add the vectors to the index
-    auto add_result = index_sptr->add_batch(vectors, ids);
+    auto add_result = cache.index_->add_batch(vectors, ids);
     if (add_result.error == VectorOpResult::SUCCEED)
     {
         auto res_pair = CommitTx(txm);
@@ -993,12 +826,12 @@ VectorOpResult VectorHandler::BatchAdd(
         {
             for (const uint64_t id : ids)
             {
-                index_sptr->remove(id);
+                cache.index_->remove(id);
             }
             return VectorOpResult::INDEX_ADD_FAILED;
         }
 
-        if (index_sptr->get_persist_threshold() == -1)
+        if (cache.metadata_->PersistThreshold() == -1)
         {
             // No need to persist the index.
             return VectorOpResult::SUCCEED;
@@ -1010,7 +843,7 @@ VectorOpResult VectorHandler::BatchAdd(
         if (pending_persist_indexes_.find(name) ==
                 pending_persist_indexes_.end() &&
             estimate_log_count >=
-                static_cast<uint64_t>(index_sptr->get_persist_threshold()))
+                static_cast<uint64_t>(cache.metadata_->PersistThreshold()))
         {
             pending_persist_indexes_.insert(name);
             vector_index_worker_pool_->SubmitWork(
@@ -1026,20 +859,18 @@ VectorOpResult VectorHandler::BatchAdd(
     return add_result.error;
 }
 
-std::pair<std::shared_ptr<VectorIndex>, VectorOpResult>
+std::pair<VectorHandler::IndexCache, VectorOpResult>
 VectorHandler::GetOrCreateIndex(const std::string &name,
                                 const TxRecord::Uptr &h_record,
                                 TransactionExecution *txm)
 {
-    std::shared_ptr<VectorIndex> cached_index_sptr = nullptr;
-    // First, try to get read lock to check cache
+    // First, try to get read lock to check cache (single lookup!)
     {
         std::shared_lock<std::shared_mutex> read_lock(vec_indexes_mutex_);
         auto it = vec_indexes_.find(name);
         if (it != vec_indexes_.end())
         {
-            cached_index_sptr = it->second;
-            return {cached_index_sptr, VectorOpResult::SUCCEED};
+            return {it->second, VectorOpResult::SUCCEED};
         }
     }
 
@@ -1050,76 +881,70 @@ VectorHandler::GetOrCreateIndex(const std::string &name,
         auto it = vec_indexes_.find(name);
         if (it != vec_indexes_.end())
         {
-            cached_index_sptr = it->second;
-            return {cached_index_sptr, VectorOpResult::SUCCEED};
+            return {it->second, VectorOpResult::SUCCEED};
         }
 
         // Create and initialize the index
-        auto [index_sptr, init_result] =
+        auto [cache_entry, init_result] =
             CreateAndInitializeIndex(h_record, txm);
         if (init_result != VectorOpResult::SUCCEED)
         {
-            return {nullptr, init_result};
+            return {IndexCache{}, init_result};
         }
 
-        // Insert the index into the cache
-        auto res_pair = vec_indexes_.emplace(name, std::move(index_sptr));
-        assert(res_pair.second);
-        cached_index_sptr = res_pair.first->second;
-        return {cached_index_sptr, VectorOpResult::SUCCEED};
+        // Insert unified cache entry into the cache
+        auto res = vec_indexes_.emplace(name, std::move(cache_entry));
+        assert(res.second);
+
+        return {res.first->second, VectorOpResult::SUCCEED};
     }
 }
 
-std::pair<std::shared_ptr<VectorIndex>, VectorOpResult>
+std::pair<VectorHandler::IndexCache, VectorOpResult>
 VectorHandler::CreateAndInitializeIndex(const TxRecord::Uptr &h_record,
                                         TransactionExecution *txm)
 {
-    // Decode metadata from h_record
-    VectorMetadata metadata;
+    // Decode metadata from h_record (single decode!)
+    auto metadata_sptr = std::make_shared<VectorIndexMetadata>();
     const char *blob_data = h_record->EncodedBlobData();
     size_t blob_size = h_record->EncodedBlobSize();
     size_t offset = 0;
     uint64_t unused_version = 0;
-    metadata.Decode(blob_data, blob_size, offset, unused_version);
+    metadata_sptr->Decode(blob_data, blob_size, offset, unused_version);
+
+    // Get IndexConfig directly from metadata (no reconstruction needed!)
+    const IndexConfig &config = metadata_sptr->Config();
+    const std::string &index_name = metadata_sptr->Name();
+    const std::string &file_path = metadata_sptr->FilePath();
 
     std::shared_ptr<VectorIndex> index_sptr = nullptr;
-    switch (metadata.VecAlgorithm())
+    switch (config.algorithm)
     {
     case Algorithm::HNSW:
         index_sptr = std::make_shared<HNSWVectorIndex>();
         break;
     default:
-        return {nullptr, VectorOpResult::INDEX_INIT_FAILED};
+        return {IndexCache{}, VectorOpResult::INDEX_INIT_FAILED};
     }
 
-    // Construct IndexConfig from metadata
-    IndexConfig config;
-    config.name = metadata.VecName();
-    config.dimension = metadata.Dimension();
-    config.algorithm = metadata.VecAlgorithm();
-    config.distance_metric = metadata.VecMetric();
-    config.storage_path = metadata.FilePath();
-    config.params = metadata.VecAlgParams();
-    config.persist_threshold = metadata.PersistThreshold();
-
-    // Initialize the index
-    if (!index_sptr->initialize(config))
+    // Initialize the index with config and file path
+    if (!index_sptr->initialize(config, file_path))
     {
-        return {nullptr, VectorOpResult::INDEX_INIT_FAILED};
+        return {IndexCache{}, VectorOpResult::INDEX_INIT_FAILED};
     }
 
     // Apply log items to the index
-    if (LogObject::exists(build_log_name(config.name), txm))
+    if (LogObject::exists(build_log_name(index_name), txm))
     {
         auto apply_result =
-            ApplyLogItems(config.name, index_sptr, UINT64_MAX, txm);
+            ApplyLogItems(index_name, index_sptr, UINT64_MAX, txm);
         if (apply_result != VectorOpResult::SUCCEED)
         {
-            return {nullptr, apply_result};
+            return {IndexCache{}, apply_result};
         }
     }
 
-    return {index_sptr, VectorOpResult::SUCCEED};
+    return {IndexCache{index_sptr, metadata_sptr}, VectorOpResult::SUCCEED};
 }
 
 VectorOpResult VectorHandler::PersistIndex(const std::string &name, bool force)
@@ -1154,7 +979,7 @@ VectorOpResult VectorHandler::PersistIndex(const std::string &name, bool force)
 
     uint64_t index_version = read_req.Result().second;
     // 2. Decode metadata
-    VectorMetadata metadata;
+    VectorIndexMetadata metadata;
     const char *blob_data = h_record->EncodedBlobData();
     size_t blob_size = h_record->EncodedBlobSize();
     size_t offset = 0;
@@ -1166,7 +991,7 @@ VectorOpResult VectorHandler::PersistIndex(const std::string &name, bool force)
         auto it = vec_indexes_.find(name);
         if (it != vec_indexes_.end())
         {
-            index_sptr = it->second;
+            index_sptr = it->second.index_;
         }
     }
     if (!index_sptr)

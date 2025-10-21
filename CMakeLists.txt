@@ -503,6 +503,7 @@ SET(RESELOQ_RESOURCES
     src/vector/hnsw_vector_index.cpp
     src/vector/vector_handler.cpp
     src/vector/log_object.cpp
+    src/vector/vector_type.cpp
 )
 
 SET(INI_SOURCES src/ini.c src/INIReader.cpp)

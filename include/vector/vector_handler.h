@@ -29,92 +29,6 @@ namespace EloqVec
 {
 
 /**
- * @brief Metadata about a vector index
- *
- * This class contains the metadata about a vector index.
- */
-class VectorMetadata
-{
-public:
-    VectorMetadata() = default;
-    explicit VectorMetadata(const IndexConfig &vec_spec);
-    ~VectorMetadata() = default;
-
-    void Encode(std::string &encoded_str) const;
-    void Decode(const char *buf,
-                size_t buff_size,
-                size_t &offset,
-                uint64_t version);
-
-    const std::string &VecName() const
-    {
-        return name_;
-    }
-
-    Algorithm VecAlgorithm() const
-    {
-        return algorithm_;
-    }
-
-    DistanceMetric VecMetric() const
-    {
-        return metric_;
-    }
-
-    const std::unordered_map<std::string, std::string> &VecAlgParams() const
-    {
-        return alg_params_;
-    }
-
-    uint64_t CreatedTs() const
-    {
-        return created_ts_;
-    }
-
-    uint64_t LastPersistTs() const
-    {
-        return last_persist_ts_;
-    }
-
-    size_t Dimension() const
-    {
-        return dimension_;
-    }
-
-    const std::string &FilePath() const
-    {
-        return file_path_;
-    }
-
-    void SetFilePath(const std::string &path)
-    {
-        file_path_ = path;
-    }
-
-    void SetLastPersistTs(uint64_t ts)
-    {
-        last_persist_ts_ = ts;
-    }
-
-    int64_t PersistThreshold() const
-    {
-        return persist_threshold_;
-    }
-
-private:
-    std::string name_{""};
-    size_t dimension_{0};
-    Algorithm algorithm_{Algorithm::HNSW};
-    DistanceMetric metric_{DistanceMetric::L2SQ};
-    std::unordered_map<std::string, std::string> alg_params_;
-    std::string file_path_{""};
-    // Persist threshold. -1 means MANUAL strategy.
-    int64_t persist_threshold_{10000};
-    uint64_t created_ts_{0};
-    uint64_t last_persist_ts_{0};
-};
-
-/**
  * @brief Handler class for vector operations
  *
  * This class provides methods for managing vector indices and
@@ -145,10 +59,10 @@ public:
     /**
      * @brief Create a new vector index
      *
-     * @param idx_spec Configuration for the vector index to create
+     * @param index_metadata Metadata for the vector index to create
      * @return Result of the create operation
      */
-    VectorOpResult Create(const IndexConfig &idx_spec);
+    VectorOpResult Create(const VectorIndexMetadata &index_metadata);
 
     /**
      * @brief Drop (delete) a vector index
@@ -165,7 +79,7 @@ public:
      * @param metadata (OUT) Metadata of the vector index
      * @return Result of the info operation
      */
-    VectorOpResult Info(const std::string &name, VectorMetadata &metadata);
+    VectorOpResult Info(const std::string &name, VectorIndexMetadata &metadata);
 
     /**
      * @brief Search for similar vectors in an index
@@ -252,10 +166,19 @@ public:
     }
 
 private:
+    /**
+     * @brief Cache entry holding both index and its metadata
+     */
+    struct IndexCache
+    {
+        std::shared_ptr<VectorIndex> index_;
+        std::shared_ptr<VectorIndexMetadata> metadata_;
+    };
+
     // Private constructor to prevent instantiation
-    explicit VectorHandler(txservice::TxService *tx_service,
-                           txservice::TxWorkerPool *vector_index_worker_pool,
-                           std::string &vector_index_data_path)
+    VectorHandler(txservice::TxService *tx_service,
+                  txservice::TxWorkerPool *vector_index_worker_pool,
+                  std::string &vector_index_data_path)
         : tx_service_(tx_service),
           vector_index_worker_pool_(vector_index_worker_pool),
           vector_index_data_path_(vector_index_data_path)
@@ -277,9 +200,9 @@ private:
      * @param name Index name
      * @param h_record Record containing encoded metadata
      * @param txm Transaction execution context
-     * @return Pair of the vector index and the result of the operation
+     * @return Pair of (IndexCache containing index and metadata, result)
      */
-    std::pair<std::shared_ptr<VectorIndex>, VectorOpResult> GetOrCreateIndex(
+    std::pair<IndexCache, VectorOpResult> GetOrCreateIndex(
         const std::string &name,
         const txservice::TxRecord::Uptr &h_record,
         txservice::TransactionExecution *txm);
@@ -289,11 +212,11 @@ private:
      *
      * @param h_record Record containing encoded metadata
      * @param txm Transaction execution context
-     * @return Pair of the vector index and the result of the operation
+     * @return Pair of IndexCache (containing index and metadata) and the result
      */
-    std::pair<std::shared_ptr<VectorIndex>, VectorOpResult>
-    CreateAndInitializeIndex(const txservice::TxRecord::Uptr &h_record,
-                             txservice::TransactionExecution *txm);
+    std::pair<IndexCache, VectorOpResult> CreateAndInitializeIndex(
+        const txservice::TxRecord::Uptr &h_record,
+        txservice::TransactionExecution *txm);
 
     /**
      * @brief Apply log items to the index
@@ -317,8 +240,8 @@ private:
     std::string vector_index_data_path_{""};
     // Vector index cache with thread safety
     mutable std::shared_mutex vec_indexes_mutex_;
-    // map of index name to index object
-    std::unordered_map<std::string, std::shared_ptr<VectorIndex>> vec_indexes_;
+    // Unified cache: map of index name to (index + metadata)
+    std::unordered_map<std::string, IndexCache> vec_indexes_;
     std::unordered_set<std::string> pending_persist_indexes_;
 };
 

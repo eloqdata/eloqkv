@@ -6970,7 +6970,7 @@ struct InfoVecIndexCommand
     EloqString index_name_;
 
     // Vector metadata
-    EloqVec::VectorMetadata metadata_;
+    EloqVec::VectorIndexMetadata metadata_;
 
     // Result storage
     RedisCommandResult result_;

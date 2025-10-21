@@ -29,36 +29,39 @@ HNSWVectorIndex::HNSWVectorIndex() : initialized_(false)
 
 HNSWVectorIndex::~HNSWVectorIndex() = default;
 
-bool HNSWVectorIndex::initialize(const IndexConfig &config)
+bool HNSWVectorIndex::initialize(const IndexConfig &config,
+                                 const std::string &path)
 {
     std::lock_guard<std::shared_mutex> lock(index_mutex_);
 
-    config_ = config;
-    initialized_ = initialize_usearch_index(config) && load();
+    initialized_ = initialize_usearch_index(config) && load(config, path);
     return initialized_;
 }
 
 /**
  * @brief Loads an HNSW index from disk into this instance.
  *
- * Attempts to load a usearch-backed index from the file at |path|.
+ * Attempts to load a usearch-backed index from the file at |file_path|.
  *
  * On successful load the internal index is set and the instance becomes ready
  * (initialized_ = true). If loading fails or an exception is caught the
  * instance remains not-initialized (initialized_ = false).
  *
+ * @param config Configuration containing max_elements for reservation
+ * @param file_path Path to the index file to load
  * @return true if the index was loaded and the instance is initialized; false
  *         otherwise (invalid path, already initialized, load failure, or
  *         exception).
  */
-bool HNSWVectorIndex::load()
+bool HNSWVectorIndex::load(const IndexConfig &config,
+                           const std::string &file_path)
 {
-    if (config_.storage_path.empty())
+    if (file_path.empty())
     {
         return false;
     }
 
-    if (!std::filesystem::exists(config_.storage_path))
+    if (!std::filesystem::exists(file_path))
     {
         // If the index file does not exist, return true
         return true;
@@ -67,13 +70,13 @@ bool HNSWVectorIndex::load()
     try
     {
         // Load the index from file using usearch API
-        auto load_result = usearch_index_.load(config_.storage_path.c_str());
+        auto load_result = usearch_index_.load(file_path.c_str());
         if (!load_result)
         {
             return false;
         }
 
-        if (!usearch_index_.try_reserve(index_limits_t(config_.max_elements)))
+        if (!usearch_index_.try_reserve(index_limits_t(config.max_elements)))
         {
             return false;
         }
@@ -176,7 +179,8 @@ bool HNSWVectorIndex::initialize_usearch_index(const IndexConfig &config)
         }
         else
         {
-            config_.params.try_emplace(
+            // Use default value, add to mutable params
+            config.params.try_emplace(
                 std::string("m"), std::to_string(index_config.connectivity));
         }
 
@@ -187,7 +191,8 @@ bool HNSWVectorIndex::initialize_usearch_index(const IndexConfig &config)
         }
         else
         {
-            config_.params.try_emplace(
+            // Use default value, add to mutable params
+            config.params.try_emplace(
                 std::string("ef_construction"),
                 std::to_string(index_config.expansion_add));
         }
@@ -199,7 +204,8 @@ bool HNSWVectorIndex::initialize_usearch_index(const IndexConfig &config)
         }
         else
         {
-            config_.params.try_emplace(
+            // Use default value, add to mutable params
+            config.params.try_emplace(
                 std::string("ef_search"),
                 std::to_string(index_config.expansion_search));
         }
@@ -293,7 +299,7 @@ IndexOpResult HNSWVectorIndex::search(
                              "Index not initialized");
     }
 
-    if (query_vector.size() != config_.dimension)
+    if (query_vector.size() != usearch_index_.dimensions())
     {
         return IndexOpResult(VectorOpResult::VECTOR_DIMENSION_MISMATCH,
                              "Query vector dimension mismatch");
@@ -379,7 +385,7 @@ IndexOpResult HNSWVectorIndex::add(const std::vector<float> &vector,
                              "Index not initialized");
     }
 
-    if (vector.size() != config_.dimension)
+    if (vector.size() != usearch_index_.dimensions())
     {
         return IndexOpResult(VectorOpResult::VECTOR_DIMENSION_MISMATCH,
                              "Vector dimension mismatch");
@@ -449,7 +455,7 @@ IndexOpResult HNSWVectorIndex::add_batch(
         // Add vectors one by one (usearch doesn't have native batch add)
         for (size_t i = 0; i < vectors.size(); ++i)
         {
-            if (vectors[i].size() != config_.dimension)
+            if (vectors[i].size() != usearch_index_.dimensions())
             {
                 return IndexOpResult(VectorOpResult::VECTOR_DIMENSION_MISMATCH,
                                      "Vector dimension mismatch");
@@ -519,7 +525,7 @@ IndexOpResult HNSWVectorIndex::remove(uint64_t id)
  * the supplied `vector` in its place.
  *
  * @param vector New feature vector to associate with `id`. Must have the same
- *               dimensionality as the index (config_.dimension).
+ *               dimensionality as the index.
  * @param id     Unique identifier for the vector to update.
  *
  * @return IndexOpResult
@@ -542,7 +548,7 @@ IndexOpResult HNSWVectorIndex::update(const std::vector<float> &vector,
                              "Index not initialized");
     }
 
-    if (vector.size() != config_.dimension)
+    if (vector.size() != usearch_index_.dimensions())
     {
         return IndexOpResult(VectorOpResult::VECTOR_DIMENSION_MISMATCH,
                              "Vector dimension mismatch");
@@ -602,7 +608,7 @@ IndexOpResult HNSWVectorIndex::get(uint64_t id, std::vector<float> &vector)
     try
     {
         // Get the vector data from usearch index
-        vector.resize(config_.dimension);
+        vector.resize(usearch_index_.dimensions());
         size_t vectors_count = usearch_index_.get(id, vector.data());
         if (vectors_count == 0)
         {
@@ -634,16 +640,6 @@ bool HNSWVectorIndex::is_ready()
     return initialized_;
 }
 
-size_t HNSWVectorIndex::get_dimension()
-{
-    std::shared_lock<std::shared_mutex> lock(index_mutex_);
-    if (!initialized_)
-    {
-        return 0;
-    }
-    return config_.dimension;
-}
-
 size_t HNSWVectorIndex::size()
 {
     std::shared_lock<std::shared_mutex> lock(index_mutex_);
@@ -670,12 +666,6 @@ bool HNSWVectorIndex::optimize()
 std::string HNSWVectorIndex::get_type() const
 {
     return "HNSW";
-}
-
-int64_t HNSWVectorIndex::get_persist_threshold()
-{
-    std::shared_lock<std::shared_mutex> lock(index_mutex_);
-    return config_.persist_threshold;
 }
 
 bool HNSWVectorIndex::set_search_params(

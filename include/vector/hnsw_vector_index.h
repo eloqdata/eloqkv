@@ -45,7 +45,8 @@ public:
     virtual ~HNSWVectorIndex();
 
     // VectorIndex interface implementation
-    bool initialize(const IndexConfig &config) override;
+    bool initialize(const IndexConfig &config,
+                    const std::string &path) override;
     bool save(const std::string &path) override;
 
     IndexOpResult search(const std::vector<float> &query_vector,
@@ -65,11 +66,9 @@ public:
     IndexOpResult get(uint64_t id, std::vector<float> &vector) override;
     size_t memory_usage() override;
     bool is_ready() override;
-    size_t get_dimension() override;
     size_t size() override;
     bool optimize() override;
     std::string get_type() const override;
-    int64_t get_persist_threshold() override;
     bool set_search_params(
         std::unordered_map<std::string, std::string> params) override;
     bool set_update_params(
@@ -95,16 +94,15 @@ private:
     /**
      * @brief Load an existing index from storage.
      *
+     * @param config Configuration parameters for max_elements
+     * @param file_path Path to the index file
      * @return true if loading successful, false otherwise
      */
-    bool load();
+    bool load(const IndexConfig &config, const std::string &file_path);
 
 private:
     // usearch index instance
     unum::usearch::index_dense_t usearch_index_;
-
-    // Configuration
-    IndexConfig config_;
 
     // Thread safety
     std::shared_mutex index_mutex_;

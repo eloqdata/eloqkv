@@ -45,9 +45,11 @@ public:
      * @brief Initialize the vector index with given configuration
      *
      * @param config Configuration parameters for the index
+     * @param path Path to the index file
      * @return true if initialization successful, false otherwise
      */
-    virtual bool initialize(const IndexConfig &config) = 0;
+    virtual bool initialize(const IndexConfig &config,
+                            const std::string &path) = 0;
 
     /**
      * @brief Save the current index to storage. This call blocks until the
@@ -141,13 +143,6 @@ public:
     virtual bool is_ready() = 0;
 
     /**
-     * @brief Get the dimension of vectors in this index
-     *
-     * @return Vector dimension
-     */
-    virtual size_t get_dimension() = 0;
-
-    /**
      * @brief Get the total number of elements in the index
      *
      * @return Number of elements
@@ -169,13 +164,6 @@ public:
      * @return String identifier for the index type (e.g., "HNSW", "IVF")
      */
     virtual std::string get_type() const = 0;
-
-    /**
-     * @brief Get the persist threshold of the index
-     *
-     * @return Persist threshold, -1 means MANUAL strategy.
-     */
-    virtual int64_t get_persist_threshold() = 0;
 
     /**
      * @brief Set search parameters for the index
