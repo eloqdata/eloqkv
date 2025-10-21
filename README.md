@@ -41,18 +41,18 @@ EloqKV is a high-performance distributed database with a Redis/ValKey compatible
 
 ## Key Features
 
-### ⚡ **High Performance** 
+### High Performance
 - **Multi-threaded**: Built with thread-per-core execution and message-passing architecture to fully utilize modern multicore CPUs.
 - **Single Node**: Up to **1.6M QPS** on AWS c6g.8xlarge, comparable to purpose-built cache systems like DragonflyDB and far out-performs Redis and Valkey.
 - **Natively Distributed**: Scale horizontally with distributed transactions, so your application works the same whether it's backed by a single-node EloqKV or a cluster of servers.
 
-### 🗃️ **Full Durability with Tiered Storage**  
+### Full Durability with Tiered Storage
 - **WAL for True Durability**: No more data loss due to power failures.
 - **Hot Data**: In-memory for microsecond access.  
 - **Cold Data**: Automatically offloaded to disk.  
 *Save 70% on memory costs compared to pure in-memory cache such as Redis.*  
 
-### 🛠️ **ACID Transactions with Session-Style Syntax**
+### ACID Transactions with Session-Style Syntax
 In addition to the standard (but limited) Redis transaction syntax (MULTI/EXEC), EloqKV also support Session-style interactive transactions.
 
 ```redis  
@@ -66,7 +66,7 @@ COMMIT
 ```  
 - No more Lua scripts or `MULTI` limitations — write transactions like a SQL database, with similar ACID gurantees and better performance.
 
-### 🌐 **Distributed ACID Transactions** 
+### Distributed ACID Transactions
 **Cross-node strong consistency without `hash slot` constraints**  
 ```redis  
 -- Example of cross-node transfer
@@ -77,7 +77,7 @@ COMMIT
 ```
 -   **No  `CROSSSLOT`  Errors**：Enables atomic operations across multiple nodes, unlike Redis Cluster which blocks cross-slot transactions.
     
-### 🔄 **Redis API Compatibility**  
+### Redis API Compatibility
 ```bash  
 redis-cli -h eloqkv-server SET key "value"  # Works out of the box!  
 ```  
@@ -149,7 +149,7 @@ EloqKV is a **fully featured key-value database** that supports both pure **in-m
 ### Cache Mode
 
 In cache scenarios, on a reasonable modern multi-core server EloqKV significantly outperforms Redis and ValKey and achieves performances comparable to DragonflyDB, a multi-threaded in-memory cache with Redis API. Unlike Redis and DragonflyDB, EloqKV is a full featured database that also excels in clustered, durable, and fully ACID-compliant transactional setups.
-📖 [See full benchmark ](https://www.eloqdata.com/blog/2024/08/17/benchmark-single-node)
+[See full benchmark ](https://www.eloqdata.com/blog/2024/08/17/benchmark-single-node)
 
 
 <div align="center">
@@ -161,7 +161,7 @@ In cache scenarios, on a reasonable modern multi-core server EloqKV significantl
 ### Persistent Transactional Mode
 
 When running with full durability, EloqKV outperforms other Redis-compatible stores like Apache KVRocks by a large margin. Unlike these datastores that merely swap cold data to disks, EloqKV offers **real, rollback-capable transactions** with high throughput and ACID guarantees.
-📖 [See full benchmark ](https://www.eloqdata.com/blog/2024/08/25/benchmark-txlog)
+[See full benchmark ](https://www.eloqdata.com/blog/2024/08/25/benchmark-txlog)
 
 
 <div align="center">
