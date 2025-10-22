@@ -6195,6 +6195,9 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
                     }
                 }
 
+                // add trailing tuple into read set
+                txm->CloseTxScan(scan_alias, *redis_table_name, unlock_batch);
+
                 // The output must have been set if it's not nullptr and
                 // error occurs.
                 if (auto_commit)
