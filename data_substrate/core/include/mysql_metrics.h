@@ -14,7 +14,7 @@ inline const Name NAME_MYSQL_TX_DURATION{"mysql_tx_duration"};
 inline const Name NAME_MYSQL_PROCESSED_TX_TOTAL{"mysql_processed_tx_total"};
 inline const Name NAME_MYSQL_PROCESSED_QUERY_TOTAL{
     "mysql_processed_query_total"};
-inline const Name NAME_CONNECTION_COUNT{"mysql_connection_count"};
+inline const Name NAME_MYSQL_CONNECTION_COUNT{"mysql_connection_count"};
 inline const Name NAME_MAX_CONNECTIONS{"mysql_max_connections"};
 inline const Name NAME_MYSQL_DML_TOTAL{"mysql_dml_total"};
 inline const Name NAME_MYSQL_DML_DURATION{"mysql_dml_duration"};

@@ -41,7 +41,7 @@
 
 #include "store/data_store_handler.h"
 
-#include "eloq_catalog_factory.h"
+#include "eloqkv_catalog_factory.h"
 #include "lua_interpreter.h"
 #include "redis_command.h"
 #include "tx_request.h"
@@ -474,15 +474,6 @@ private:
 
     void AddHandlers();
 
-    bool InitMetricsRegistry();
-
-    /**
-     * Currently, this method only register connection-related metrics here.
-     * After registration is completed, the background thread collects data at a
-     * frequency of once per second.
-     */
-    void RegisterRedisMetrics();
-
     inline bool CheckAndUpdateRedisCmdRound(RedisCommandType cmd_type) const;
 
     inline std::string_view GetCommandAccessType(
@@ -535,11 +526,6 @@ private:
     // Whether to retry transaction on OCC caused error. OCC break repeatable
     // read and write-write conflict are both retried.
     bool retry_on_occ_error_{false};
-
-    std::unique_ptr<metrics::MetricsRegistry> metrics_registry_{nullptr};
-    std::string metrics_port_{"18081"};
-    metrics::CommonLabels redis_common_labels_{};
-    std::unique_ptr<metrics::Meter> redis_meter_{nullptr};
 
     mutable std::vector<std::vector<std::size_t>> redis_cmd_current_rounds_{};
     const metrics::Map<std::string_view, std::string_view> cmd_access_types_{
@@ -745,7 +731,6 @@ private:
         {"zunionstore", "write"},
     };
 
-    PubSubManager pub_sub_mgr_;
     // general indicator for stopping service, e.g. metrics collector
     std::atomic<bool> stopping_indicator_{false};
     std::optional<std::thread> metrics_collector_thd_;
