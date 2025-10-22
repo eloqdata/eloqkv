@@ -49,8 +49,8 @@
 
 #include "cc/cc_entry.h"
 #include "cc/cc_shard.h"
-#include "eloq_catalog_factory.h"
-#include "eloq_key.h"
+#include "eloqkv_catalog_factory.h"
+#include "eloqkv_key.h"
 #include "eloq_string.h"
 #include "local_cc_shards.h"
 #include "output_handler.h"

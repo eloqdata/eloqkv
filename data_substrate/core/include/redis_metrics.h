@@ -22,13 +22,15 @@
 #pragma once
 
 #include <cstddef>
+#include <memory>
 #include <string>
 
 #include "metrics.h"
+#include "meter.h"
 
 namespace metrics
 {
-inline const Name NAME_CONNECTION_COUNT{"redis_connection_count"};
+inline const Name NAME_REDIS_CONNECTION_COUNT{"redis_connection_count"};
 inline const Name NAME_MAX_CONNECTION{"redis_max_connections"};
 
 inline const Name NAME_REDIS_COMMAND_TOTAL{"redis_command_total"};
@@ -42,4 +44,26 @@ inline const Name NAME_REDIS_COMMAND_AGGREGATED_DURATION{
 inline const Name NAME_REDIS_SLOW_LOG_LEN{"redis_slow_log_len"};
 
 inline size_t collect_redis_command_duration_round{0};
+inline std::unique_ptr<Meter> redis_meter{nullptr};
+  
+inline void register_redis_metrics(MetricsRegistry *metrics_registry,
+                                CommonLabels &common_labels,
+                                size_t core_num)
+{
+    redis_meter = std::make_unique<Meter>(metrics_registry, common_labels);
+    redis_meter->Register(metrics::NAME_REDIS_CONNECTION_COUNT,
+                           metrics::Type::Gauge);
+    redis_meter->Register(metrics::NAME_MAX_CONNECTION, metrics::Type::Gauge);
+    std::vector<metrics::LabelGroup> labels;
+    labels.emplace_back("core_id", std::vector<std::string>());
+    for (size_t idx = 0; idx < core_num; ++idx)
+    {
+        labels[0].second.push_back(std::to_string(idx));
+    }
+
+    redis_meter->Register(metrics::NAME_REDIS_SLOW_LOG_LEN,
+                           metrics::Type::Gauge,
+                           std::move(labels));
+
+}
 }  // namespace metrics

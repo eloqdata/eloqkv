@@ -32,29 +32,17 @@
 #include <sys/sysinfo.h>
 #include <sys/types.h>
 
-#include <atomic>
-#include <chrono>
-#include <cstddef>
-#include <functional>
-#include <optional>
-#include <ratio>
-#include <string_view>
-
-#include "catalog_factory.h"
-#include "eloq_metrics/include/metrics.h"
-#include "error_messages.h"
-#include "kv_store.h"
-#include "redis_errors.h"
-#include "sharder.h"
-#include "tx_key.h"
-#include "data_substrate.h"
-
 #include <algorithm>
+#include <atomic>
 #include <cassert>
 #include <charconv>
+#include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <memory>
+#include <optional>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
@@ -62,7 +50,12 @@
 #include <vector>
 
 #include "INIReader.h"
-#include "eloq_key.h"
+#include "catalog_factory.h"
+#include "data_substrate.h"
+#include "eloq_metrics/include/metrics.h"
+#include "eloqkv_key.h"
+#include "error_messages.h"
+#include "kv_store.h"
 #include "lua_interpreter.h"
 #include "metrics_registry_impl.h"
 #include "redis_command.h"
@@ -71,14 +64,16 @@
 #include "redis_metrics.h"
 #include "redis_stats.h"
 #include "redis_string_match.h"
+#include "sharder.h"
+#include "tx_key.h"
 // #include "store_handler/rocksdb_config.h"
+#include "eloqkv_catalog_factory.h"
 #include "tx_execution.h"
 #include "tx_request.h"
 #include "tx_service.h"
 #include "tx_service_metrics.h"
 #include "tx_util.h"
 #include "type.h"
-#include "eloq_catalog_factory.h"
 
 extern "C"
 {
@@ -114,7 +109,6 @@ DEFINE_bool(cluster_mode,
             "enable cluster mode even if there is only one node group, "
             "compatible with redis cluster protocol");
 
-
 DEFINE_int32(slow_log_threshold,
              10000,
              "Threshold for logging a query as slow query.");
@@ -122,7 +116,6 @@ DEFINE_int32(slow_log_threshold,
 DEFINE_uint32(slow_log_max_length,
               128,
               "Max number of logs kept in slow query log.");
-
 
 DEFINE_bool(enable_redis_stats, true, "Enable to collect redis statistics.");
 DEFINE_bool(enable_cmd_sort, false, "Enable to sort command in Multi-Exec.");
@@ -145,9 +138,13 @@ DEFINE_bool(retry_on_occ_error, true, "Retry transaction on OCC caused error.");
 
 namespace EloqKV
 {
-constexpr char SEC_LOCAL[] = "local";
 const auto NUM_VCPU = std::thread::hardware_concurrency();
 
+// Global pub sub manager and publish function for eloqkv
+PubSubManager eloqkv_pub_sub_mgr;
+std::function<void(std::string_view, std::string_view)> eloqkv_publish_func =
+    [](std::string_view chan, std::string_view msg)
+{ eloqkv_pub_sub_mgr.Publish(chan, msg); };
 int databases;
 std::string requirepass;
 std::string redis_ip_port;
@@ -284,8 +281,6 @@ bool RedisServiceImpl::Init(brpc::Server &brpc_server)
         redis_ip_port = local_ip + ":" + std::to_string(redis_port_);
     }
 
-    uint16_t local_tx_port = DataSubstrate::GetGlobal()->GetNetworkConfig().local_port;
-
     DLOG(INFO) << "Local EloqKv server ip port: " << redis_ip_port;
 
     if (DataSubstrate::GetGlobal()->GetCoreConfig().bootstrap)
@@ -308,41 +303,6 @@ bool RedisServiceImpl::Init(brpc::Server &brpc_server)
 
     /* Initialize metrics registery and register metrics */
     stopping_indicator_.store(false, std::memory_order_release);
-    // metrics::CommonLabels tx_service_common_labels{};
-    if (metrics::enable_metrics)
-    {
-        // if (!InitMetricsRegistry())
-        // {
-        //     LOG(ERROR)
-        //         << "!!!!!!!! Failed to initialize MetricsRegristry !!!!!!!!";
-        //     return false;
-        // }
-
-        // TODO: metrics::CommonLabels log_service_common_labels{};
-
-        // redis_common_labels_
-        // NOTE: We use `local_tx_port` for aggregating metrics across different
-        // components.
-        redis_common_labels_["node_ip"] = local_ip;
-        redis_common_labels_["node_port"] = std::to_string(local_tx_port);
-        redis_common_labels_["node_id"] = std::to_string(DataSubstrate::GetGlobal()->GetNetworkConfig().node_id);
-
-        // tx_service_common_labels
-        // tx_service_common_labels["node_ip"] = local_ip;
-        // tx_service_common_labels["node_port"] = std::to_string(local_tx_port);
-        // tx_service_common_labels["node_id"] = std::to_string(node_id);
-
-        // TODO: log_service_common_labels
-        // ...
-        //
-
-        RegisterRedisMetrics();
-    }
-
-    // publish func for cluster global publish in tx service
-    std::function<void(std::string_view, std::string_view)> publish_func =
-        [this](std::string_view chan, std::string_view msg)
-    { pub_sub_mgr_.Publish(chan, msg); };
 
     std::vector<std::tuple<metrics::Name,
                            metrics::Type,
@@ -386,8 +346,6 @@ bool RedisServiceImpl::Init(brpc::Server &brpc_server)
 
     if (metrics::enable_metrics)
     {
-        redis_meter_->Collect(metrics::NAME_MAX_CONNECTION, DataSubstrate::GetGlobal()->GetCoreConfig().maxclients);
-
         metrics_collector_thd_ =
             std::thread(&RedisServiceImpl::CollectConnectionsMetrics,
                         this,
@@ -576,7 +534,6 @@ void RedisServiceImpl::Stop()
 RedisServiceImpl::~RedisServiceImpl()
 {
     tx_service_ = nullptr;
-    redis_meter_ = nullptr;
 }
 
 // The number of master nodes serving at least one hash slot in the cluster.
@@ -5357,7 +5314,7 @@ std::unique_ptr<brpc::ConnectionContext> RedisServiceImpl::NewConnectionContext(
     brpc::Socket *socket) const
 {
     return std::make_unique<RedisConnectionContext>(
-        socket, const_cast<PubSubManager *>(&pub_sub_mgr_));
+        socket, const_cast<PubSubManager *>(&eloqkv_pub_sub_mgr));
 }
 
 brpc::RedisCommandHandlerResult RedisServiceImpl::DispatchCommand(
@@ -5794,57 +5751,22 @@ struct ThreadLocal
     std::vector<IntOpCommand> incr_pool_;
 };
 
-bool RedisServiceImpl::InitMetricsRegistry()
-{
-    // setenv("ELOQ_METRICS_PORT", metrics_port_.c_str(), false);
-    // MetricsRegistryImpl::MetricsRegistryResult metrics_registry_result =
-    //     MetricsRegistryImpl::GetRegistry();
-
-    // if (metrics_registry_result.not_ok_ != nullptr)
-    // {
-    //     return false;
-    // }
-
-    // metrics_registry_ = std::move(metrics_registry_result.metrics_registry_);
-    return true;
-}
-
-void RedisServiceImpl::RegisterRedisMetrics()
-{
-    redis_meter_ = std::make_unique<metrics::Meter>(metrics_registry_.get(),
-                                                    redis_common_labels_);
-    redis_meter_->Register(metrics::NAME_CONNECTION_COUNT,
-                           metrics::Type::Gauge);
-    redis_meter_->Register(metrics::NAME_MAX_CONNECTION, metrics::Type::Gauge);
-
-    std::vector<metrics::LabelGroup> labels;
-    labels.emplace_back("core_id", std::vector<std::string>());
-    for (size_t idx = 0; idx < core_num_; ++idx)
-    {
-        labels[0].second.push_back(std::to_string(idx));
-    }
-
-    redis_meter_->Register(metrics::NAME_REDIS_SLOW_LOG_LEN,
-                           metrics::Type::Gauge,
-                           std::move(labels));
-}
-
 void RedisServiceImpl::CollectConnectionsMetrics(brpc::Server &server)
 {
     while (!stopping_indicator_.load(std::memory_order_acquire))
     {
         brpc::ServerStatistics srv_status;
         server.GetStat(&srv_status);
-        redis_meter_->Collect(metrics::NAME_CONNECTION_COUNT,
-                              srv_status.connection_count);
+        metrics::redis_meter->Collect(metrics::NAME_REDIS_CONNECTION_COUNT,
+                                      srv_status.connection_count);
 
         for (size_t core_idx = 0; core_idx < core_num_; ++core_idx)
         {
             std::lock_guard<bthread::Mutex> slow_log_lk(
                 *slow_log_mutexes_[core_idx]);
-            redis_meter_->Collect(metrics::NAME_REDIS_SLOW_LOG_LEN,
-                                  slow_log_len_[core_idx],
-                                  std::to_string(core_idx));
+            metrics::redis_meter->Collect(metrics::NAME_REDIS_SLOW_LOG_LEN,
+                                          slow_log_len_[core_idx],
+                                          std::to_string(core_idx));
         }
 
         std::this_thread::sleep_for(std::chrono::seconds(1));
@@ -5877,26 +5799,26 @@ std::string_view RedisServiceImpl::GetCommandAccessType(
 void RedisServiceImpl::Subscribe(const std::vector<std::string_view> &chans,
                                  EloqKV::RedisConnectionContext *client)
 {
-    pub_sub_mgr_.Subscribe(chans, client);
+    eloqkv_pub_sub_mgr.Subscribe(chans, client);
 }
 
 void RedisServiceImpl::Unsubscribe(const std::vector<std::string_view> &chans,
                                    EloqKV::RedisConnectionContext *client)
 {
-    pub_sub_mgr_.Unsubscribe(chans, client);
+    eloqkv_pub_sub_mgr.Unsubscribe(chans, client);
 }
 
 void RedisServiceImpl::PSubscribe(const std::vector<std::string_view> &patterns,
                                   EloqKV::RedisConnectionContext *client)
 {
-    pub_sub_mgr_.PSubscribe(patterns, client);
+    eloqkv_pub_sub_mgr.PSubscribe(patterns, client);
 }
 
 void RedisServiceImpl::PUnsubscribe(
     const std::vector<std::string_view> &patterns,
     EloqKV::RedisConnectionContext *client)
 {
-    pub_sub_mgr_.PUnsubscribe(patterns, client);
+    eloqkv_pub_sub_mgr.PUnsubscribe(patterns, client);
 }
 
 int RedisServiceImpl::Publish(std::string_view chan, std::string_view msg)
@@ -5909,7 +5831,7 @@ int RedisServiceImpl::Publish(std::string_view chan, std::string_view msg)
 
     // publish to local clients. only clients that are connected to the same
     // node as the publishing client are included in the count
-    return pub_sub_mgr_.Publish(chan, msg);
+    return eloqkv_pub_sub_mgr.Publish(chan, msg);
 }
 
 metrics::Meter *RedisServiceImpl::GetMeter(std::size_t core_id) const

@@ -35,7 +35,7 @@
 #include <vector>
 
 #include "cc_protocol.h"
-#include "eloq_key.h"
+#include "eloqkv_key.h"
 #include "eloq_string.h"
 #include "error_messages.h"
 #include "redis_command.h"

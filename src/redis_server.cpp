@@ -102,6 +102,7 @@ int main(int argc, char *argv[])
     {
         LOG(ERROR) << "Failed to start EloqKV server.";
         redis_service_ptr->Stop();
+        DataSubstrate::GetGlobal()->Shutdown();
 #if BRPC_WITH_GLOG
         google::ShutdownGoogleLogging();
 #endif

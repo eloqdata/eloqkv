@@ -39,7 +39,7 @@
 #include <utility>
 #include <vector>
 
-#include "eloq_key.h"
+#include "eloqkv_key.h"
 #include "eloq_string.h"
 #include "local_cc_shards.h"
 #include "output_handler.h"

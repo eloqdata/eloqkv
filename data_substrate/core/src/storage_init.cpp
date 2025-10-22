@@ -49,6 +49,10 @@
 #include "store_handler/dynamo_handler.h"
 #endif
 
+#ifdef DATA_STORE_TYPE_BIGTABLE
+#include "store_handler/bigtable_handler.h"
+#endif
+
 #if defined(DATA_STORE_TYPE_DYNAMODB)
 DEFINE_string(dynamodb_endpoint, "", "Endpoint of KvStore Dynamodb");
 DEFINE_string(dynamodb_keyspace, "eloq", "KeySpace of Dynamodb KvStore");
@@ -57,6 +61,11 @@ DEFINE_string(dynamodb_region,
               "Region of the used trable in DynamoDB");
 #endif
 
+#ifdef DATA_STORE_TYPE_BIGTABLE
+DEFINE_string(bigtable_project_id, "", "Project id of BigTable");
+DEFINE_string(bigtable_instance_id, "", "Instance id of BigTable");
+DEFINE_string(bigtable_keyspace, "eloq", "KeySpace of BigTable");
+#endif
 // aws_secret_key
 #if defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB_CLOUD_S3)
 DECLARE_string(aws_access_key_id);
@@ -128,6 +137,27 @@ bool DataSubstrate::InitializeStorageHandler(const INIReader &config_reader)
                                                         ddl_skip_kv,
                                                         worker_pool_size,
                                                         false);
+
+#elif defined(DATA_STORE_TYPE_BIGTABLE)
+    std::string bigtable_keyspace =
+        !CheckCommandLineFlagIsDefault("bigtable_keyspace")
+            ? FLAGS_bigtable_keyspace
+            : config_reader.GetString(
+                  "store", "bigtable_keyspace", FLAGS_bigtable_keyspace);
+    std::string bigtable_project_id =
+        !CheckCommandLineFlagIsDefault("bigtable_project_id")
+            ? FLAGS_bigtable_project_id
+            : config_reader.GetString(
+                  "store", "bigtable_project_id", FLAGS_bigtable_project_id);
+    std::string bigtable_instance_id =
+        !CheckCommandLineFlagIsDefault("bigtable_instance_id")
+            ? FLAGS_bigtable_instance_id
+            : config_reader.GetString(
+                  "store", "bigtable_instance_id", FLAGS_bigtable_instance_id);
+    bool ddl_skip_kv = false;
+    store_hd_ = std::make_unique<EloqDS::BigTableHandler>(
+        bigtable_keyspace, bigtable_project_id, bigtable_instance_id, core_config_.bootstrap,
+        ddl_skip_kv);
 
 #elif defined(DATA_STORE_TYPE_ROCKSDB)
     bool is_single_node =
@@ -286,52 +316,6 @@ bool DataSubstrate::InitializeStorageHandler(const INIReader &config_reader)
         dss_config_file_path,
         eloq_dss_data_path + "/DSMigrateLog",
         std::move(ds_factory));
-    std::vector<uint32_t> dss_shards = ds_config.GetShardsForThisNode();
-    std::unordered_map<uint32_t, std::unique_ptr<EloqDS::DataStore> >
-        dss_shards_map;
-    // setup rocksdb cloud data store
-    for (int shard_id : dss_shards)
-    {
-#if defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB_CLOUD_S3) || \
-    defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB_CLOUD_GCS)
-        // TODO(lzx): move setup datastore to data_store_service
-        auto ds = std::make_unique<EloqDS::RocksDBCloudDataStore>(
-            rocksdb_cloud_config,
-            rocksdb_config,
-            (core_config_.bootstrap || is_single_node),
-            core_config_.enable_cache_replacement,
-            shard_id,
-            data_store_service_.get());
-#elif defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB)
-        // TODO(lzx): move setup datastore to data_store_service
-        auto ds = std::make_unique<EloqDS::RocksDBDataStore>(
-            rocksdb_config,
-            (core_config_.bootstrap || is_single_node),
-            core_config_.enable_cache_replacement,
-            shard_id,
-            data_store_service_.get());
-
-#elif defined(DATA_STORE_TYPE_ELOQDSS_ELOQSTORE)
-        auto ds = std::make_unique<EloqDS::EloqStoreDataStore>(
-            shard_id, data_store_service_.get());
-#endif
-        ds->Initialize();
-
-        // Start db if the shard status is not closed
-        if (ds_config.FetchDSShardStatus(shard_id) !=
-            EloqDS::DSShardStatus::Closed)
-        {
-            bool ret = ds->StartDB();
-            if (!ret)
-            {
-                LOG(ERROR)
-                    << "Failed to start db instance in data store service";
-                return false;
-            }
-        }
-        dss_shards_map[shard_id] = std::move(ds);
-    }
-
     // setup local data store service
     bool ret = data_store_service_->StartService(
         (core_config_.bootstrap || is_single_node), dss_leader_id, dss_node_id);
@@ -340,7 +324,6 @@ bool DataSubstrate::InitializeStorageHandler(const INIReader &config_reader)
         LOG(ERROR) << "Failed to start data store service";
         return false;
     }
-    data_store_service_->ConnectDataStore(std::move(dss_shards_map));
     // setup data store service client
     txservice::CatalogFactory *catalog_factory[NUM_EXTERNAL_ENGINES] = {
         nullptr, nullptr, nullptr};

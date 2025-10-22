@@ -62,6 +62,7 @@
 #include <aws/core/Aws.h>
 #endif
 #include "metrics.h"
+#include "meter.h"
 #include "type.h"
 
 // Forward declaration for INIReader
@@ -205,6 +206,10 @@ private:
     NetworkConfig network_config_;
     LogServiceConfig log_service_config_;
     metrics::CommonLabels tx_service_common_labels_{};
+    std::vector<std::tuple<metrics::Name,
+                           metrics::Type,
+                           std::vector<metrics::LabelGroup>>>
+        external_metrics = {};
     // TODO(liunyl): system handler is used to refresh auth related cache. In
     // converged db, there should only be one system handler.
     txservice::SystemHandler *system_handler_{nullptr};
@@ -226,14 +231,6 @@ private:
 
     // Engine registry
     EngineConfig engines_[NUM_EXTERNAL_ENGINES];
-// #ifdef ELOQ_MODULE_ELOQKV
-//     EloqKV::RedisCatalogFactory eloqkv_catalog_factory_;
-// #endif
-
-// #ifdef ELOQ_MODULE_ELOQSQL
-//     MyEloq::MariaCatalogFactory eloqsql_catalog_factory_;
-// #endif
-
 
     std::unordered_map<txservice::TableName, std::string> prebuilt_tables_;
 };
