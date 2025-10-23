@@ -133,6 +133,7 @@ bool DataSubstrate::InitializeTxService(const INIReader &config_reader)
                       << "(MiB), total memory=" << mem_mib;
         }
     }
+    FLAGS_node_memory_limit_mb = node_memory_limit_mb;
 
     uint64_t deadlock_check_interval_seconds =
         !CheckCommandLineFlagIsDefault("deadlock_check_interval_seconds")
