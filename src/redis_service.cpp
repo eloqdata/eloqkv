@@ -92,8 +92,8 @@ DECLARE_int32(event_dispatcher_num);
 EloqKV::RedisCatalogFactory catalog_factory;
 txservice::CatalogFactory *eloqkv_catalog_factory = &catalog_factory;
 // DEFINE all gflags here
-DECLARE_int32(core_number);
 
+DECLARE_int32(node_memory_limit_mb);
 DEFINE_bool(cc_notify,
             true,
             "Notify the txrequest sender when cc request finishes");
@@ -197,6 +197,8 @@ bool RedisServiceImpl::Init(brpc::Server &brpc_server)
 
     tx_service_ = DataSubstrate::GetGlobal()->GetTxService();
     store_hd_ = DataSubstrate::GetGlobal()->GetStoreHandler();
+    core_num_ = DataSubstrate::GetGlobal()->GetCoreConfig().core_num;
+    node_memory_limit_mb_ = FLAGS_node_memory_limit_mb;
 
     databases = config_reader.GetInteger("local", "databases", 16);
     requirepass = config_reader.GetString("local", "requirepass", "");

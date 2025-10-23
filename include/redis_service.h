@@ -544,7 +544,6 @@ private:
     bool enable_redis_stats_;
     bool skip_kv_;
     bool skip_wal_;
-    bool enable_cache_replacement_;
     uint32_t core_num_;
     uint32_t redis_port_;
     uint64_t start_sec_;  // The start second since The Epoch
