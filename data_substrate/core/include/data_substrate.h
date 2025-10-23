@@ -235,10 +235,6 @@ private:
     std::unordered_map<txservice::TableName, std::string> prebuilt_tables_;
 };
 
-// Global DataSubstrate instance
-extern std::unique_ptr<DataSubstrate> g_data_substrate;
-
-
 // Helper function to check if a gflag was set from command line
 static inline bool CheckCommandLineFlagIsDefault(const char *name)
 {

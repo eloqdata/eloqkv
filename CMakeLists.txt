@@ -26,11 +26,12 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_STANDARD 17)
 
 add_compile_definitions(ELOQ_MODULE_ELOQKV)
-set(METRICS_LIB "eloq-metrics" CACHE STRING "metrics library name.")
 
 # Option to build as library for converged binary
 option(BUILD_ELOQKV_AS_LIBRARY "Build eloqkv as library instead of executable" OFF)
 
+set(WITH_DATA_STORE "ELOQDSS_ROCKSDB" CACHE STRING "Which key-value storage to use")
+set_property(CACHE WITH_DATA_STORE PROPERTY STRINGS "DYNAMODB" "BIGTABLE" "ELOQDSS_ROCKSDB_CLOUD_S3" "ELOQDSS_ELOQSTORE" "ELOQDSS_ROCKSDB")
 option(INI_USE_HEAP "Whether parse ini on heap" ON)
 
 if(INI_USE_HEAP)
@@ -54,33 +55,6 @@ option(ABSL_PROPAGATE_CXX_STD "ABSL PROPAGATE CXX STD" ON)
 
 option(WITH_ASAN "Enable memory sanitize" OFF)
 message(NOTICE "WITH ASAN: ${WITH_ASAN}")
-
-# KV data store backend for redis server, Rocksdb, DynamoDB, RocksDB Cloud
-set(WITH_DATA_STORE "ELOQDSS_ROCKSDB" CACHE STRING "The KV data store for EloqKV")
-set_property(CACHE WITH_DATA_STORE PROPERTY STRINGS "DYNAMODB" "ROCKSDB" "ROCKSDB_CLOUD_S3" "ROCKSDB_CLOUD_GCS" "ELOQDSS_ROCKSDB_CLOUD_S3" "ELOQDSS_ROCKSDB_CLOUD_GCS" "ELOQDSS_ROCKSDB" "ELOQDSS_ELOQSTORE")
-message(NOTICE "With DATA_STORE: ${WITH_DATA_STORE}")
-
-option(USE_ONE_ELOQDSS_PARTITION_ENABLED "Whether use one partition for kv store" OFF)
-message(NOTICE "USE_ONE_ELOQDSS_PARTITION_ENABLED : ${USE_ONE_ELOQDSS_PARTITION_ENABLED}")
-
-if(USE_ONE_ELOQDSS_PARTITION_ENABLED)
-    add_compile_definitions(USE_ONE_ELOQDSS_PARTITION)
-endif()
-
-# Add compile flags for KV stores
-if(WITH_DATA_STORE STREQUAL "DYNAMODB")
-    add_compile_definitions(DATA_STORE_TYPE_DYNAMODB)
-elseif(WITH_DATA_STORE STREQUAL "ROCKSDB")
-    add_compile_definitions(DATA_STORE_TYPE_ROCKSDB)
-elseif(WITH_DATA_STORE STREQUAL "ELOQDSS_ROCKSDB_CLOUD_S3")
-    add_compile_definitions(DATA_STORE_TYPE_ELOQDSS_ROCKSDB_CLOUD_S3)
-elseif(WITH_DATA_STORE STREQUAL "ELOQDSS_ROCKSDB_CLOUD_GCS")
-    add_compile_definitions(DATA_STORE_TYPE_ELOQDSS_ROCKSDB_CLOUD_GCS)
-elseif(WITH_DATA_STORE STREQUAL "ELOQDSS_ROCKSDB")
-    add_compile_definitions(DATA_STORE_TYPE_ELOQDSS_ROCKSDB)
-elseif(WITH_DATA_STORE STREQUAL "ELOQDSS_ELOQSTORE")
-    add_compile_definitions(DATA_STORE_TYPE_ELOQDSS_ELOQSTORE)
-endif()
 
 option(WITH_LOG_SERVICE "Compile with log service or not." ON)
 message("WITH_LOG_SERVICE: " ${WITH_LOG_SERVICE})
@@ -141,6 +115,31 @@ endif()
 option(VECTOR_INDEX_ENABLED "Enable vector index" OFF)
 message("VECTOR_INDEX_ENABLED: ${VECTOR_INDEX_ENABLED}")
 add_compile_definitions(ELOQ_MODULE_ELOQKV)
+# Add compile definitions based on options
+if(WITH_DATA_STORE STREQUAL "DYNAMODB")
+    set(KV_STORAGE_VAL 1 CACHE STRING "dynamodb" FORCE)
+    add_compile_definitions(DATA_STORE_TYPE_DYNAMODB)
+    find_package(AWSSDK REQUIRED COMPONENTS dynamodb)
+elseif(WITH_DATA_STORE STREQUAL "BIGTABLE")
+    set(KV_STORAGE_VAL 2 CACHE STRING "big table" FORCE)
+    add_compile_definitions(DATA_STORE_TYPE_BIGTABLE)
+    find_package(google_cloud_cpp_bigtable REQUIRED)
+elseif(WITH_DATA_STORE STREQUAL "ELOQDSS_ROCKSDB_CLOUD_S3")
+    set(KV_STORAGE_VAL 3 CACHE STRING "eloq_ds" FORCE)
+    add_compile_definitions(DATA_STORE_TYPE_ELOQDSS_ROCKSDB_CLOUD_S3)
+elseif(WITH_DATA_STORE STREQUAL "ELOQDSS_ROCKSDB")
+    set(KV_STORAGE_VAL 3 CACHE STRING "eloq_ds" FORCE)
+    add_compile_definitions(DATA_STORE_TYPE_ELOQDSS_ROCKSDB)
+elseif(WITH_DATA_STORE STREQUAL "ELOQDSS_ELOQSTORE")
+    set(KV_STORAGE_VAL 3 CACHE STRING "eloq_ds" FORCE)
+    add_compile_definitions(DATA_STORE_TYPE_ELOQDSS_ELOQSTORE)
+    option(WITH_TXSERVICE "Whether compile eloqstore with txservice" ON)
+    set(ELOQSTORE_PARENT_DIR ${CMAKE_CURRENT_SOURCE_DIR}/store_handler/eloq_data_store_service CACHE PATH "EloqStore parent directory")
+    INCLUDE(${CMAKE_CURRENT_SOURCE_DIR}/store_handler/eloq_data_store_service/build_eloq_store.cmake)
+else()
+    message(FATAL_ERROR "Unset WITH_DATA_STORE")
+endif()
+
 
 add_definitions("-Wall -g")
 
@@ -266,12 +265,6 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
         "-Wl,-U,_MallocExtension_ReleaseFreeMemory"
         "-Wl,-U,_ProfilerStart"
         "-Wl,-U,_ProfilerStop")
-endif()
-
-if(WITH_DATA_STORE STREQUAL "ELOQDSS_ELOQSTORE")
-    option(WITH_TXSERVICE "Whether compile eloqstore with txservice" ON)
-    set(ELOQSTORE_PARENT_DIR ${CMAKE_CURRENT_SOURCE_DIR}/data_substrate/data_substrate/store_handler/eloq_data_store_service CACHE PATH "EloqStore parent directory")
-    INCLUDE(${CMAKE_CURRENT_SOURCE_DIR}/data_substrate/data_substrate/store_handler/eloq_data_store_service/build_eloq_store.cmake)
 endif()
 
 if(VECTOR_INDEX_ENABLED)
