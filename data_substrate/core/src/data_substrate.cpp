@@ -171,6 +171,10 @@ DataSubstrate::~DataSubstrate()
 
 void DataSubstrate::Shutdown()
 {
+#ifdef ELOQ_MODULE_ELOQSQL
+  system_handler_->Shutdown();
+  system_handler_ = nullptr;
+#endif
   if (tx_service_ != nullptr)
   {
     LOG(INFO) << "Shutting down the tx service.";
@@ -200,9 +204,6 @@ void DataSubstrate::Shutdown()
   }
 #endif
   txservice::Sequences::Destory();
-// #ifdef ELOQ_MODULE_ELOQSQL
-//   MyEloq::MariaSystemHandler::Instance().Shutdown();
-// #endif
 
 #if defined(DATA_STORE_TYPE_DYNAMODB) ||                                      \
     defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB_CLOUD_S3) ||                      \

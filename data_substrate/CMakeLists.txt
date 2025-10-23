@@ -20,7 +20,12 @@ option(ELOQ_MODULE_ENABLED "Register the tx service as an ELOQ module." OFF)
 message(NOTICE "WITH_DATA_STORE: ${WITH_DATA_STORE}")
 message(NOTICE "WITH_LOG_SERVICE: ${WITH_LOG_SERVICE}")
 message(NOTICE "OPEN_LOG_SERVICE: ${OPEN_LOG_SERVICE}")
+option(USE_ONE_ELOQDSS_PARTITION_ENABLED "Whether use one partition for kv store" OFF)
+message(NOTICE "USE_ONE_ELOQDSS_PARTITION_ENABLED : ${USE_ONE_ELOQDSS_PARTITION_ENABLED}")
 
+if(USE_ONE_ELOQDSS_PARTITION_ENABLED)
+    add_compile_definitions(USE_ONE_ELOQDSS_PARTITION)
+endif()
 # Add compile definitions based on options
 if(WITH_DATA_STORE STREQUAL "DYNAMODB")
     set(KV_STORAGE_VAL 1 CACHE STRING "dynamodb" FORCE)
