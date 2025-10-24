@@ -132,7 +132,6 @@ DEFINE_string(
     txn_protocol,
     "OCC",
     "Concurrency control protocol of MULTI/EXEC and Lua transactions.");
-// DEFINE_uint32(snapshot_sync_worker_num, 0, "Snpashot sync worker num");
 
 DEFINE_bool(retry_on_occ_error, true, "Retry transaction on OCC caused error.");
 
@@ -163,20 +162,6 @@ std::atomic<uint32_t> slow_log_max_length_;
 std::vector<uint32_t> next_slow_log_idx_;
 std::vector<uint32_t> slow_log_len_;
 std::vector<uint32_t> next_slow_log_unique_id_;
-
-bool CheckCommandLineFlagIsDefault(const char *name)
-{
-    gflags::CommandLineFlagInfo flag_info;
-
-    bool flag_found = gflags::GetCommandLineFlagInfo(name, &flag_info);
-    // Make sure the flag is declared.
-    assert(flag_found);
-    (void) flag_found;
-
-    // Return `true` if the flag has the default value and has not been set
-    // explicitly from the cmdline or via SetCommandLineOption
-    return flag_info.is_default;
-}
 
 RedisServiceImpl::RedisServiceImpl(const std::string &config_file,
                                    const char *version)
@@ -306,43 +291,12 @@ bool RedisServiceImpl::Init(brpc::Server &brpc_server)
     /* Initialize metrics registery and register metrics */
     stopping_indicator_.store(false, std::memory_order_release);
 
-    std::vector<std::tuple<metrics::Name,
-                           metrics::Type,
-                           std::vector<metrics::LabelGroup>>>
-        external_metrics = {};
-
     if (metrics::enable_metrics)
     {
         redis_cmd_current_rounds_.resize(core_num_);
         for (auto &vec : redis_cmd_current_rounds_)
         {
             vec.resize(command_types.size() + 10, 1);
-        }
-        for (const auto &[cmd, _] : EloqKV::command_types)
-        {
-            std::vector<metrics::LabelGroup> label_groups = {{"type", {cmd}}};
-
-            external_metrics.push_back(
-                std::make_tuple(metrics::NAME_REDIS_COMMAND_DURATION,
-                                metrics::Type::Histogram,
-                                label_groups));
-            external_metrics.push_back(
-                std::make_tuple(metrics::NAME_REDIS_COMMAND_TOTAL,
-                                metrics::Type::Counter,
-                                label_groups));
-        }
-        for (const auto &access_type : {"read", "write"})
-        {
-            external_metrics.push_back(
-                std::make_tuple(metrics::NAME_REDIS_COMMAND_AGGREGATED_TOTAL,
-                                metrics::Type::Counter,
-                                std::vector<metrics::LabelGroup>{
-                                    {"access_type", {access_type}}}));
-            external_metrics.push_back(
-                std::make_tuple(metrics::NAME_REDIS_COMMAND_AGGREGATED_DURATION,
-                                metrics::Type::Histogram,
-                                std::vector<metrics::LabelGroup>{
-                                    {"access_type", {access_type}}}));
         }
     }
 
@@ -531,11 +485,6 @@ void RedisServiceImpl::Stop()
     {
         RedisStats::HideBVar();
     }
-}
-
-RedisServiceImpl::~RedisServiceImpl()
-{
-    tx_service_ = nullptr;
 }
 
 // The number of master nodes serving at least one hash slot in the cluster.
