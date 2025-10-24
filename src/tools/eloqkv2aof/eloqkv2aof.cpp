@@ -26,7 +26,7 @@
 #include <vector>
 
 #include "bthread/moodycamelqueue.h"
-#include "eloq_key.h"
+#include "eloqkv_key.h"
 #include "gflags/gflags.h"
 #include "glog/logging.h"
 #include "redis_hash_object.h"

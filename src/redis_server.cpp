@@ -30,6 +30,7 @@
 #include "glog_error_logging.h"
 #endif
 
+#include "data_substrate.h"
 #include "eloqkv_ascii_logo.h"
 #include "redis_service.h"
 
@@ -71,6 +72,11 @@ int main(int argc, char *argv[])
     }
 
     std::string config_file = FLAGS_config;
+    if (!DataSubstrate::InitializeGlobal(config_file))
+    {
+        LOG(ERROR) << "Failed to initialize DataSubstrate.";
+        return -1;
+    }
     LOG(INFO) << "Starting EloqKV Server ...";
     brpc::Server server;
     brpc::ServerOptions server_options;
@@ -96,6 +102,7 @@ int main(int argc, char *argv[])
     {
         LOG(ERROR) << "Failed to start EloqKV server.";
         redis_service_ptr->Stop();
+        DataSubstrate::GetGlobal()->Shutdown();
 #if BRPC_WITH_GLOG
         google::ShutdownGoogleLogging();
 #endif
@@ -118,6 +125,7 @@ int main(int argc, char *argv[])
     {
         std::cout << "\nEloqKV Server Stopping..." << std::endl;
     }
+    DataSubstrate::GetGlobal()->Shutdown();
     redis_service_ptr->Stop();
 
     if (!FLAGS_alsologtostderr)
