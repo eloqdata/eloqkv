@@ -8,9 +8,9 @@ ln -s ${WORKSPACE}/eloqkv_src eloqkv
 cd eloqkv
 # Prefer linking to expected path used by build scripts: eloq_log_service
 if [ -d "$WORKSPACE/logservice_src" ]; then
-  ln -s $WORKSPACE/logservice_src eloq_log_service
+  ln -s $WORKSPACE/logservice_src data_substrate/eloq_log_service
 fi
-pushd tx_service
+pushd data_substrate/tx_service
 ln -s $WORKSPACE/raft_host_manager_src raft_host_manager
 popd
 

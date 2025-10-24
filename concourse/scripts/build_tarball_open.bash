@@ -33,10 +33,10 @@ ELOQKV_SRC="${HOME}/eloqkv"
 
 # ensure log service under expected path
 if [ -d "${WORKSPACE}/logservice_src" ]; then
-  ln -sfn "${WORKSPACE}/logservice_src" "${ELOQKV_SRC}/log_service"
+  ln -sfn "${WORKSPACE}/logservice_src" "${ELOQKV_SRC}/data_substrate/log_service"
 fi
 
-pushd "${ELOQKV_SRC}/tx_service" >/dev/null
+pushd "${ELOQKV_SRC}/data_substrate/tx_service" >/dev/null
 ln -sfn "${WORKSPACE}/raft_host_manager_src" raft_host_manager
 popd >/dev/null
 
@@ -112,7 +112,7 @@ if [ -f "${ELOQKV_SRC}/concourse/artifact/eloqkv.ini" ]; then
 fi
 
 # Build and include open log_service
-LOG_SV_SRC="${ELOQKV_SRC}/log_service"
+LOG_SV_SRC="${ELOQKV_SRC}/data_substrate/log_service"
 if [ -d "${LOG_SV_SRC}" ]; then
   pushd "${LOG_SV_SRC}" >/dev/null
   rm -rf build LogService

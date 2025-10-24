@@ -16,9 +16,9 @@ ln -s ${WORKSPACE}/eloqkv_src eloqkv
 cd eloqkv
 # ensure log service under expected path
 if [ -d "$WORKSPACE/logservice_src" ]; then
-  ln -s $WORKSPACE/logservice_src eloq_log_service
+  ln -s $WORKSPACE/logservice_src data_substrate/eloq_log_service
 fi
-pushd tx_service
+pushd data_substrate/tx_service
 ln -s $WORKSPACE/raft_host_manager_src raft_host_manager
 popd
 ELOQKV_SRC=${PWD}
@@ -179,7 +179,7 @@ else
 fi
 
 if [ -n "${DSS_TYPE}" ]; then
-    DSS_SRC_DIR="${ELOQKV_SRC}/store_handler/eloq_data_store_service"
+    DSS_SRC_DIR="${ELOQKV_SRC}/data_substrate/store_handler/eloq_data_store_service"
     cd "${DSS_SRC_DIR}"
     mkdir -p build && cd build
     cmake .. -DCMAKE_BUILD_TYPE=${BUILD_TYPE} -DWITH_DATA_STORE=${DSS_TYPE} -DUSE_ONE_ELOQDSS_PARTITION_ENABLED=OFF
