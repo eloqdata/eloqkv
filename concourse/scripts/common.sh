@@ -184,21 +184,21 @@ function run_build() {
   set -e
 
   # compile log service to setup redis cluster later
-  cd /home/$current_user/workspace/eloqkv/log_service
+  cd /home/$current_user/workspace/eloqkv/data_substrate/log_service
   cmake -B bld -DCMAKE_BUILD_TYPE=$build_type && cmake --build bld -j 8
 
   set +e
   mkdir -p "/home/$current_user/workspace/eloqkv/cmake/install/bin"
   set -e
   cp /home/$current_user/workspace/eloqkv/cmake/eloqkv  /home/$current_user/workspace/eloqkv/cmake/install/bin/
-  cp /home/$current_user/workspace/eloqkv/log_service/bld/launch_sv  /home/$current_user/workspace/eloqkv/cmake/install/bin/
+  cp /home/$current_user/workspace/eloqkv/data_substrate/log_service/bld/launch_sv  /home/$current_user/workspace/eloqkv/cmake/install/bin/
 
 case "$kv_store_type" in
   ELOQDSS_*)
       echo "build dss_server"
-      cd /home/$current_user/workspace/eloqkv/store_handler/eloq_data_store_service
+      cd /home/$current_user/workspace/eloqkv/data_substrate/store_handler/eloq_data_store_service
       cmake -B bld -DCMAKE_BUILD_TYPE=$build_type -DWITH_DATA_STORE=$kv_store_type && cmake --build bld -j8
-      cp /home/$current_user/workspace/eloqkv/store_handler/eloq_data_store_service/bld/dss_server  /home/$current_user/workspace/eloqkv/cmake/install/bin/
+      cp /home/$current_user/workspace/eloqkv/data_substrate/store_handler/eloq_data_store_service/bld/dss_server  /home/$current_user/workspace/eloqkv/cmake/install/bin/
       ;;
 esac
 
@@ -248,7 +248,7 @@ function run_build_ent() {
   set -e
 
   # compile log service to setup redis cluster later
-  cd /home/$current_user/workspace/eloqkv/eloq_log_service
+  cd /home/$current_user/workspace/eloqkv/data_substrate/eloq_log_service
   cmake -B bld -DCMAKE_BUILD_TYPE=$build_type && cmake --build bld -j 8
 
   set +e
@@ -256,14 +256,14 @@ function run_build_ent() {
   set -e
   cp /home/$current_user/workspace/eloqkv/cmake/eloqkv  /home/$current_user/workspace/eloqkv/cmake/install/bin/
   cp /home/$current_user/workspace/eloqkv/cmake/host_manager  /home/$current_user/workspace/eloqkv/cmake/install/bin/
-  cp /home/$current_user/workspace/eloqkv/eloq_log_service/bld/launch_sv  /home/$current_user/workspace/eloqkv/cmake/install/bin/
+  cp /home/$current_user/workspace/eloqkv/data_substrate/eloq_log_service/bld/launch_sv  /home/$current_user/workspace/eloqkv/cmake/install/bin/
 
 case "$kv_store_type" in
   ELOQDSS_*)
       echo "build dss_server"
-      cd /home/$current_user/workspace/eloqkv/store_handler/eloq_data_store_service
+      cd /home/$current_user/workspace/eloqkv/data_substrate/store_handler/eloq_data_store_service
       cmake -B bld -DCMAKE_BUILD_TYPE=$build_type -DWITH_DATA_STORE=$kv_store_type && cmake --build bld -j8
-      cp /home/$current_user/workspace/eloqkv/store_handler/eloq_data_store_service/bld/dss_server  /home/$current_user/workspace/eloqkv/cmake/install/bin/
+      cp /home/$current_user/workspace/eloqkv/data_substrate/store_handler/eloq_data_store_service/bld/dss_server  /home/$current_user/workspace/eloqkv/cmake/install/bin/
       ;;
 esac
 
@@ -1399,7 +1399,7 @@ function start_dss_server() {
     rm -rf ${dss_data_path}
     mkdir ${dss_data_path}
     echo "starting dss_server"
-    ${eloqkv_base_path}/store_handler/eloq_data_store_service/bld/dss_server \
+    ${eloqkv_base_path}/data_substrate/store_handler/eloq_data_store_service/bld/dss_server \
       ${dss_server_configs} \
       --data_path=${dss_data_path} \
       --ip=$dss_ip \
