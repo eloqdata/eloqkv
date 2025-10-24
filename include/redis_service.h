@@ -33,17 +33,15 @@
 #include <utility>
 #include <vector>
 
-#include "eloq_metrics/include/meter.h"
-#include "error_messages.h"
-#include "pub_sub_manager.h"
-#include "store_handler/kv_store.h"
 #include "INIReader.h"
-
-#include "store/data_store_handler.h"
-
+#include "eloq_metrics/include/meter.h"
 #include "eloqkv_catalog_factory.h"
+#include "error_messages.h"
 #include "lua_interpreter.h"
+#include "pub_sub_manager.h"
 #include "redis_command.h"
+#include "store/data_store_handler.h"
+#include "store_handler/kv_store.h"
 #include "tx_request.h"
 
 extern "C"
@@ -161,7 +159,7 @@ class RedisServiceImpl : public brpc::RedisService
 public:
     explicit RedisServiceImpl(const std::string &config_file,
                               const char *version);
-    ~RedisServiceImpl() override;
+    ~RedisServiceImpl() = default;
 
     bool Init(brpc::Server &brpc_server);
 
@@ -737,5 +735,4 @@ private:
     friend class MultiTransactionHandler;
 };
 
-bool CheckCommandLineFlagIsDefault(const char *name);
 }  // namespace EloqKV
