@@ -1017,9 +1017,19 @@ bool RedisServiceImpl::Init(brpc::Server &brpc_server)
             std::filesystem::create_directories(eloq_dss_data_path);
         }
 
-        std::string dss_config_file_path =
-            eloq_dss_data_path + "/dss_config.ini";
+        std::string dss_config_file_path = "";
+        EloqDS::DataStoreServiceClusterManager ds_config;
+        uint32_t dss_leader_id = UINT32_MAX;
+        if (FLAGS_bootstrap || is_single_node)
+        {
+            dss_leader_id = node_id;
+        }
+        EloqDS::DataStoreServiceClient::TxConfigsToDssClusterConfig(
+            node_id, native_ng_id, ng_configs, dss_leader_id, ds_config);
 
+        // std::string dss_config_file_path =
+        //     eloq_dss_data_path + "/dss_config.ini";
+        /*
         EloqDS::DataStoreServiceClusterManager ds_config;
         if (std::filesystem::exists(dss_config_file_path))
         {
@@ -1071,6 +1081,7 @@ bool RedisServiceImpl::Init(brpc::Server &brpc_server)
                 return false;
             }
         }
+        */
 
 #if defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB_CLOUD_S3) ||                       \
     defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB_CLOUD_GCS)
