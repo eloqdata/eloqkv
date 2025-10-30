@@ -308,6 +308,7 @@ brpc::RedisCommandHandlerResult SentinelCommandHandler::Run(
         }
     };
 
+    // command: sentinel masters
     if (sub == "masters")
     {
         size_t masters_cnt = all_ngs ? all_ngs->size() : 0;
@@ -364,6 +365,7 @@ brpc::RedisCommandHandlerResult SentinelCommandHandler::Run(
         return brpc::REDIS_CMD_HANDLED;
     }
 
+    // command: sentinel master <master-name>
     if (sub == "master")
     {
         if (args.size() < 3)
@@ -428,7 +430,8 @@ brpc::RedisCommandHandlerResult SentinelCommandHandler::Run(
         return brpc::REDIS_CMD_HANDLED;
     }
 
-    if (sub == "replicas")
+    // command: sentinel replicas <master-name>
+    if (sub == "replicas" || sub == "slaves")
     {
         if (args.size() < 3)
         {
@@ -485,6 +488,7 @@ brpc::RedisCommandHandlerResult SentinelCommandHandler::Run(
         return brpc::REDIS_CMD_HANDLED;
     }
 
+    // command: sentinel sentinels <master-name>
     if (sub == "sentinels")
     {
         if (args.size() < 3)
@@ -532,6 +536,7 @@ brpc::RedisCommandHandlerResult SentinelCommandHandler::Run(
         return brpc::REDIS_CMD_HANDLED;
     }
 
+    // command: sentinel get-master-addr-by-name <master-name>
     if (sub == "get-master-addr-by-name")
     {
         if (args.size() < 3)
