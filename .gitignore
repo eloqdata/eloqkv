@@ -1,5 +1,6 @@
 *.code-workspace
 .vscode
+.cursor
 .idea
 .root
 .DS_Store

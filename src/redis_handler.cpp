@@ -25,6 +25,8 @@
 #include <bthread/task_group.h>
 #include <butil/strings/string_piece.h>
 
+#include <algorithm>
+#include <cctype>
 #include <cstring>
 #include <list>
 #include <string_view>
@@ -40,6 +42,7 @@
 #include "redis_object.h"
 #include "redis_replier.h"
 #include "redis_service.h"
+#include "sharder.h"
 #include "tx_key.h"
 #include "tx_request.h"
 #include "tx_service.h"
@@ -209,6 +212,346 @@ brpc::RedisCommandHandlerResult ClusterCommandHandler::Run(
         redis_impl_->ExecuteCommand(ctx, cmd.get(), &reply);
     }
 
+    return brpc::REDIS_CMD_HANDLED;
+}
+
+brpc::RedisCommandHandlerResult SentinelCommandHandler::Run(
+    RedisConnectionContext *ctx,
+    const std::vector<butil::StringPiece> &args,
+    brpc::RedisReply *output,
+    bool /*flush_batched*/)
+{
+    assert(args[0] == "sentinel");
+
+    if (args.size() < 2)
+    {
+        output->SetError(
+            "ERR wrong number of arguments for 'sentinel' command");
+        return brpc::REDIS_CMD_HANDLED;
+    }
+
+    std::string sub = args[1].as_string();
+    std::transform(sub.begin(),
+                   sub.end(),
+                   sub.begin(),
+                   [](unsigned char c) { return std::tolower(c); });
+
+    auto ng_id_from_arg = [](const butil::StringPiece &sp, uint32_t &ng_id)
+    {
+        ng_id = 0;
+        const char *b = sp.data();
+        const char *e = sp.data() + sp.size();
+        while (b < e && std::isspace(static_cast<unsigned char>(*b)))
+            b++;
+        if (b == e)
+            return false;
+        uint64_t val = 0;
+        for (; b < e; ++b)
+        {
+            if (!std::isdigit(static_cast<unsigned char>(*b)))
+                return false;
+            val = val * 10 + static_cast<uint64_t>(*b - '0');
+            if (val > UINT32_MAX)
+                return false;
+        }
+        ng_id = static_cast<uint32_t>(val);
+        return true;
+    };
+
+    // Gather cluster state reused by multiple subcommands
+    std::unordered_map<uint32_t, std::vector<HostNetworkInfo>> replicas_info;
+    redis_impl_->GetReplicaNodesStatus(replicas_info);
+
+    auto all_ngs = txservice::Sharder::Instance().AllNodeGroups();
+
+    auto find_master_info = [&](uint32_t ng_id, HostNetworkInfo &out) -> bool
+    {
+        auto it = replicas_info.find(ng_id);
+        if (it == replicas_info.end())
+            return false;
+        uint32_t leader_node_id =
+            txservice::Sharder::Instance().LeaderNodeId(ng_id);
+        for (const auto &n : it->second)
+        {
+            if (n.node_id == leader_node_id)
+            {
+                out = n;
+                return true;
+            }
+        }
+        return false;
+    };
+
+    auto live_nodes_count = [&]() -> uint32_t
+    {
+        uint32_t cnt = 0;
+        for (const auto &kv : replicas_info)
+        {
+            for (const auto &n : kv.second)
+            {
+                if (n.status == HostStatus::Online)
+                    cnt++;
+            }
+        }
+        return cnt;
+    }();
+
+    auto write_kv_array =
+        [](brpc::RedisReply *entry,
+           const std::vector<std::pair<std::string, std::string>> &kvs)
+    {
+        entry->SetArray(kvs.size() * 2);
+        for (size_t i = 0; i < kvs.size(); ++i)
+        {
+            (*entry)[i * 2].SetString(kvs[i].first);
+            (*entry)[i * 2 + 1].SetString(kvs[i].second);
+        }
+    };
+
+    if (sub == "masters")
+    {
+        size_t masters_cnt = all_ngs ? all_ngs->size() : 0;
+        output->SetArray(masters_cnt);
+        size_t idx = 0;
+        for (auto ng_id : *all_ngs)
+        {
+            HostNetworkInfo master{};
+            bool ok = find_master_info(ng_id, master);
+            // Compose fields per Redis Sentinel spec
+            uint32_t num_slaves = 0;
+            if (replicas_info.count(ng_id))
+            {
+                for (const auto &n : replicas_info[ng_id])
+                {
+                    if (n.node_id != master.node_id &&
+                        n.status == HostStatus::Online)
+                    {
+                        num_slaves++;
+                    }
+                }
+            }
+            std::vector<std::pair<std::string, std::string>> kvs;
+            kvs.reserve(22);
+            kvs.emplace_back("name", std::to_string(ng_id));
+            kvs.emplace_back("ip", ok ? master.ip : "");
+            kvs.emplace_back("port", ok ? std::to_string(master.port) : "0");
+            kvs.emplace_back("runid",
+                             ok ? master.host_id() : std::string(40, '0'));
+            std::string flags = "master";
+            if (!ok || master.status != HostStatus::Online)
+                flags += ",disconnected";
+            kvs.emplace_back("flags", flags);
+            kvs.emplace_back("link-pending-commands", "0");
+            kvs.emplace_back("link-refcount", "1");
+            kvs.emplace_back("last-ping-sent", "0");
+            kvs.emplace_back("last-ok-ping-reply", "0");
+            kvs.emplace_back("last-ping-reply", "0");
+            kvs.emplace_back("down-after-milliseconds", "0");
+            kvs.emplace_back("info-refresh", "0");
+            kvs.emplace_back("role-reported", "master");
+            kvs.emplace_back("role-reported-time", "0");
+            kvs.emplace_back("config-epoch", "0");
+            kvs.emplace_back("num-slaves", std::to_string(num_slaves));
+            uint32_t other_sentinels =
+                live_nodes_count > 0 ? (live_nodes_count - 1) : 0;
+            kvs.emplace_back("num-other-sentinels",
+                             std::to_string(other_sentinels));
+            kvs.emplace_back("quorum", "1");
+
+            write_kv_array(&(*output)[idx], kvs);
+            idx++;
+        }
+        return brpc::REDIS_CMD_HANDLED;
+    }
+
+    if (sub == "master")
+    {
+        if (args.size() < 3)
+        {
+            output->SetError(
+                "ERR wrong number of arguments for 'sentinel master' command");
+            return brpc::REDIS_CMD_HANDLED;
+        }
+        uint32_t ng_id = 0;
+        if (!ng_id_from_arg(args[2], ng_id))
+        {
+            output->SetError("ERR No such master with that name");
+            return brpc::REDIS_CMD_HANDLED;
+        }
+        HostNetworkInfo master{};
+        bool ok = find_master_info(ng_id, master);
+        if (!ok)
+        {
+            output->SetError("ERR No such master with that name");
+            return brpc::REDIS_CMD_HANDLED;
+        }
+        std::vector<std::pair<std::string, std::string>> kvs;
+        kvs.reserve(22);
+        kvs.emplace_back("name", std::to_string(ng_id));
+        kvs.emplace_back("ip", ok ? master.ip : "");
+        kvs.emplace_back("port", ok ? std::to_string(master.port) : "0");
+        kvs.emplace_back("runid", ok ? master.host_id() : std::string(40, '0'));
+        std::string flags = "master";
+        if (master.status != HostStatus::Online)
+            flags += ",disconnected";
+        kvs.emplace_back("flags", flags);
+        kvs.emplace_back("link-pending-commands", "0");
+        kvs.emplace_back("link-refcount", "1");
+        kvs.emplace_back("last-ping-sent", "0");
+        kvs.emplace_back("last-ok-ping-reply", "0");
+        kvs.emplace_back("last-ping-reply", "0");
+        kvs.emplace_back("down-after-milliseconds", "0");
+        kvs.emplace_back("info-refresh", "0");
+        kvs.emplace_back("role-reported", "master");
+        kvs.emplace_back("role-reported-time", "0");
+        kvs.emplace_back("config-epoch", "0");
+        uint32_t num_slaves = 0;
+        if (replicas_info.count(ng_id))
+        {
+            for (const auto &n : replicas_info[ng_id])
+            {
+                if (ok && n.node_id != master.node_id &&
+                    n.status == HostStatus::Online)
+                {
+                    num_slaves++;
+                }
+            }
+        }
+        kvs.emplace_back("num-slaves", std::to_string(num_slaves));
+        uint32_t other_sentinels =
+            live_nodes_count > 0 ? (live_nodes_count - 1) : 0;
+        kvs.emplace_back("num-other-sentinels",
+                         std::to_string(other_sentinels));
+        kvs.emplace_back("quorum", "1");
+
+        write_kv_array(output, kvs);
+        return brpc::REDIS_CMD_HANDLED;
+    }
+
+    if (sub == "replicas")
+    {
+        if (args.size() < 3)
+        {
+            output->SetError(
+                "ERR wrong number of arguments for 'sentinel replicas' "
+                "command");
+            return brpc::REDIS_CMD_HANDLED;
+        }
+        uint32_t ng_id = 0;
+        if (!ng_id_from_arg(args[2], ng_id) || !replicas_info.count(ng_id))
+        {
+            output->SetError("ERR No such master with that name");
+            return brpc::REDIS_CMD_HANDLED;
+        }
+        HostNetworkInfo master{};
+        bool has_master = find_master_info(ng_id, master);
+
+        // Build replicas array
+        std::vector<HostNetworkInfo> reps;
+        for (const auto &n : replicas_info[ng_id])
+        {
+            if (!has_master || n.node_id != master.node_id)
+            {
+                reps.push_back(n);
+            }
+        }
+        output->SetArray(reps.size());
+        for (size_t i = 0; i < reps.size(); ++i)
+        {
+            const auto &r = reps[i];
+            std::vector<std::pair<std::string, std::string>> kvs;
+            kvs.reserve(20);
+            kvs.emplace_back("name", r.host_id());
+            kvs.emplace_back("ip", r.ip);
+            kvs.emplace_back("port", std::to_string(r.port));
+            kvs.emplace_back("runid", r.host_id());
+            std::string flags = "slave";
+            if (r.status != HostStatus::Online)
+                flags += ",disconnected";
+            kvs.emplace_back("flags", flags);
+            kvs.emplace_back("master-link-status",
+                             r.status == HostStatus::Online ? "up" : "down");
+            kvs.emplace_back("last-ping-sent", "0");
+            kvs.emplace_back("last-ok-ping-reply", "0");
+            kvs.emplace_back("last-ping-reply", "0");
+            kvs.emplace_back("down-after-milliseconds", "0");
+            kvs.emplace_back("info-refresh", "0");
+            kvs.emplace_back("replica-priority", "100");
+            kvs.emplace_back("replica-repl-offset", "0");
+            kvs.emplace_back("link-pending-commands", "0");
+            kvs.emplace_back("link-refcount", "1");
+            write_kv_array(&(*output)[i], kvs);
+        }
+        return brpc::REDIS_CMD_HANDLED;
+    }
+
+    if (sub == "sentinels")
+    {
+        if (args.size() < 3)
+        {
+            output->SetError(
+                "ERR wrong number of arguments for 'sentinel sentinels' "
+                "command");
+            return brpc::REDIS_CMD_HANDLED;
+        }
+        // Return all live nodes in the cluster
+        std::vector<HostNetworkInfo> sentinels;
+        for (const auto &kv : replicas_info)
+        {
+            for (const auto &n : kv.second)
+            {
+                if (n.status == HostStatus::Online)
+                    sentinels.push_back(n);
+            }
+        }
+        output->SetArray(sentinels.size());
+        for (size_t i = 0; i < sentinels.size(); ++i)
+        {
+            const auto &s = sentinels[i];
+            std::vector<std::pair<std::string, std::string>> kvs;
+            kvs.reserve(12);
+            kvs.emplace_back("name", s.host_id());
+            kvs.emplace_back("ip", s.ip);
+            kvs.emplace_back("port", std::to_string(s.port));
+            kvs.emplace_back("runid", s.host_id());
+            kvs.emplace_back("flags", "sentinel");
+            kvs.emplace_back("last-ping-sent", "0");
+            kvs.emplace_back("last-ping-reply", "0");
+            kvs.emplace_back("link-pending-commands", "0");
+            kvs.emplace_back("link-refcount", "1");
+            write_kv_array(&(*output)[i], kvs);
+        }
+        return brpc::REDIS_CMD_HANDLED;
+    }
+
+    if (sub == "get-master-addr-by-name")
+    {
+        if (args.size() < 3)
+        {
+            output->SetError(
+                "ERR wrong number of arguments for 'sentinel "
+                "get-master-addr-by-name' command");
+            return brpc::REDIS_CMD_HANDLED;
+        }
+        uint32_t ng_id = 0;
+        if (!ng_id_from_arg(args[2], ng_id))
+        {
+            output->SetError("ERR No such master with that name");
+            return brpc::REDIS_CMD_HANDLED;
+        }
+        HostNetworkInfo master{};
+        if (!find_master_info(ng_id, master))
+        {
+            output->SetError("ERR No such master with that name");
+            return brpc::REDIS_CMD_HANDLED;
+        }
+        output->SetArray(2);
+        (*output)[0].SetString(master.ip);
+        (*output)[1].SetString(std::to_string(master.port));
+        return brpc::REDIS_CMD_HANDLED;
+    }
+
+    output->SetError("ERR Unknown SENTINEL subcommand");
     return brpc::REDIS_CMD_HANDLED;
 }
 

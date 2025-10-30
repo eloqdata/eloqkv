@@ -2548,6 +2548,10 @@ void RedisServiceImpl::AddHandlers()
         hd_vec_.emplace_back(std::make_unique<ClusterCommandHandler>(this));
     AddCommandHandler("cluster", cluster_hd.get());
 
+    auto &sentinel_hd =
+        hd_vec_.emplace_back(std::make_unique<SentinelCommandHandler>(this));
+    AddCommandHandler("sentinel", sentinel_hd.get());
+
     auto &failover_hd =
         hd_vec_.emplace_back(std::make_unique<FailoverCommandHandler>(this));
     AddCommandHandler("failover", failover_hd.get());
