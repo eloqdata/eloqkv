@@ -494,7 +494,15 @@ brpc::RedisCommandHandlerResult SentinelCommandHandler::Run(
                 "command");
             return brpc::REDIS_CMD_HANDLED;
         }
+        uint32_t ng_id = 0;
+        if (!ng_id_from_arg(args[2], ng_id) || !replicas_info.count(ng_id))
+        {
+            output->SetError("ERR No such master with that name");
+            return brpc::REDIS_CMD_HANDLED;
+        }
         // Return all live nodes in the cluster
+        // All of the nodes in the cluster can get status of all node groups, so
+        // technically they are all sentinels monitoring all node groups.
         std::vector<HostNetworkInfo> sentinels;
         for (const auto &kv : replicas_info)
         {
