@@ -9,6 +9,6 @@ start_server {tags {"cluster_cmds"}} {
 
        assert_equal 7471 [ r CLUSTER KEYSLOT "\{b\{a\}c\}d" ]
        assert_equal 7471 [ r CLUSTER KEYSLOT "b\{a" ]
-    } {} {needs:cluster_mode}
+    }
 
 }

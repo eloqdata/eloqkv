@@ -10261,20 +10261,6 @@ std::tuple<bool, std::unique_ptr<ClusterCommand>> ParseClusterCommand(
         output->OnError("ERR wrong number of arguments for 'cluster' command");
         return {false, nullptr};
     }
-    if (Sharder::Instance().GetNodeCount() == 1)
-    {
-        if (0 == strcasecmp(args[1].data(), "info") ||
-            0 == strcasecmp(args[1].data(), "nodes"))
-        {
-            output->OnString(
-                "ERR This instance has cluster support disabled\n");
-        }
-        else
-        {
-            output->OnError("ERR This instance has cluster support disabled");
-        }
-        return {false, nullptr};
-    }
     if (0 == strcasecmp(args[1].data(), "info"))
     {
         if (args.size() == 2)

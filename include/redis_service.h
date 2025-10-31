@@ -127,6 +127,8 @@ struct HostNetworkInfo
     {
     }
 
+    HostNetworkInfo &operator=(const HostNetworkInfo &rhs) = default;
+
     std::string ip{};
     // redis port
     uint16_t port{0};
