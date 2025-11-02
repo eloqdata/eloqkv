@@ -1019,13 +1019,17 @@ bool RedisServiceImpl::Init(brpc::Server &brpc_server)
 
         std::string dss_config_file_path = "";
         EloqDS::DataStoreServiceClusterManager ds_config;
-        uint32_t dss_leader_id = UINT32_MAX;
+        uint32_t dss_leader_id = EloqDS::UNKNOWN_DSS_LEADER_NODE_ID;
+
+        // use tx node id as the dss node id
+        // since they are deployed together
+        uint32_t dss_node_id = node_id;
         if (FLAGS_bootstrap || is_single_node)
         {
             dss_leader_id = node_id;
         }
         EloqDS::DataStoreServiceClient::TxConfigsToDssClusterConfig(
-            node_id, native_ng_id, ng_configs, dss_leader_id, ds_config);
+            dss_node_id, native_ng_id, ng_configs, dss_leader_id, ds_config);
 
         // std::string dss_config_file_path =
         //     eloq_dss_data_path + "/dss_config.ini";
@@ -1115,7 +1119,7 @@ bool RedisServiceImpl::Init(brpc::Server &brpc_server)
         // Start data store service. (Also create datastore in StartService() if
         // needed)
         bool ret = data_store_service_->StartService(
-            (FLAGS_bootstrap || is_single_node));
+            (FLAGS_bootstrap || is_single_node), dss_leader_id, dss_node_id);
         if (!ret)
         {
             LOG(ERROR) << "Failed to start data store service";
@@ -1132,7 +1136,9 @@ bool RedisServiceImpl::Init(brpc::Server &brpc_server)
             store_hd_->AppendPreBuiltTable(table_name);
         }
 
-        if (!store_hd_->Connect())
+        // do connect only when this is bootstrap or single node
+        // otherwise, connect when become leader or follower
+        if ((FLAGS_bootstrap || is_single_node) && !store_hd_->Connect())
         {
             LOG(ERROR) << "!!!!!!!! Failed to connect to kvstore, startup is "
                           "terminated !!!!!!!!";
