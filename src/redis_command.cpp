@@ -15252,18 +15252,21 @@ void HScanCommand::OutputResult(OutputHandler *reply) const
 }
 
 ScanCommand::ScanCommand(std::string_view pattern)
-    : cursor_("0"),
+    : scan_cursor_(nullptr),
       pattern_(pattern),
       count_(-1),
       obj_type_(RedisObjectType::Unknown)
 {
 }
 
-ScanCommand::ScanCommand(std::string_view cursor,
+ScanCommand::ScanCommand(BucketScanCursor *scan_cursor,
                          std::string_view pattern,
                          int64_t count,
                          RedisObjectType obj_type)
-    : cursor_(cursor), pattern_(pattern), count_(count), obj_type_(obj_type)
+    : scan_cursor_(scan_cursor),
+      pattern_(pattern),
+      count_(count),
+      obj_type_(obj_type)
 {
     assert(count_ > 0);
 }
@@ -15287,18 +15290,7 @@ void ScanCommand::OutputResult(OutputHandler *reply,
         if (!IsKeysCmd())
         {
             reply->OnArrayStart(2);
-
-            if (result_.last_key_ != "0")
-            {
-                // cache cursor content to context and output the returned
-                // cursor_id.
-                uint64_t cursor_id = ctx->CacheScanCursor(result_.last_key_);
-                reply->OnString(std::to_string(cursor_id));
-            }
-            else
-            {
-                reply->OnString(result_.last_key_);
-            }
+            reply->OnString(std::to_string(result_.cursor_id_));
         }
 
         reply->OnArrayStart(result_.vct_key_.size());
@@ -18789,27 +18781,27 @@ std::tuple<bool, ScanCommand> ParseScanCommand(
         return {false, ScanCommand()};
     }
 
-    std::string_view cursor;
     std::string_view pattern;
     int64_t count = 1000000;
     RedisObjectType obj_type = RedisObjectType::Unknown;
-
+    BucketScanCursor *scan_cursor = nullptr;
+    uint64_t cursor_id = 0;
     {
-        uint64_t cursor_id;
         if (!string2ull(args[1].data(), args[1].size(), cursor_id))
         {
             output->OnError(redis_get_error_messages(RD_ERR_INVALID_CURSOR));
             return {false, ScanCommand()};
         }
-        auto tmp_res = ctx->FindScanCursor(cursor_id);
-        if (tmp_res.first)
+
+        if (cursor_id != 0)
         {
-            cursor = *tmp_res.second;
-        }
-        else
-        {
-            static const char *zero_str = "0";
-            cursor = zero_str;
+            scan_cursor = ctx->FindBucketScanCursor(cursor_id);
+            if (scan_cursor == nullptr)
+            {
+                output->OnError(
+                    redis_get_error_messages(RD_ERR_INVALID_CURSOR));
+                return {false, ScanCommand()};
+            }
         }
     }
 
@@ -18877,7 +18869,7 @@ std::tuple<bool, ScanCommand> ParseScanCommand(
         pos += 2;
     }
 
-    return {true, ScanCommand(cursor, pattern, count, obj_type)};
+    return {true, ScanCommand(scan_cursor, pattern, count, obj_type)};
 }
 
 std::tuple<bool, ScanCommand> ParseKeysCommand(

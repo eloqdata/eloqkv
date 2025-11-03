@@ -33,15 +33,18 @@
 #include <sys/types.h>
 
 #include <atomic>
+#include <chrono>
 #include <cstddef>
 #include <functional>
 #include <optional>
+#include <ratio>
 #include <string_view>
 
 #include "data_store_service_util.h"
 #include "eloq_metrics/include/metrics.h"
 #include "error_messages.h"
 #include "kv_store.h"
+#include "redis_errors.h"
 #include "sharder.h"
 #include "tx_key.h"
 
@@ -6013,51 +6016,13 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
                                       OutputHandler *output,
                                       bool auto_commit)
 {
-    // Fetch catalog and acquire read lock on catalog table
-    CatalogKey catalog_key(*redis_table_name);
-    TxKey cat_tx_key(&catalog_key);
-    CatalogRecord catalog_rec;
-    ReadTxRequest read_req(&txservice::catalog_ccm_name,
-                           0,
-                           &cat_tx_key,
-                           &catalog_rec,
-                           false,
-                           false,
-                           true,
-                           0,
-                           false,
-                           false,
-                           false,
-                           nullptr,
-                           nullptr,
-                           txm);
-    txm->Execute(&read_req);
-    read_req.Wait();
-    if (read_req.IsError())
-    {
-        if (auto_commit)
-        {
-            AbortTx(txm);
-        }
-        if (output != nullptr)
-        {
-            output->OnError(read_req.ErrorMsg());
-        }
-        return false;
-    }
-
-    uint64_t schema_version = catalog_rec.SchemaTs();
-
-    const EloqKey key(cmd->cursor_.StringView());
-    const EloqKey *start_key =
-        (cmd->count_ < 0 || cmd->cursor_.StringView() == "0")
-            ? EloqKey::NegativeInfinity()
-            : &key;
-
+    const EloqKey *start_key = EloqKey::NegativeInfinity();
     TxKey start_tx_key(start_key);
+    const EloqKey *end_key = EloqKey::PositiveInfinity();
+    TxKey end_tx_key(end_key);
 
     bool start_inclusive = false;
-    bool end_inclusive = true;
+    bool end_inclusive = false;
     bool is_ckpt = false;
     bool is_for_write = false;
     bool is_for_share = false;
@@ -6067,316 +6032,320 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
     bool is_require_sort = true;
     bool is_read_local = false;
 
-    ScanOpenTxRequest scan_open(redis_table_name,
-                                schema_version,
-                                ScanIndexType::Primary,
-                                &start_tx_key,
-                                start_inclusive,
-                                nullptr,
-                                end_inclusive,
-                                ScanDirection::Forward,
-                                is_ckpt,
-                                is_for_write,
-                                is_for_share,
-                                is_covering_keys,
-                                is_require_keys,
-                                is_require_recs,
-                                is_require_sort,
-                                is_read_local,
-                                nullptr,
-                                nullptr,
-                                txm,
-                                static_cast<int32_t>(cmd->obj_type_),
-                                cmd->pattern_.StringView());
-
-    bool success = SendTxRequestAndWaitResult(txm, &scan_open, output);
-    if (!success)
+    // bool is_scan_end = true;
+    std::vector<std::string> &vct_rst = cmd->result_.vct_key_;
+    int64_t obj_cnt = 0;
+    std::unique_ptr<BucketScanCursor> scan_cursor_owner = nullptr;
+    size_t cache_idx = 0;
+    if (cmd->scan_cursor_ == 0)
     {
-        // The output must have been set if it's not nullptr and error
-        // occurs.
-        if (auto_commit)
-        {
-            AbortTx(txm);
-        }
-        return false;
+        scan_cursor_owner = std::make_unique<BucketScanCursor>();
+        cmd->scan_cursor_ = scan_cursor_owner.get();
     }
-
-    uint64_t scan_alias = scan_open.Result();
-    assert(scan_alias != UINT64_MAX);
-
-    std::unique_ptr<txservice::store::DataStoreScanner> storage_scanner =
-        nullptr;
-    if (store_hd_ != nullptr && !skip_kv_)
+    else
     {
-        const RedisTableSchema &redis_table_schema =
-            *static_cast<const RedisTableSchema *>(catalog_rec.Schema());
-        std::vector<txservice::store::DataStoreSearchCond> pushed_cond;
-#if defined(DATA_STORE_TYPE_DYNAMODB)
-        pushed_cond.emplace_back(
-            "#dl", "=", "FALSE", txservice::store::DataStoreDataType::Bool);
-        if (cmd->obj_type_ != RedisObjectType::Unknown)
+        assert(cmd->scan_cursor_ != nullptr);
+        if (cmd->scan_cursor_->obj_type_ != cmd->obj_type_ ||
+            cmd->scan_cursor_->cmd_pattern_ != cmd->pattern_.StringView())
         {
-            char type = static_cast<char>(cmd->obj_type_);
-            char type2 = type + 1;
-            pushed_cond.emplace_back("#pl",
-                                     ">=",
-                                     std::string(&type, 1),
-                                     txservice::store::DataStoreDataType::Blob);
-            pushed_cond.emplace_back("#pl",
-                                     "<",
-                                     std::string(&type2, 1),
-                                     txservice::store::DataStoreDataType::Blob);
-        }
-
-#elif defined(DATA_STORE_TYPE_ROCKSDB) || ELOQDS
-        if (cmd->obj_type_ != RedisObjectType::Unknown)
-        {
-            char type = static_cast<char>(cmd->obj_type_);
-            pushed_cond.emplace_back("type",
-                                     "=",
-                                     std::string(&type, 1),
-                                     txservice::store::DataStoreDataType::Blob);
-        }
-#endif
-
-        storage_scanner =
-            store_hd_->ScanForward(*redis_table_name,
-                                   UINT32_MAX,
-                                   start_tx_key,
-                                   false,
-                                   UINT8_MAX,
-                                   pushed_cond,
-                                   redis_table_schema.KeySchema(),
-                                   redis_table_schema.RecordSchema(),
-                                   redis_table_schema.GetKVCatalogInfo(),
-                                   true);
-
-        if (storage_scanner == nullptr)
-        {
-            // The output must have been set if it's not nullptr and
-            // error occurs.
+            if (auto_commit)
+            {
+                AbortTx(txm);
+            }
             if (output != nullptr)
             {
-                output->OnError(TxErrorMessage(TxErrorCode::DATA_STORE_ERROR));
+                output->OnError(
+                    redis_get_error_messages(RD_ERR_INVALID_CURSOR));
+            }
+            return false;
+        }
+
+        cache_idx = cmd->scan_cursor_->cache_idx_;
+        for (cache_idx = cmd->scan_cursor_->cache_idx_;
+             cache_idx < cmd->scan_cursor_->cache_.size();
+             ++cache_idx)
+        {
+            if (cmd->count_ > 0 && obj_cnt >= cmd->count_)
+            {
+                break;
             }
 
+            vct_rst.emplace_back(cmd->scan_cursor_->cache_[cache_idx]);
+            obj_cnt++;
+        }
+    }
+
+    BucketScanSavePoint *save_point = &cmd->scan_cursor_->save_point_;
+    bool more_plan = save_point->prev_pause_idx_ == UINT64_MAX ||
+                     save_point->prev_pause_idx_ < save_point->PlanSize();
+
+    if ((cmd->count_ < 0 || obj_cnt < cmd->count_) && more_plan)
+    {
+        // Fetch catalog and acquire read lock on catalog table
+        CatalogKey catalog_key(*redis_table_name);
+        TxKey cat_tx_key(&catalog_key);
+        CatalogRecord catalog_rec;
+        ReadTxRequest read_req(&txservice::catalog_ccm_name,
+                               0,
+                               &cat_tx_key,
+                               &catalog_rec,
+                               false,
+                               false,
+                               true,
+                               0,
+                               false,
+                               false,
+                               false,
+                               nullptr,
+                               nullptr,
+                               txm);
+        txm->Execute(&read_req);
+        read_req.Wait();
+        if (read_req.IsError())
+        {
+            if (auto_commit)
+            {
+                AbortTx(txm);
+            }
+            if (output != nullptr)
+            {
+                output->OnError(read_req.ErrorMsg());
+            }
+            return false;
+        }
+
+        uint64_t schema_version = catalog_rec.SchemaTs();
+
+        ScanOpenTxRequest scan_open(redis_table_name,
+                                    schema_version,
+                                    ScanIndexType::Primary,
+                                    &start_tx_key,
+                                    start_inclusive,
+                                    &end_tx_key,
+                                    end_inclusive,
+                                    ScanDirection::Forward,
+                                    is_ckpt,
+                                    is_for_write,
+                                    is_for_share,
+                                    is_covering_keys,
+                                    is_require_keys,
+                                    is_require_recs,
+                                    is_require_sort,
+                                    is_read_local,
+                                    nullptr,
+                                    nullptr,
+                                    txm,
+                                    static_cast<int32_t>(cmd->obj_type_),
+                                    cmd->pattern_.StringView(),
+                                    save_point);
+
+        bool success = SendTxRequestAndWaitResult(txm, &scan_open, output);
+        if (!success)
+        {
+            if (scan_open.tx_result_.ErrorCode() == TxErrorCode::INVALID_CURSOR)
+            {
+                if (cmd->scan_cursor_->cursor_id_ != 0)
+                {
+                    ctx->RemoveBucketScanCursor();
+                }
+            }
+
+            // The output must have been set if it's not nullptr and error
+            // occurs.
             if (auto_commit)
             {
                 AbortTx(txm);
             }
             return false;
         }
-    }
 
-    std::vector<txservice::ScanBatchTuple> scan_batch;
-    size_t scan_batch_idx{UINT64_MAX};
-    const EloqKey *result_key = nullptr;
-    txservice::TxKey store_key;
-    const txservice::TxRecord *store_rec = nullptr;
-    const EloqKey *ccm_scan_key = nullptr;
-    txservice::RecordStatus ccm_scan_rec_status =
-        txservice::RecordStatus::Deleted;
-    bool is_last_scan_batch{false};
-    std::vector<std::string> &vct_rst = cmd->result_.vct_key_;
-    std::string end_key;
-    int64_t obj_cnt = 0;
-    uint64_t store_rec_version = UINT64_MAX;
-    bool is_store_key_deleted = false;
-    bool is_scan_end = false;
+        uint64_t scan_alias = scan_open.Result();
+        assert(scan_alias != UINT64_MAX);
 
-    if (storage_scanner != nullptr)
-    {
-        storage_scanner->Current(
-            store_key, store_rec, store_rec_version, is_store_key_deleted);
-    }
-
-    while (true)
-    {
-        bool is_store_key = false;
-        txservice::LocalCcShards *local_cc_shards =
-            txservice::Sharder::Instance().GetLocalCcShards();
-
-        if (ccm_scan_key == nullptr)
+        size_t current_index = 0;
+        if (save_point->prev_pause_idx_ != UINT64_MAX)
         {
-            if (scan_batch_idx >= scan_batch.size() && !is_last_scan_batch)
-            {
-                // Fetches the next batch.
-                scan_batch_idx = 0;
-                scan_batch.clear();
+            current_index = save_point->prev_pause_idx_;
+        }
 
-                ScanBatchTxRequest scan_batch_req(
-                    scan_alias,
-                    *redis_table_name,
-                    &scan_batch,
-                    nullptr,
-                    nullptr,
-                    txm,
-                    static_cast<int32_t>(cmd->obj_type_),
-                    cmd->pattern_.StringView());
-                auto success =
-                    SendTxRequestAndWaitResult(txm, &scan_batch_req, output);
-                if (!success)
+        size_t plan_size = save_point->PlanSize();
+
+        BucketScanPlan plan = save_point->PickPlan(current_index);
+        std::vector<txservice::ScanBatchTuple> scan_batch;
+        std::vector<txservice::UnlockTuple> unlock_batch;
+
+        while (current_index < plan_size)
+        {
+            scan_batch.clear();
+            ScanBatchTxRequest scan_batch_req(
+                scan_alias,
+                *redis_table_name,
+                &scan_batch,
+                nullptr,
+                nullptr,
+                txm,
+                static_cast<int32_t>(cmd->obj_type_),
+                cmd->pattern_.StringView(),
+                &plan);
+            success = SendTxRequestAndWaitResult(txm, &scan_batch_req, output);
+            if (!success)
+            {
+                if (scan_batch_req.tx_result_.ErrorCode() ==
+                    TxErrorCode::INVALID_CURSOR)
                 {
-                    // The output must have been set if it's not nullptr and
-                    // error occurs.
-                    if (auto_commit)
+                    if (cmd->scan_cursor_->cursor_id_ != 0)
                     {
-                        AbortTx(txm);
+                        ctx->RemoveBucketScanCursor();
                     }
-                    return false;
                 }
 
-                is_last_scan_batch = (scan_batch.size() == 0);
+                // add trailing tuple into read set
+                txm->CloseTxScan(scan_alias, *redis_table_name, unlock_batch);
+
+                // The output must have been set if it's not nullptr and
+                // error occurs.
+                if (auto_commit)
+                {
+                    AbortTx(txm);
+                }
+                return false;
             }
 
-            if (scan_batch_idx < scan_batch.size())
+            size_t scan_batch_idx = 0;
+            for (; scan_batch_idx < scan_batch.size(); ++scan_batch_idx)
             {
-                txservice::ScanBatchTuple &scan_tuple =
-                    scan_batch[scan_batch_idx];
-                ccm_scan_key = scan_tuple.key_.GetKey<EloqKey>();
-                ccm_scan_rec_status = scan_tuple.status_;
-                ++scan_batch_idx;
+                const ScanBatchTuple &tuple = scan_batch[scan_batch_idx];
+                const std::string_view sv =
+                    tuple.key_.GetKey<EloqKey>()->StringView();
+
+                if (tuple.status_ != RecordStatus::Normal)
+                {
+                    continue;
+                }
+
+                vct_rst.emplace_back(sv);
+                obj_cnt++;
+
+                if (cmd->count_ > 0 && obj_cnt >= cmd->count_)
+                {
+                    scan_batch_idx++;
+                    // is_scan_end = false;
+                    break;
+                }
             }
-        }
 
-        if (storage_scanner != nullptr && store_key.KeyPtr() == nullptr)
-        {
-            storage_scanner->MoveNext();
-            storage_scanner->Current(
-                store_key, store_rec, store_rec_version, is_store_key_deleted);
-        }
-
-        if (ccm_scan_key == nullptr)
-        {
-            // The cc map scanner has reached the end. The current tuple of
-            // the data store scanner, if there any, is the result
-            // candidate.
-
-            if (store_key.KeyPtr() == nullptr)
+            if (cmd->count_ > 0 && obj_cnt >= cmd->count_)
             {
-                is_scan_end = true;
+                cache_idx = 0;
+                cmd->scan_cursor_->cache_idx_ = 0;
+                cmd->scan_cursor_->cache_.clear();
+
+                for (size_t idx = scan_batch_idx; idx < scan_batch.size();
+                     ++idx)
+                {
+                    const ScanBatchTuple &tuple = scan_batch[idx];
+
+                    if (tuple.status_ != RecordStatus::Normal)
+                    {
+                        continue;
+                    }
+                    // unlock_batch.emplace_back(
+                    //    tuple.cce_addr_, tuple.version_ts_, tuple.status_);
+                    const std::string_view sv =
+                        tuple.key_.GetKey<EloqKey>()->StringView();
+                    cmd->scan_cursor_->cache_.emplace_back(sv);
+                }
+
+                if (scan_batch_req.Result())
+                {
+                    if (current_index + 1 == plan_size)
+                    {
+                        // no more data
+                        save_point->prev_pause_idx_ = plan_size;
+                        save_point->pause_position_.clear();
+                    }
+                    else
+                    {
+                        save_point->prev_pause_idx_ = current_index;
+                        save_point->pause_position_ = plan.CurrentPosition();
+                    }
+                }
+                else
+                {
+                    save_point->prev_pause_idx_ = current_index;
+                    save_point->pause_position_ = plan.CurrentPosition();
+                }
                 break;
             }
 
-            bool is_ttl_expired =
-                IsRecordTTLExpired(store_rec, local_cc_shards);
-
-            result_key = store_key.GetKey<EloqKey>();
-            is_store_key = true;
-            store_key = TxKey();
-            store_rec = nullptr;
-
-            if (is_store_key_deleted || is_ttl_expired)
+            // current plan is finished, move to next plan
+            if (scan_batch_req.Result())
             {
-                continue;
-            }
-        }
-        else if (store_key.KeyPtr() == nullptr)
-        {
-            // The data store scanner has reached the end. Advances the cc
-            // map scanner by setting the cached key and record pointers to
-            // null.
-
-            if (ccm_scan_rec_status == txservice::RecordStatus::Deleted)
-            {
-                ccm_scan_key = nullptr;
-                continue;
-            }
-
-            result_key = static_cast<const EloqKey *>(ccm_scan_key);
-            ccm_scan_key = nullptr;
-        }
-        else
-        {
-            // Neither the cc map scanner nor the data store scanner reaches
-            // the end. Compares their current tuples. Now only support
-            // ScanDirection::Forward
-            if (*store_key.GetKey<EloqKey>() < *ccm_scan_key)
-            {
-                bool is_ttl_expired =
-                    IsRecordTTLExpired(store_rec, local_cc_shards);
-
-                // The tupled pointed by the data store scanner is the
-                // "next" result candidate.
-                result_key = store_key.GetKey<EloqKey>();
-                is_store_key = true;
-                store_key = TxKey();
-                store_rec = nullptr;
-
-                if (is_store_key_deleted || is_ttl_expired)
+                current_index++;
+                if (current_index < plan_size)
                 {
-                    continue;
+                    plan = save_point->PickPlan(current_index);
+                }
+                else
+                {
+                    cache_idx = 0;
+                    cmd->scan_cursor_->cache_idx_ = 0;
+                    cmd->scan_cursor_->cache_.clear();
+                    save_point->prev_pause_idx_ = plan_size;
+                    save_point->pause_position_.clear();
                 }
             }
-            else
-            {
-                // The tuple pointed by the cc map scanner is the "next"
-                // result candidate.
-
-                // Advances the data store scanner, if its current key
-                // equals to the current key of the cc map scanner. That is:
-                // the tuple returned by the cc map always overrides the one
-                // returned by the data store.
-                if (*store_key.GetKey<EloqKey>() == *ccm_scan_key)
-                {
-                    storage_scanner->MoveNext();
-                    storage_scanner->Current(store_key,
-                                             store_rec,
-                                             store_rec_version,
-                                             is_store_key_deleted);
-                }
-
-                if (ccm_scan_rec_status == txservice::RecordStatus::Deleted)
-                {
-                    ccm_scan_key = nullptr;
-                    continue;
-                }
-
-                result_key = static_cast<const EloqKey *>(ccm_scan_key);
-                ccm_scan_key = nullptr;
-            }
         }
 
-        const std::string_view sv = result_key->StringView();
-        if (is_store_key)
-        {
-            if (cmd->pattern_.Length() > 0 &&
-                stringmatchlen(cmd->pattern_.Data(),
-                               cmd->pattern_.Length(),
-                               sv.data(),
-                               sv.size(),
-                               0) == 0)
-            {
-                continue;
-            }
-        }
-
-        vct_rst.emplace_back(sv);
-        obj_cnt++;
-
-        if (sv != "0" && (cmd->count_ > 0 && obj_cnt >= cmd->count_))
-        {
-            end_key = sv;
-            break;
-        }
-    }
-
-    std::vector<txservice::UnlockTuple> unlock_batch;
-    for (size_t idx = scan_batch_idx; idx < scan_batch.size(); ++idx)
-    {
-        const ScanBatchTuple &tuple = scan_batch[idx];
-        unlock_batch.emplace_back(
-            tuple.cce_addr_, tuple.version_ts_, tuple.status_);
-    }
-
-    txm->CloseTxScan(scan_alias, *redis_table_name, unlock_batch);
-    if (is_scan_end)
-    {
-        cmd->result_.last_key_ = "0";
+        txm->CloseTxScan(scan_alias, *redis_table_name, unlock_batch);
     }
     else
     {
-        cmd->result_.last_key_ = std::move(end_key);
+        // update cache idx
+        cmd->scan_cursor_->cache_idx_ = cache_idx;
+    }
+
+    bool is_scan_end = true;
+    if (save_point->prev_pause_idx_ == save_point->PlanSize() &&
+        cmd->scan_cursor_->cache_idx_ == cmd->scan_cursor_->cache_.size())
+    {
+        for (const auto &[node_group_id, bucket_scan_progress] :
+             save_point->pause_position_)
+        {
+            for (const auto &[core_idx, progress] : bucket_scan_progress)
+            {
+                if (!progress.AllFinished())
+                {
+                    is_scan_end = false;
+                }
+            }
+        }
+    }
+    else
+    {
+        is_scan_end = false;
+    }
+
+    if (is_scan_end)
+    {
+        ctx->RemoveBucketScanCursor();
+        cmd->result_.cursor_id_ = 0;
+        cmd->scan_cursor_ = nullptr;
+    }
+    else
+    {
+        if (cmd->scan_cursor_->cursor_id_ == 0)
+        {
+            scan_cursor_owner->obj_type_ = cmd->obj_type_;
+            scan_cursor_owner->cmd_pattern_ = cmd->pattern_.String();
+            cmd->result_.cursor_id_ = ctx->CreateBucketScanCursor(
+                vct_rst.back(), std::move(scan_cursor_owner));
+        }
+        else
+        {
+            cmd->result_.cursor_id_ =
+                ctx->UpdateBucketScanCursor(vct_rst.back());
+        }
     }
 
     if (output != nullptr)
@@ -6388,6 +6357,7 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
     {
         CommitTx(txm);
     }
+
     return true;
 }
 
