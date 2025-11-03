@@ -1028,8 +1028,30 @@ bool RedisServiceImpl::Init(brpc::Server &brpc_server)
         {
             dss_leader_id = node_id;
         }
-        EloqDS::DataStoreServiceClient::TxConfigsToDssClusterConfig(
-            dss_node_id, native_ng_id, ng_configs, dss_leader_id, ds_config);
+
+        if (!eloq_dss_peer_node.empty())
+        {
+            ds_config.SetThisNode(
+                local_ip,
+                EloqDS::DataStoreServiceClient::TxPort2DssPort(local_tx_port));
+            // Fetch ds topology from peer node
+            if (!EloqDS::DataStoreService::FetchConfigFromPeer(
+                    eloq_dss_peer_node, ds_config))
+            {
+                LOG(ERROR) << "Failed to fetch config from peer node: "
+                           << eloq_dss_peer_node;
+                return false;
+            }
+        }
+        else
+        {
+            EloqDS::DataStoreServiceClient::TxConfigsToDssClusterConfig(
+                dss_node_id,
+                native_ng_id,
+                ng_configs,
+                dss_leader_id,
+                ds_config);
+        }
 
         // std::string dss_config_file_path =
         //     eloq_dss_data_path + "/dss_config.ini";
