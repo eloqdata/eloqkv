@@ -1017,9 +1017,45 @@ bool RedisServiceImpl::Init(brpc::Server &brpc_server)
             std::filesystem::create_directories(eloq_dss_data_path);
         }
 
-        std::string dss_config_file_path =
-            eloq_dss_data_path + "/dss_config.ini";
+        std::string dss_config_file_path = "";
+        EloqDS::DataStoreServiceClusterManager ds_config;
+        uint32_t dss_leader_id = EloqDS::UNKNOWN_DSS_LEADER_NODE_ID;
 
+        // use tx node id as the dss node id
+        // since they are deployed together
+        uint32_t dss_node_id = node_id;
+        if (FLAGS_bootstrap || is_single_node)
+        {
+            dss_leader_id = node_id;
+        }
+
+        if (!eloq_dss_peer_node.empty())
+        {
+            ds_config.SetThisNode(
+                local_ip,
+                EloqDS::DataStoreServiceClient::TxPort2DssPort(local_tx_port));
+            // Fetch ds topology from peer node
+            if (!EloqDS::DataStoreService::FetchConfigFromPeer(
+                    eloq_dss_peer_node, ds_config))
+            {
+                LOG(ERROR) << "Failed to fetch config from peer node: "
+                           << eloq_dss_peer_node;
+                return false;
+            }
+        }
+        else
+        {
+            EloqDS::DataStoreServiceClient::TxConfigsToDssClusterConfig(
+                dss_node_id,
+                native_ng_id,
+                ng_configs,
+                dss_leader_id,
+                ds_config);
+        }
+
+        // std::string dss_config_file_path =
+        //     eloq_dss_data_path + "/dss_config.ini";
+        /*
         EloqDS::DataStoreServiceClusterManager ds_config;
         if (std::filesystem::exists(dss_config_file_path))
         {
@@ -1071,6 +1107,7 @@ bool RedisServiceImpl::Init(brpc::Server &brpc_server)
                 return false;
             }
         }
+        */
 
 #if defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB_CLOUD_S3) ||                       \
     defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB_CLOUD_GCS)
@@ -1104,7 +1141,7 @@ bool RedisServiceImpl::Init(brpc::Server &brpc_server)
         // Start data store service. (Also create datastore in StartService() if
         // needed)
         bool ret = data_store_service_->StartService(
-            (FLAGS_bootstrap || is_single_node));
+            (FLAGS_bootstrap || is_single_node), dss_leader_id, dss_node_id);
         if (!ret)
         {
             LOG(ERROR) << "Failed to start data store service";
@@ -1121,7 +1158,9 @@ bool RedisServiceImpl::Init(brpc::Server &brpc_server)
             store_hd_->AppendPreBuiltTable(table_name);
         }
 
-        if (!store_hd_->Connect())
+        // do connect only when this is bootstrap or single node
+        // otherwise, connect when become leader or follower
+        if ((FLAGS_bootstrap || is_single_node) && !store_hd_->Connect())
         {
             LOG(ERROR) << "!!!!!!!! Failed to connect to kvstore, startup is "
                           "terminated !!!!!!!!";
