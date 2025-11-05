@@ -495,9 +495,11 @@ bool RedisServiceImpl::Init(brpc::Server &brpc_server)
         prebuilt_tables.try_emplace(redis_table_name, image);
     }
 
+#if VECTOR_INDEX_ENABLED
     // vector index meta table
     prebuilt_tables.try_emplace(EloqVec::vector_index_meta_table,
                                 EloqVec::vector_index_meta_table.String());
+#endif
 
     std::string txlog_service =
         !CheckCommandLineFlagIsDefault("txlog_service_list")
@@ -1166,7 +1168,9 @@ bool RedisServiceImpl::Init(brpc::Server &brpc_server)
         {
             store_hd_->AppendPreBuiltTable(table_name);
         }
+#if VECTOR_INDEX_ENABLED
         store_hd_->AppendPreBuiltTable(EloqVec::vector_index_meta_table);
+#endif
 
         // do connect only when this is bootstrap or single node
         // otherwise, connect when become leader or follower
