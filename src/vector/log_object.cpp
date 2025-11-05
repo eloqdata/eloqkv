@@ -1180,17 +1180,50 @@ LogError LogObject::exists_sharded(const std::string &base_log_name,
     }
 
     // Check if all shards exist
+    std::vector<txservice::ScanBatchTuple> batch_tuples;
+    std::vector<txservice::EloqStringRecord> batch_records;
+    batch_tuples.reserve(num_shards);
+    batch_records.resize(num_shards);
     for (uint32_t shard_id = 0; shard_id < num_shards; ++shard_id)
     {
         std::string shard_log_name =
             get_shard_log_name(base_log_name, shard_id);
-        if (!exists(shard_log_name, txm))
+        std::string shard_log_key = get_metadata_key(shard_log_name);
+        txservice::TxKey shard_log_tx_key = txservice::EloqStringKey::Create(
+            shard_log_key.data(), shard_log_key.size());
+        batch_tuples.emplace_back(std::move(shard_log_tx_key),
+                                  &batch_records[shard_id]);
+    }
+
+    txservice::BatchReadTxRequest batch_read_req(&vector_index_meta_table,
+                                                 0,
+                                                 batch_tuples,
+                                                 false,
+                                                 false,
+                                                 false,
+                                                 nullptr,
+                                                 nullptr,
+                                                 nullptr,
+                                                 0,
+                                                 true);
+
+    txm->Execute(&batch_read_req);
+    batch_read_req.Wait();
+
+    if (batch_read_req.ErrorCode() != txservice::TxErrorCode::NO_ERROR)
+    {
+        return LogError::STORAGE_ERROR;
+    }
+
+    for (size_t i = 0; i < batch_records.size(); ++i)
+    {
+        if (batch_tuples[i].status_ == txservice::RecordStatus::Normal)
         {
-            return LogError::LOG_NOT_FOUND;
+            return LogError::SUCCESS;
         }
     }
 
-    return LogError::SUCCESS;
+    return LogError::LOG_NOT_FOUND;
 }
 
 }  // namespace EloqVec

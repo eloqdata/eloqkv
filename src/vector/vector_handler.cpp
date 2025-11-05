@@ -934,7 +934,9 @@ VectorHandler::CreateAndInitializeIndex(const TxRecord::Uptr &h_record,
     }
 
     // Apply log items to the index
-    if (LogObject::exists(build_log_name(index_name), txm))
+    LogError res = LogObject::exists_sharded(
+        build_log_name(index_name), VECTOR_INDEX_LOG_SHARD_COUNT, txm);
+    if (res == LogError::SUCCESS)
     {
         auto apply_result =
             ApplyLogItems(index_name, index_sptr, UINT64_MAX, txm);
@@ -942,6 +944,10 @@ VectorHandler::CreateAndInitializeIndex(const TxRecord::Uptr &h_record,
         {
             return {IndexCache{}, apply_result};
         }
+    }
+    else if (res == LogError::STORAGE_ERROR)
+    {
+        return {IndexCache{}, VectorOpResult::INDEX_META_OP_FAILED};
     }
 
     return {IndexCache{index_sptr, metadata_sptr}, VectorOpResult::SUCCEED};
