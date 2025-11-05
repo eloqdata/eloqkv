@@ -87,20 +87,37 @@ inline void deserialize_vector(const std::string &vec_str,
 static std::unique_ptr<VectorHandler> vector_handler_instance = nullptr;
 static std::once_flag vector_handler_once;
 
-void VectorHandler::InitHandlerInstance(
+bool VectorHandler::InitHandlerInstance(
     TxService *tx_service,
     txservice::TxWorkerPool *vector_index_worker_pool,
-    std::string &vector_index_data_path)
+    std::string &vector_index_data_path,
+    const CloudConfig *cloud_config)
 {
-    std::call_once(
-        vector_handler_once,
-        [tx_service, vector_index_worker_pool, &vector_index_data_path]()
-        {
-            vector_handler_instance = std::unique_ptr<VectorHandler>(
-                new VectorHandler(tx_service,
-                                  vector_index_worker_pool,
-                                  vector_index_data_path));
-        });
+    std::call_once(vector_handler_once,
+                   [tx_service,
+                    vector_index_worker_pool,
+                    &vector_index_data_path,
+                    cloud_config]() -> bool
+                   {
+                       vector_handler_instance = std::unique_ptr<VectorHandler>(
+                           new VectorHandler(tx_service,
+                                             vector_index_worker_pool,
+                                             vector_index_data_path,
+                                             cloud_config));
+                       if (!vector_handler_instance->initialized_)
+                       {
+                           vector_handler_instance.reset();
+                           return false;
+                       }
+                       return true;
+                   });
+    return vector_handler_instance != nullptr &&
+           vector_handler_instance->initialized_;
+}
+
+void VectorHandler::DestroyHandlerInstance()
+{
+    vector_handler_instance.reset();
 }
 
 VectorHandler &VectorHandler::Instance()
@@ -303,6 +320,12 @@ VectorOpResult VectorHandler::Drop(const std::string &name)
         try
         {
             std::filesystem::remove(file_path);
+            // Delete the file from the cloud service
+            if (cloud_manager_)
+            {
+                cloud_manager_->DeleteFile(
+                    file_path.substr(vector_index_data_path_.size()));
+            }
         }
         catch (const std::filesystem::filesystem_error &e)
         {
@@ -927,6 +950,28 @@ VectorHandler::CreateAndInitializeIndex(const TxRecord::Uptr &h_record,
         return {IndexCache{}, VectorOpResult::INDEX_INIT_FAILED};
     }
 
+    // Check if the index file exists
+    if (file_path.find(initial_timestamp_sv) == std::string::npos)
+    {
+        bool local_file_exists = std::filesystem::exists(file_path);
+        if (!cloud_manager_ && !local_file_exists)
+        {
+            return {IndexCache{}, VectorOpResult::INDEX_INIT_FAILED};
+        }
+        else if (cloud_manager_)
+        {
+            // Remove the index file if it exists in local.
+            std::filesystem::remove(file_path);
+            // Download the index file from the cloud service
+            if (!cloud_manager_->DownloadFile(
+                    file_path.substr(vector_index_data_path_.size()),
+                    file_path))
+            {
+                return {IndexCache{}, VectorOpResult::INDEX_INIT_FAILED};
+            }
+        }
+    }
+
     // Initialize the index with config and file path
     if (!index_sptr->initialize(config, file_path))
     {
@@ -1074,7 +1119,20 @@ VectorOpResult VectorHandler::PersistIndex(const std::string &name, bool force)
         pending_persist_indexes_.erase(name);
         return VectorOpResult::INDEX_META_OP_FAILED;
     }
-    // 11. Commit the transaction
+
+    // 11. Upload the new file to the cloud service
+    if (cloud_manager_ &&
+        !cloud_manager_->UploadFile(
+            new_file_path,
+            new_file_path.substr(vector_index_data_path_.size())))
+    {
+        AbortTx(txm);
+        std::lock_guard<std::shared_mutex> lock(vec_indexes_mutex_);
+        pending_persist_indexes_.erase(name);
+        return VectorOpResult::INDEX_META_OP_FAILED;
+    }
+
+    // 12. Commit the transaction
     auto commit_result = CommitTx(txm);
     if (!commit_result.first)
     {
@@ -1082,13 +1140,19 @@ VectorOpResult VectorHandler::PersistIndex(const std::string &name, bool force)
         pending_persist_indexes_.erase(name);
         return VectorOpResult::INDEX_META_OP_FAILED;
     }
-    // 12. Remove old file (after successful commit)
+    // 13. Remove old file (after successful commit)
     if (!old_file_path.empty() && old_file_path != new_file_path &&
         std::filesystem::exists(old_file_path))
     {
         try
         {
             std::filesystem::remove(old_file_path);
+            // Delete the file from the cloud service
+            if (cloud_manager_)
+            {
+                cloud_manager_->DeleteFile(
+                    old_file_path.substr(vector_index_data_path_.size()));
+            }
         }
         catch (const std::filesystem::filesystem_error &e)
         {

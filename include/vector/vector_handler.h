@@ -19,6 +19,7 @@
 #include <unordered_set>
 #include <vector>
 
+#include "cloud_manager.h"
 #include "eloq_string_key_record.h"
 #include "tx_execution.h"
 #include "tx_service.h"
@@ -42,11 +43,23 @@ public:
      * @brief Initialize the handler instance
      *
      * @param tx_service Transaction service
+     * @param vector_index_worker_pool Vector index worker pool
+     * @param vector_index_data_path Vector index data path
+     * @param cloud_config Pointer to Cloud configuration (optional)
+     * @return True if the handler instance is initialized successfully, false
+     * otherwise
      */
-    static void InitHandlerInstance(
+    static bool InitHandlerInstance(
         txservice::TxService *tx_service,
         txservice::TxWorkerPool *vector_index_worker_pool,
-        std::string &vector_index_data_path);
+        std::string &vector_index_data_path,
+        const CloudConfig *cloud_config = nullptr);
+
+    /**
+     * @brief Destroy the singleton instance of VectorHandler
+     */
+    static void DestroyHandlerInstance();
+
     /**
      * @brief Get the singleton instance of VectorHandler
      *
@@ -178,11 +191,22 @@ private:
     // Private constructor to prevent instantiation
     VectorHandler(txservice::TxService *tx_service,
                   txservice::TxWorkerPool *vector_index_worker_pool,
-                  std::string &vector_index_data_path)
+                  std::string &vector_index_data_path,
+                  const CloudConfig *cloud_config = nullptr)
         : tx_service_(tx_service),
           vector_index_worker_pool_(vector_index_worker_pool),
           vector_index_data_path_(vector_index_data_path)
     {
+        initialized_ = true;
+        if (cloud_config && !cloud_config->endpoint_.empty())
+        {
+            cloud_manager_ = std::make_unique<CloudManager>(*cloud_config);
+            if (!cloud_manager_->ConnectCloudService())
+            {
+                cloud_manager_.reset();
+                initialized_ = false;
+            }
+        }
     }
 
     // Delete copy and move constructors/operators
@@ -232,6 +256,7 @@ private:
                                  uint64_t to_id,
                                  txservice::TransactionExecution *txm);
 
+    bool initialized_{false};
     // Transaction service
     txservice::TxService *tx_service_{nullptr};
     // Vector index worker pool
@@ -243,6 +268,8 @@ private:
     // Unified cache: map of index name to (index + metadata)
     std::unordered_map<std::string, IndexCache> vec_indexes_;
     std::unordered_set<std::string> pending_persist_indexes_;
+    // Cloud service manager
+    std::unique_ptr<CloudManager> cloud_manager_{nullptr};
 };
 
 }  // namespace EloqVec

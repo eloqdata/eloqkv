@@ -21,13 +21,29 @@
  */
 #include "vector_type.h"
 
+#include <gflags/gflags.h>
+
 #include "tx_util.h"
 
+DEFINE_string(vector_cloud_endpoint, "", "vector cloud server endpoint");
+DEFINE_string(vector_cloud_base_path,
+              "vector-bucket",
+              "vector cloud base path");
 namespace EloqVec
 {
+inline bool CheckCommandLineFlagIsDefault(const char *name)
+{
+    gflags::CommandLineFlagInfo flag_info;
 
-using txservice::LocalCcShards;
+    bool flag_found = gflags::GetCommandLineFlagInfo(name, &flag_info);
+    // Make sure the flag is declared.
+    assert(flag_found);
+    (void) flag_found;
 
+    // Return `true` if the flag has the default value and has not been set
+    // explicitly from the cmdline or via SetCommandLineOption
+    return flag_info.is_default;
+}
 // ============================================================================
 // IndexConfig Implementation
 // ============================================================================
@@ -124,7 +140,6 @@ VectorIndexMetadata::VectorIndexMetadata(const std::string &name,
       last_persist_ts_(0)
 {
     // Construct timestamped file path from base path
-    uint64_t ts = LocalCcShards::ClockTs();
     file_path_ = storage_base_path;
     if (!file_path_.empty() && file_path_.back() != '/')
     {
@@ -132,7 +147,7 @@ VectorIndexMetadata::VectorIndexMetadata(const std::string &name,
     }
     file_path_.append(name_)
         .append("-")
-        .append(std::to_string(ts))
+        .append(initial_timestamp_sv)
         .append(".index");
 }
 
@@ -195,6 +210,22 @@ void VectorIndexMetadata::Decode(const char *buf,
 
     last_persist_ts_ = *reinterpret_cast<const uint64_t *>(buf + offset);
     offset += sizeof(uint64_t);
+}
+
+// ============================================================================
+// CloudConfig Implementation
+// ============================================================================
+
+CloudConfig::CloudConfig(const INIReader &config_reader)
+{
+    endpoint_ =
+        !CheckCommandLineFlagIsDefault("vector_cloud_endpoint")
+            ? FLAGS_vector_cloud_endpoint
+            : config_reader.GetString("store", "vector_cloud_endpoint", "");
+    base_path_ =
+        !CheckCommandLineFlagIsDefault("vector_cloud_base_path")
+            ? FLAGS_vector_cloud_base_path
+            : config_reader.GetString("store", "vector_cloud_base_path", "");
 }
 
 }  // namespace EloqVec

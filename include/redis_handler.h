@@ -2701,6 +2701,7 @@ private:
     RedisServiceImpl *redis_impl_;
 };
 
+#ifdef VECTOR_INDEX_ENABLED
 class CreateVecIndexHandler : public RedisCommandHandler
 {
 public:
@@ -2844,6 +2845,7 @@ public:
 private:
     RedisServiceImpl *redis_impl_;
 };
+#endif
 
 class SubscribeHandler : public RedisCommandHandler
 {

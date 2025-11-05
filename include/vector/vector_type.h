@@ -9,13 +9,13 @@
  */
 
 #pragma once
-
 #include <algorithm>
 #include <cstdint>
 #include <string>
 #include <unordered_map>
 #include <vector>
 
+#include "INIReader.h"
 #include "type.h"
 
 namespace EloqVec
@@ -28,6 +28,8 @@ inline static txservice::TableName vector_index_meta_table{
     vector_index_meta_table_name_sv,
     txservice::TableType::Primary,
     txservice::TableEngine::InternalHash};
+
+constexpr static std::string_view initial_timestamp_sv{"0000000000000000"};
 
 /**
  * @brief Vector index algorithm types
@@ -362,6 +364,14 @@ struct IndexOpResult
         : error(error), error_message(std::move(error_message))
     {
     }
+};
+
+struct CloudConfig
+{
+    explicit CloudConfig(const INIReader &config_reader);
+
+    std::string endpoint_;
+    std::string base_path_;
 };
 
 }  // namespace EloqVec

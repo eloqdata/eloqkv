@@ -304,6 +304,7 @@ enum struct RedisCommandType
     PSUBSCRIBE,
     PUNSUBSCRIBE,
 
+#ifdef VECTOR_INDEX_ENABLED
     // vector index commands
     ELOQVEC_CREATE,
     ELOQVEC_INFO,
@@ -313,6 +314,7 @@ enum struct RedisCommandType
     ELOQVEC_UPDATE,
     ELOQVEC_DELETE,
     ELOQVEC_SEARCH,
+#endif
 };
 
 enum RedisResultType
@@ -6900,6 +6902,7 @@ struct ScanCommand : public CustomCommand
     RedisScanResult result_;
 };
 
+#ifdef VECTOR_INDEX_ENABLED
 struct CreateVecIndexCommand
 {
     CreateVecIndexCommand() = default;
@@ -7159,6 +7162,7 @@ struct SearchVecIndexCommand
     // Result storage
     RedisCommandResult result_;
 };
+#endif
 
 struct DumpCommand : public RedisCommand
 {
@@ -8230,6 +8234,7 @@ std::tuple<bool, EloqKey, GetExCommand> ParseGetExCommand(
 std::tuple<bool, TimeCommand> ParseTimeCommand(
     const std::vector<std::string_view> &args, OutputHandler *output);
 
+#ifdef VECTOR_INDEX_ENABLED
 std::tuple<bool, CreateVecIndexCommand> ParseCreateVecIndexCommand(
     const std::vector<std::string_view> &args, OutputHandler *output);
 
@@ -8257,5 +8262,6 @@ std::tuple<bool, SearchVecIndexCommand> ParseSearchVecIndexCommand(
 // Global helper function to parse vector data from string_view
 bool ParseVectorData(const std::string_view &vector_str,
                      std::vector<float> &vector);
+#endif
 
 }  // namespace EloqKV

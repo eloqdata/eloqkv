@@ -134,6 +134,9 @@ if(ENABLE_CPU_PROFILING)
     add_compile_definitions(BRPC_ENABLE_CPU_PROFILER)
 endif()
 
+option(VECTOR_INDEX_ENABLED "Enable vector index" OFF)
+message("VECTOR_INDEX_ENABLED: ${VECTOR_INDEX_ENABLED}")
+
 add_definitions("-Wall -g")
 
 # execute_process(
@@ -445,19 +448,38 @@ endif()
 
 add_subdirectory(tx_service/abseil-cpp)
 
-# Add usearch dependency for vector indexing
-include(FetchContent)
-FetchContent_Declare(
-    usearch
-    GIT_REPOSITORY https://github.com/unum-cloud/usearch.git
-    GIT_TAG        v2.21.0
-)
-FetchContent_MakeAvailable(usearch)
-set(USEARCH_INCLUDE_DIR
-   ${usearch_SOURCE_DIR}/include
-   ${usearch_SOURCE_DIR}/fp16/include
-)
-include_directories(${USEARCH_INCLUDE_DIR})
+if(VECTOR_INDEX_ENABLED)
+    add_compile_definitions(VECTOR_INDEX_ENABLED)
+    # Add usearch dependency for vector indexing
+    include(FetchContent)
+    FetchContent_Declare(
+        usearch
+        GIT_REPOSITORY https://github.com/unum-cloud/usearch.git
+        GIT_TAG        v2.21.0
+    )
+    FetchContent_MakeAvailable(usearch)
+    set(USEARCH_INCLUDE_DIR
+       ${usearch_SOURCE_DIR}/include
+       ${usearch_SOURCE_DIR}/fp16/include
+    )
+    include_directories(${USEARCH_INCLUDE_DIR})
+    
+    # Add nlohmann/json dependency for vector indexing
+    include(FetchContent)
+    FetchContent_Declare(
+        nlohmann_json
+        GIT_REPOSITORY https://github.com/nlohmann/json.git
+        GIT_TAG        v3.12.0
+    )
+    FetchContent_MakeAvailable(nlohmann_json)
+    set(NLOHMANN_JSON_INCLUDE_DIR ${nlohmann_json_SOURCE_DIR}/single_include)
+    include_directories(${NLOHMANN_JSON_INCLUDE_DIR})
+    
+    # CURL
+    find_package(CURL REQUIRED)
+    include_directories(${CURL_INCLUDE_DIRS})
+    set(DYNAMIC_LIB ${DYNAMIC_LIB} ${CURL_LIBRARIES})
+endif()
 
 INCLUDE(build_tx_service.cmake)
 
@@ -500,11 +522,17 @@ SET(RESELOQ_RESOURCES
     src/redis_string_match.cpp
     src/redis_connection_context.cpp
     src/redis_stats.cpp
-    src/vector/hnsw_vector_index.cpp
-    src/vector/vector_handler.cpp
-    src/vector/log_object.cpp
-    src/vector/vector_type.cpp
 )
+
+if(VECTOR_INDEX_ENABLED)
+    SET(RESELOQ_RESOURCES ${RESELOQ_RESOURCES}
+        src/vector/hnsw_vector_index.cpp
+        src/vector/vector_handler.cpp
+        src/vector/log_object.cpp
+        src/vector/vector_type.cpp
+        src/vector/cloud_manager.cpp
+    )
+endif()
 
 SET(INI_SOURCES src/ini.c src/INIReader.cpp)
 
@@ -623,7 +651,7 @@ add_subdirectory(fpconv)
 
 # add_executable(redis_press redis_press.cpp)
 add_executable(eloqkv src/redis_server.cpp ${RESELOQ_RESOURCES})
-target_link_libraries(eloqkv ${DYNAMIC_LIB} ${RESELOQ_LIBRARY} ${ABSEIL} lua fpconv usearch)
+target_link_libraries(eloqkv ${DYNAMIC_LIB} ${RESELOQ_LIBRARY} ${ABSEIL} lua fpconv)
 
 option(WITH_BOOST_STACKTRACE "With boost stack trace." OFF)
 message("WITH_BOOST_STACKTRACE: " ${WITH_BOOST_STACKTRACE})
@@ -660,8 +688,10 @@ if(${BUILD_WITH_TESTS})
     add_test(NAME serialize/deserialize_test COMMAND object_serialize_deserialize_test WORKING_DIRECTORY ${CMAKE_BINARY_DIR})
     enable_testing()
 
-    set(VECTOR_INCLUDE_DIR ${PROJECT_SOURCE_DIR}/include/vector)
-    add_subdirectory(src/vector)
+    if (VECTOR_INDEX_ENABLED)
+        set(VECTOR_INCLUDE_DIR ${PROJECT_SOURCE_DIR}/include/vector)
+        add_subdirectory(src/vector)
+    endif()
 endif()
 
 set_target_properties(eloqkv PROPERTIES

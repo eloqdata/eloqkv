@@ -253,6 +253,7 @@ const std::vector<std::pair<const char *, RedisCommandType>> command_types{{
     {"unsubscribe", RedisCommandType::UNSUBSCRIBE},
     {"psubscribe", RedisCommandType::PSUBSCRIBE},
     {"punsubscribe", RedisCommandType::PUNSUBSCRIBE},
+#ifdef VECTOR_INDEX_ENABLED
     {"eloqvec.create", RedisCommandType::ELOQVEC_CREATE},
     {"eloqvec.info", RedisCommandType::ELOQVEC_INFO},
     {"eloqvec.drop", RedisCommandType::ELOQVEC_DROP},
@@ -261,6 +262,7 @@ const std::vector<std::pair<const char *, RedisCommandType>> command_types{{
     {"eloqvec.update", RedisCommandType::ELOQVEC_UPDATE},
     {"eloqvec.delete", RedisCommandType::ELOQVEC_DELETE},
     {"eloqvec.search", RedisCommandType::ELOQVEC_SEARCH},
+#endif
 }};
 
 /*
@@ -19719,6 +19721,7 @@ std::tuple<bool, TimeCommand> ParseTimeCommand(
     return {true, TimeCommand()};
 }
 
+#ifdef VECTOR_INDEX_ENABLED
 std::tuple<bool, CreateVecIndexCommand> ParseCreateVecIndexCommand(
     const std::vector<std::string_view> &args, OutputHandler *output)
 {
@@ -20449,5 +20452,6 @@ void SearchVecIndexCommand::OutputResult(OutputHandler *reply,
         reply->OnError(redis_get_error_messages(result_.err_code_));
     }
 }
+#endif
 
 }  // namespace EloqKV

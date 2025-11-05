@@ -5264,6 +5264,7 @@ brpc::RedisCommandHandlerResult TimeCommandHandler::Run(
     return brpc::REDIS_CMD_HANDLED;
 }
 
+#ifdef VECTOR_INDEX_ENABLED
 brpc::RedisCommandHandlerResult CreateVecIndexHandler::Run(
     RedisConnectionContext *ctx,
     const std::vector<butil::StringPiece> &args,
@@ -5470,5 +5471,6 @@ brpc::RedisCommandHandlerResult SearchVecIndexHandler::Run(
 
     return brpc::REDIS_CMD_HANDLED;
 }
+#endif
 
 }  // namespace EloqKV
