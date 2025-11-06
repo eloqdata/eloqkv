@@ -390,6 +390,41 @@ public:
                         ScanCommand *cmd,
                         OutputHandler *output,
                         bool auto_commit);
+
+#ifdef VECTOR_INDEX_ENABLED
+    bool ExecuteCommand(RedisConnectionContext *ctx,
+                        CreateVecIndexCommand *cmd,
+                        OutputHandler *output);
+
+    bool ExecuteCommand(RedisConnectionContext *ctx,
+                        InfoVecIndexCommand *cmd,
+                        OutputHandler *output);
+
+    bool ExecuteCommand(RedisConnectionContext *ctx,
+                        DropVecIndexCommand *cmd,
+                        OutputHandler *output);
+
+    bool ExecuteCommand(RedisConnectionContext *ctx,
+                        AddVecIndexCommand *cmd,
+                        OutputHandler *output);
+
+    bool ExecuteCommand(RedisConnectionContext *ctx,
+                        BAddVecIndexCommand *cmd,
+                        OutputHandler *output);
+
+    bool ExecuteCommand(RedisConnectionContext *ctx,
+                        UpdateVecIndexCommand *cmd,
+                        OutputHandler *output);
+
+    bool ExecuteCommand(RedisConnectionContext *ctx,
+                        DeleteVecIndexCommand *cmd,
+                        OutputHandler *output);
+
+    bool ExecuteCommand(RedisConnectionContext *ctx,
+                        SearchVecIndexCommand *cmd,
+                        OutputHandler *output);
+#endif
+
 #ifdef WITH_FAULT_INJECT
     bool ExecuteCommand(RedisConnectionContext *ctx,
                         TransactionExecution *txm,
@@ -603,6 +638,11 @@ private:
     std::string metrics_port_{"18081"};
     metrics::CommonLabels redis_common_labels_{};
     std::unique_ptr<metrics::Meter> redis_meter_{nullptr};
+
+#ifdef VECTOR_INDEX_ENABLED
+    // Vector index related
+    std::unique_ptr<txservice::TxWorkerPool> vector_index_worker_pool_{nullptr};
+#endif
 
     mutable std::vector<std::vector<std::size_t>> redis_cmd_current_rounds_{};
     const metrics::Map<std::string_view, std::string_view> cmd_access_types_{

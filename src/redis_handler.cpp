@@ -32,6 +32,7 @@
 #include <string_view>
 #include <unordered_map>
 #include <utility>
+#include <vector>
 
 #include "cc_protocol.h"
 #include "eloq_key.h"
@@ -5262,5 +5263,214 @@ brpc::RedisCommandHandlerResult TimeCommandHandler::Run(
     }
     return brpc::REDIS_CMD_HANDLED;
 }
+
+#ifdef VECTOR_INDEX_ENABLED
+brpc::RedisCommandHandlerResult CreateVecIndexHandler::Run(
+    RedisConnectionContext *ctx,
+    const std::vector<butil::StringPiece> &args,
+    brpc::RedisReply *output,
+    bool /*flush_batched*/)
+{
+    assert(args[0] == "eloqvec.create" || args[0] == "ELOQVEC.CREATE");
+
+    RedisReplier reply(output);
+    std::vector<std::string_view> cmd_arg_list = Transform(args);
+    auto [success, cmd] = ParseCreateVecIndexCommand(cmd_arg_list, &reply);
+
+    if (success)
+    {
+        if (ctx->txm != nullptr)
+        {
+            reply.OnError("ERR vector command is not supported in transaction");
+            return brpc::REDIS_CMD_HANDLED;
+        }
+
+        redis_impl_->ExecuteCommand(ctx, &cmd, &reply);
+    }
+
+    return brpc::REDIS_CMD_HANDLED;
+}
+
+brpc::RedisCommandHandlerResult InfoVecIndexHandler::Run(
+    RedisConnectionContext *ctx,
+    const std::vector<butil::StringPiece> &args,
+    brpc::RedisReply *output,
+    bool /*flush_batched*/)
+{
+    assert(args[0] == "eloqvec.info" || args[0] == "ELOQVEC.INFO");
+
+    RedisReplier reply(output);
+    std::vector<std::string_view> cmd_arg_list = Transform(args);
+    auto [success, cmd] = ParseInfoVecIndexCommand(cmd_arg_list, &reply);
+
+    if (success)
+    {
+        if (ctx->txm != nullptr)
+        {
+            reply.OnError("ERR vector command is not supported in transaction");
+            return brpc::REDIS_CMD_HANDLED;
+        }
+
+        redis_impl_->ExecuteCommand(ctx, &cmd, &reply);
+    }
+
+    return brpc::REDIS_CMD_HANDLED;
+}
+
+brpc::RedisCommandHandlerResult DropVecIndexHandler::Run(
+    RedisConnectionContext *ctx,
+    const std::vector<butil::StringPiece> &args,
+    brpc::RedisReply *output,
+    bool /*flush_batched*/)
+{
+    assert(args[0] == "eloqvec.drop" || args[0] == "ELOQVEC.DROP");
+
+    RedisReplier reply(output);
+    std::vector<std::string_view> cmd_arg_list = Transform(args);
+    auto [success, cmd] = ParseDropVecIndexCommand(cmd_arg_list, &reply);
+
+    if (success)
+    {
+        if (ctx->txm != nullptr)
+        {
+            reply.OnError("ERR vector command is not supported in transaction");
+            return brpc::REDIS_CMD_HANDLED;
+        }
+        redis_impl_->ExecuteCommand(ctx, &cmd, &reply);
+    }
+
+    return brpc::REDIS_CMD_HANDLED;
+}
+
+brpc::RedisCommandHandlerResult AddVecIndexHandler::Run(
+    RedisConnectionContext *ctx,
+    const std::vector<butil::StringPiece> &args,
+    brpc::RedisReply *output,
+    bool /*flush_batched*/)
+{
+    assert(args[0] == "eloqvec.add" || args[0] == "ELOQVEC.ADD");
+
+    RedisReplier reply(output);
+    std::vector<std::string_view> cmd_arg_list = Transform(args);
+    auto [success, cmd] = ParseAddVecIndexCommand(cmd_arg_list, &reply);
+
+    if (success)
+    {
+        if (ctx->txm != nullptr)
+        {
+            reply.OnError("ERR vector command is not supported in transaction");
+            return brpc::REDIS_CMD_HANDLED;
+        }
+
+        redis_impl_->ExecuteCommand(ctx, &cmd, &reply);
+    }
+
+    return brpc::REDIS_CMD_HANDLED;
+}
+
+brpc::RedisCommandHandlerResult BAddVecIndexHandler::Run(
+    RedisConnectionContext *ctx,
+    const std::vector<butil::StringPiece> &args,
+    brpc::RedisReply *output,
+    bool /*flush_batched*/)
+{
+    assert(args[0] == "eloqvec.badd" || args[0] == "ELOQVEC.BADD");
+
+    RedisReplier reply(output);
+    std::vector<std::string_view> cmd_arg_list = Transform(args);
+    auto [success, cmd] = ParseBAddVecIndexCommand(cmd_arg_list, &reply);
+
+    if (success)
+    {
+        if (ctx->txm != nullptr)
+        {
+            reply.OnError("ERR vector command is not supported in transaction");
+            return brpc::REDIS_CMD_HANDLED;
+        }
+
+        redis_impl_->ExecuteCommand(ctx, &cmd, &reply);
+    }
+
+    return brpc::REDIS_CMD_HANDLED;
+}
+
+brpc::RedisCommandHandlerResult UpdateVecIndexHandler::Run(
+    RedisConnectionContext *ctx,
+    const std::vector<butil::StringPiece> &args,
+    brpc::RedisReply *output,
+    bool /*flush_batched*/)
+{
+    assert(args[0] == "eloqvec.update" || args[0] == "ELOQVEC.UPDATE");
+
+    RedisReplier reply(output);
+    std::vector<std::string_view> cmd_arg_list = Transform(args);
+    auto [success, cmd] = ParseUpdateVecIndexCommand(cmd_arg_list, &reply);
+
+    if (success)
+    {
+        if (ctx->txm != nullptr)
+        {
+            reply.OnError("ERR vector command is not supported in transaction");
+            return brpc::REDIS_CMD_HANDLED;
+        }
+
+        redis_impl_->ExecuteCommand(ctx, &cmd, &reply);
+    }
+
+    return brpc::REDIS_CMD_HANDLED;
+}
+
+brpc::RedisCommandHandlerResult DeleteVecIndexHandler::Run(
+    RedisConnectionContext *ctx,
+    const std::vector<butil::StringPiece> &args,
+    brpc::RedisReply *output,
+    bool /*flush_batched*/)
+{
+    assert(args[0] == "eloqvec.delete" || args[0] == "ELOQVEC.DELETE");
+
+    RedisReplier reply(output);
+    std::vector<std::string_view> cmd_arg_list = Transform(args);
+    auto [success, cmd] = ParseDeleteVecIndexCommand(cmd_arg_list, &reply);
+
+    if (success)
+    {
+        if (ctx->txm != nullptr)
+        {
+            reply.OnError("ERR vector command is not supported in transaction");
+            return brpc::REDIS_CMD_HANDLED;
+        }
+
+        redis_impl_->ExecuteCommand(ctx, &cmd, &reply);
+    }
+
+    return brpc::REDIS_CMD_HANDLED;
+}
+
+brpc::RedisCommandHandlerResult SearchVecIndexHandler::Run(
+    RedisConnectionContext *ctx,
+    const std::vector<butil::StringPiece> &args,
+    brpc::RedisReply *output,
+    bool /*flush_batched*/)
+{
+    assert(args[0] == "eloqvec.search" || args[0] == "ELOQVEC.SEARCH");
+
+    RedisReplier reply(output);
+    std::vector<std::string_view> cmd_arg_list = Transform(args);
+    auto [success, cmd] = ParseSearchVecIndexCommand(cmd_arg_list, &reply);
+
+    if (success)
+    {
+        if (ctx->txm != nullptr)
+        {
+            reply.OnError("ERR vector command is not supported in transaction");
+            return brpc::REDIS_CMD_HANDLED;
+        }
+
+        redis_impl_->ExecuteCommand(ctx, &cmd, &reply);
+    }
+
+    return brpc::REDIS_CMD_HANDLED;
+}
+#endif
 
 }  // namespace EloqKV

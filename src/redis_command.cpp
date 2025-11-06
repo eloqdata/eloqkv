@@ -24,6 +24,7 @@
 #include <brpc/acceptor.h>
 #include <butil/endpoint.h>
 #include <butil/logging.h>
+#include <ctype.h>
 #include <strings.h>
 #include <sys/times.h>
 #include <unistd.h>
@@ -252,6 +253,16 @@ const std::vector<std::pair<const char *, RedisCommandType>> command_types{{
     {"unsubscribe", RedisCommandType::UNSUBSCRIBE},
     {"psubscribe", RedisCommandType::PSUBSCRIBE},
     {"punsubscribe", RedisCommandType::PUNSUBSCRIBE},
+#ifdef VECTOR_INDEX_ENABLED
+    {"eloqvec.create", RedisCommandType::ELOQVEC_CREATE},
+    {"eloqvec.info", RedisCommandType::ELOQVEC_INFO},
+    {"eloqvec.drop", RedisCommandType::ELOQVEC_DROP},
+    {"eloqvec.add", RedisCommandType::ELOQVEC_ADD},
+    {"eloqvec.badd", RedisCommandType::ELOQVEC_BADD},
+    {"eloqvec.update", RedisCommandType::ELOQVEC_UPDATE},
+    {"eloqvec.delete", RedisCommandType::ELOQVEC_DELETE},
+    {"eloqvec.search", RedisCommandType::ELOQVEC_SEARCH},
+#endif
 }};
 
 /*
@@ -19709,4 +19720,738 @@ std::tuple<bool, TimeCommand> ParseTimeCommand(
     }
     return {true, TimeCommand()};
 }
+
+#ifdef VECTOR_INDEX_ENABLED
+std::tuple<bool, CreateVecIndexCommand> ParseCreateVecIndexCommand(
+    const std::vector<std::string_view> &args, OutputHandler *output)
+{
+    assert(args[0] == "eloqvec.create" || args[0] == "ELOQVEC.CREATE");
+
+    // Minimum required parameters: ELOQVEC.CREATE <index_name> DIMENSIONS
+    // <dimensions> METRIC <metric_type> ALGORITHM <algorithm> PERSIST_STRATEGY
+    // <persist_strategy> That's 10 arguments minimum (including the command)
+    if (args.size() < 10)
+    {
+        output->OnError(
+            "ERR wrong number of arguments for 'eloqvec.create' command");
+        return {false, CreateVecIndexCommand()};
+    }
+
+    // Variables to hold parsed parameters
+    std::string_view index_name;
+    uint64_t dimensions;
+    EloqVec::Algorithm algorithm;
+    EloqVec::DistanceMetric metric_type;
+    EloqVec::PersistStrategy persist_strategy;
+    // -1 means MANUAL strategy
+    int64_t threshold = -1;
+    std::unordered_map<std::string, std::string> alg_params;
+
+    size_t pos = 1;
+
+    // Parse index_name
+    index_name = args[pos++];
+
+    // Parse DIMENSIONS keyword and dimensions value
+    if (!stringcomp("dimensions", args[pos++], 1))
+    {
+        output->OnError("ERR syntax error: expected 'DIMENSIONS' keyword");
+        return {false, CreateVecIndexCommand()};
+    }
+    if (!string2ull(args[pos].data(), args[pos].size(), dimensions) ||
+        dimensions == 0)
+    {
+        output->OnError(
+            "ERR invalid value for DIMENSIONS: must be a positive integer");
+        return {false, CreateVecIndexCommand()};
+    }
+    pos++;
+
+    // Parse METRIC keyword and metric_type
+    if (!stringcomp("metric", args[pos++], 1))
+    {
+        output->OnError("ERR syntax error: expected 'METRIC' keyword");
+        return {false, CreateVecIndexCommand()};
+    }
+    // Convert metric string to proper format for string_to_distance_metric
+    metric_type = EloqVec::string_to_distance_metric(args[pos++]);
+    if (metric_type == EloqVec::DistanceMetric::UNKNOWN)
+    {
+        output->OnError(
+            "ERR unsupported metric: only COSINE, L2SQ and IP are supported");
+        return {false, CreateVecIndexCommand()};
+    }
+
+    // Parse ALGORITHM keyword and algorithm
+    if (!stringcomp("algorithm", args[pos++], 1))
+    {
+        output->OnError("ERR syntax error: expected 'ALGORITHM' keyword");
+        return {false, CreateVecIndexCommand()};
+    }
+    algorithm = EloqVec::string_to_algorithm(args[pos++]);
+    if (algorithm == EloqVec::Algorithm::UNKNOWN)
+    {
+        output->OnError("ERR unsupported algorithm: only HNSW are supported");
+        return {false, CreateVecIndexCommand()};
+    }
+
+    // Parse persist_strategy
+    if (!stringcomp("persist_strategy", args[pos++], 1))
+    {
+        output->OnError(
+            "ERR syntax error: expected 'PERSIST_STRATEGY' keyword");
+        return {false, CreateVecIndexCommand()};
+    }
+    persist_strategy = EloqVec::string_to_persist_strategy(args[pos++]);
+    if (persist_strategy == EloqVec::PersistStrategy::UNKNOWN)
+    {
+        output->OnError(
+            "ERR unsupported persist strategy: only EVERY_N and MANUAL are "
+            "supported");
+        return {false, CreateVecIndexCommand()};
+    }
+    // Handle threshold parameter based on persist strategy
+    bool requires_threshold =
+        (persist_strategy == EloqVec::PersistStrategy::EVERY_N);
+    bool has_threshold = stringcomp("threshold", args[pos], 1);
+    // EVERY_N strategy requires threshold parameter
+    if (requires_threshold && !has_threshold)
+    {
+        output->OnError("ERR syntax error: expected 'THRESHOLD' keyword");
+        return {false, CreateVecIndexCommand()};
+    }
+    // Parse threshold if present
+    if (has_threshold)
+    {
+        pos++;
+        bool parse_success =
+            string2ll(args[pos].data(), args[pos].size(), threshold);
+        // Validate threshold for EVERY_N strategy
+        if (requires_threshold && (!parse_success || threshold <= 0))
+        {
+            output->OnError(
+                "ERR invalid value for THRESHOLD: must be a positive integer");
+            return {false, CreateVecIndexCommand()};
+        }
+        // MANUAL strategy ignores threshold value
+        if (persist_strategy == EloqVec::PersistStrategy::MANUAL)
+        {
+            threshold = -1;
+        }
+        pos++;
+    }
+
+    // Parse optional parameters
+    while (pos < args.size())
+    {
+        if (pos + 1 >= args.size())
+        {
+            output->OnError("ERR syntax error: parameter missing value");
+            return {false, CreateVecIndexCommand()};
+        }
+
+        std::string_view param = args[pos];
+        std::string_view value = args[pos + 1];
+
+        if (stringcomp("max_connectivity", param, 1))
+        {
+            int64_t connectivity;
+            if (!string2ll(value.data(), value.size(), connectivity) ||
+                connectivity <= 0)
+            {
+                output->OnError(
+                    "ERR invalid value for CONNECTIVITY: must be a positive "
+                    "integer");
+                return {false, CreateVecIndexCommand()};
+            }
+            alg_params["m"] = std::string(value);
+        }
+        else if (stringcomp("ef_construction", param, 1))
+        {
+            int64_t ef_construct;
+            if (!string2ll(value.data(), value.size(), ef_construct) ||
+                ef_construct <= 0)
+            {
+                output->OnError(
+                    "ERR invalid value for EF_CONSTRUCT: must be a positive "
+                    "integer");
+                return {false, CreateVecIndexCommand()};
+            }
+            alg_params["ef_construction"] = std::string(value);
+        }
+        else if (stringcomp("ef_search", param, 1))
+        {
+            int64_t ef_search;
+            if (!string2ll(value.data(), value.size(), ef_search) ||
+                ef_search <= 0)
+            {
+                output->OnError(
+                    "ERR invalid value for EF_SEARCH: must be a positive "
+                    "integer");
+                return {false, CreateVecIndexCommand()};
+            }
+            alg_params["ef_search"] = std::string(value);
+        }
+        else
+        {
+            output->OnError("ERR unknown parameter: " + std::string(param));
+            return {false, CreateVecIndexCommand()};
+        }
+
+        pos += 2;
+    }
+
+    // Create command with all parsed parameters using constructor
+    return {true,
+            CreateVecIndexCommand(index_name,
+                                  dimensions,
+                                  algorithm,
+                                  metric_type,
+                                  threshold,
+                                  std::move(alg_params))};
+}
+
+void CreateVecIndexCommand::OutputResult(OutputHandler *reply,
+                                         RedisConnectionContext *ctx) const
+{
+    if (result_.err_code_ == RD_OK)
+    {
+        reply->OnString("OK");
+    }
+    else
+    {
+        reply->OnError(redis_get_error_messages(result_.err_code_));
+    }
+}
+
+std::tuple<bool, InfoVecIndexCommand> ParseInfoVecIndexCommand(
+    const std::vector<std::string_view> &args, OutputHandler *output)
+{
+    assert(args[0] == "eloqvec.info" || args[0] == "ELOQVEC.INFO");
+
+    // ELOQVEC.INFO <index_name>
+    if (args.size() != 2)
+    {
+        output->OnError(
+            "ERR wrong number of arguments for 'eloqvec.info' command");
+        return {false, InfoVecIndexCommand()};
+    }
+
+    std::string_view index_name = args[1];
+
+    // Create command with parsed parameter
+    return {true, InfoVecIndexCommand(index_name)};
+}
+
+std::tuple<bool, DropVecIndexCommand> ParseDropVecIndexCommand(
+    const std::vector<std::string_view> &args, OutputHandler *output)
+{
+    assert(args[0] == "eloqvec.drop" || args[0] == "ELOQVEC.DROP");
+
+    // ELOQVEC.DROP <index_name>
+    if (args.size() != 2)
+    {
+        output->OnError(
+            "ERR wrong number of arguments for 'eloqvec.drop' command");
+        return {false, DropVecIndexCommand()};
+    }
+
+    std::string_view index_name = args[1];
+
+    // Validate index name is not empty
+    if (index_name.empty())
+    {
+        output->OnError("ERR index name cannot be empty");
+        return {false, DropVecIndexCommand()};
+    }
+
+    // Create command with parsed parameter
+    return {true, DropVecIndexCommand(index_name)};
+}
+
+void InfoVecIndexCommand::OutputResult(OutputHandler *reply,
+                                       RedisConnectionContext *ctx) const
+{
+    if (result_.err_code_ == RD_OK)
+    {
+        const EloqVec::IndexConfig &config = metadata_.Config();
+        auto &alg_params = config.params;
+        size_t len = (8 + alg_params.size()) * 2;
+        reply->OnArrayStart(len);
+        reply->OnString("index_name");
+        reply->OnString(index_name_.StringView());
+        reply->OnString("status");
+        reply->OnString("ready");
+        reply->OnString("dimensions");
+        reply->OnInt(config.dimension);
+        reply->OnString("algorithm");
+        reply->OnString(EloqVec::algorithm_to_string(config.algorithm));
+        reply->OnString("metric");
+        reply->OnString(
+            EloqVec::distance_metric_to_string(config.distance_metric));
+        reply->OnString("threshold");
+        reply->OnInt(metadata_.PersistThreshold());
+        // algorithm parameters
+        for (const auto &param : alg_params)
+        {
+            reply->OnString(param.first);
+            reply->OnString(param.second);
+        }
+        reply->OnString("created_ts");
+        reply->OnString(std::to_string(metadata_.CreatedTs()));
+        reply->OnString("last_persist_ts");
+        reply->OnString(std::to_string(metadata_.LastPersistTs()));
+        reply->OnArrayEnd();
+    }
+    else
+    {
+        reply->OnError(redis_get_error_messages(result_.err_code_));
+    }
+}
+
+void DropVecIndexCommand::OutputResult(OutputHandler *reply,
+                                       RedisConnectionContext *ctx) const
+{
+    // Output the result of the drop operation
+    if (result_.err_code_ == RD_OK)
+    {
+        reply->OnString("OK");
+    }
+    else
+    {
+        reply->OnError(redis_get_error_messages(result_.err_code_));
+    }
+}
+
+std::tuple<bool, AddVecIndexCommand> ParseAddVecIndexCommand(
+    const std::vector<std::string_view> &args, OutputHandler *output)
+{
+    assert(args[0] == "eloqvec.add" || args[0] == "ELOQVEC.ADD");
+
+    // ELOQVEC.ADD <index_name> <key> "vector_data"
+    if (args.size() != 4)
+    {
+        output->OnError(
+            "ERR wrong number of arguments for 'eloqvec.add' command");
+        return {false, AddVecIndexCommand()};
+    }
+
+    std::string_view index_name = args[1];
+    std::string_view key_str = args[2];
+    std::string_view vector_data_str = args[3];
+
+    // Validate index name is not empty
+    if (index_name.empty())
+    {
+        output->OnError("ERR index name cannot be empty");
+        return {false, AddVecIndexCommand()};
+    }
+
+    // Parse key as uint64_t
+    uint64_t key;
+    if (!string2ull(key_str.data(), key_str.size(), key))
+    {
+        output->OnError("ERR key must be a valid integer");
+        return {false, AddVecIndexCommand()};
+    }
+
+    // Parse vector data
+    std::vector<float> vector_data;
+    if (!ParseVectorData(vector_data_str, vector_data))
+    {
+        output->OnError("ERR vector data must be valid float values");
+        return {false, AddVecIndexCommand()};
+    }
+
+    // Validate vector is not empty
+    if (vector_data.empty())
+    {
+        output->OnError("ERR vector data cannot be empty");
+        return {false, AddVecIndexCommand()};
+    }
+
+    // Create command with parsed parameters
+    return {true, AddVecIndexCommand(index_name, key, std::move(vector_data))};
+}
+
+std::tuple<bool, BAddVecIndexCommand> ParseBAddVecIndexCommand(
+    const std::vector<std::string_view> &args, OutputHandler *output)
+{
+    assert(args[0] == "eloqvec.badd" || args[0] == "ELOQVEC.BADD");
+
+    // ELOQVEC.BADD <index_name> <key_count> <key1> <vector1_data> [<key2>
+    // <vector2_data> ...]
+    if (args.size() < 5)
+    {
+        output->OnError(
+            "ERR wrong number of arguments for 'eloqvec.badd' command");
+        return {false, BAddVecIndexCommand()};
+    }
+
+    std::string_view index_name = args[1];
+    std::string_view key_count_str = args[2];
+
+    // Validate index name is not empty
+    if (index_name.empty())
+    {
+        output->OnError("ERR index name cannot be empty");
+        return {false, BAddVecIndexCommand()};
+    }
+
+    // Parse key_count for validation
+    uint64_t key_count;
+    if (!string2ull(key_count_str.data(), key_count_str.size(), key_count) ||
+        key_count == 0)
+    {
+        output->OnError("ERR key_count must be a positive integer");
+        return {false, BAddVecIndexCommand()};
+    }
+
+    if (key_count > BAddVecIndexCommand::MAX_BATCH_ADD_SIZE)
+    {
+        std::string msg("ERR The key count exceeds the maximum batch value:");
+        msg.append(std::to_string(BAddVecIndexCommand::MAX_BATCH_ADD_SIZE));
+        output->OnError(msg);
+        return {false, BAddVecIndexCommand()};
+    }
+
+    // Calculate expected argument count: command + index_name + key_count +
+    // key_count * 2 (key + vector_data)
+    const size_t pair_args = args.size() - 3;
+    if (pair_args % 2 != 0 || pair_args / 2 != key_count)
+    {
+        std::string msg("ERR wrong number of arguments: expected ");
+        msg.append(std::to_string(key_count * 2 + 3))
+            .append(" but got ")
+            .append(std::to_string(args.size()));
+        output->OnError(msg);
+        return {false, BAddVecIndexCommand()};
+    }
+
+    std::vector<uint64_t> keys;
+    std::vector<std::vector<float>> vectors;
+    keys.reserve(key_count);
+    vectors.reserve(key_count);
+    // Parse key-value pairs
+    for (uint64_t i = 0; i < key_count; ++i)
+    {
+        uint64_t arg_idx = 3 + i * 2;
+        // Parse key
+        std::string_view key_str = args[arg_idx];
+        uint64_t key;
+        if (!string2ull(key_str.data(), key_str.size(), key))
+        {
+            output->OnError("ERR key must be a valid integer");
+            return {false, BAddVecIndexCommand()};
+        }
+        keys.push_back(key);
+
+        // Parse vector data using helper function
+        std::string_view vector_str = args[arg_idx + 1];
+        std::vector<float> vector_data;
+        if (!ParseVectorData(vector_str, vector_data))
+        {
+            output->OnError("ERR vector data must be valid float");
+            return {false, BAddVecIndexCommand()};
+        }
+
+        // Validate vector is not empty
+        if (vector_data.empty())
+        {
+            output->OnError("ERR vector data cannot be empty or invalid");
+            return {false, BAddVecIndexCommand()};
+        }
+
+        vectors.push_back(std::move(vector_data));
+    }
+
+    // Create command object
+    return {
+        true,
+        BAddVecIndexCommand(index_name, std::move(keys), std::move(vectors))};
+}
+
+void AddVecIndexCommand::OutputResult(OutputHandler *reply,
+                                      RedisConnectionContext *ctx) const
+{
+    // Output the result of the add operation
+    if (result_.err_code_ == RD_OK)
+    {
+        reply->OnString("OK");
+    }
+    else
+    {
+        reply->OnError(redis_get_error_messages(result_.err_code_));
+    }
+}
+
+void BAddVecIndexCommand::OutputResult(OutputHandler *reply,
+                                       RedisConnectionContext *ctx) const
+{
+    // Output the result of the batch add operation
+    if (result_.err_code_ == RD_OK)
+    {
+        reply->OnString("OK");
+    }
+    else
+    {
+        reply->OnError(redis_get_error_messages(result_.err_code_));
+    }
+}
+
+std::tuple<bool, UpdateVecIndexCommand> ParseUpdateVecIndexCommand(
+    const std::vector<std::string_view> &args, OutputHandler *output)
+{
+    assert(args[0] == "eloqvec.update" || args[0] == "ELOQVEC.UPDATE");
+
+    // ELOQVEC.UPDATE <index_name> <key> "vector_data"
+    if (args.size() != 4)
+    {
+        output->OnError(
+            "ERR wrong number of arguments for 'eloqvec.update' command");
+        return {false, UpdateVecIndexCommand()};
+    }
+
+    std::string_view index_name = args[1];
+    std::string_view key_str = args[2];
+    std::string_view vector_data_str = args[3];
+
+    // Validate index name is not empty
+    if (index_name.empty())
+    {
+        output->OnError("ERR index name cannot be empty");
+        return {false, UpdateVecIndexCommand()};
+    }
+
+    // Parse key as uint64_t
+    uint64_t key;
+    if (!string2ull(key_str.data(), key_str.size(), key))
+    {
+        output->OnError("ERR key must be a valid integer");
+        return {false, UpdateVecIndexCommand()};
+    }
+
+    // Parse vector data
+    std::vector<float> vector_data;
+    if (!ParseVectorData(vector_data_str, vector_data))
+    {
+        output->OnError("ERR vector data must be valid float values");
+        return {false, UpdateVecIndexCommand()};
+    }
+
+    // Validate vector is not empty
+    if (vector_data.empty())
+    {
+        output->OnError("ERR vector data cannot be empty");
+        return {false, UpdateVecIndexCommand()};
+    }
+
+    // Create command with parsed parameters
+    return {true,
+            UpdateVecIndexCommand(index_name, key, std::move(vector_data))};
+}
+
+void UpdateVecIndexCommand::OutputResult(OutputHandler *reply,
+                                         RedisConnectionContext *ctx) const
+{
+    // Output the result of the update operation
+    if (result_.err_code_ == RD_OK)
+    {
+        reply->OnString("OK");
+    }
+    else
+    {
+        reply->OnError(redis_get_error_messages(result_.err_code_));
+    }
+}
+
+std::tuple<bool, DeleteVecIndexCommand> ParseDeleteVecIndexCommand(
+    const std::vector<std::string_view> &args, OutputHandler *output)
+{
+    assert(args[0] == "eloqvec.delete" || args[0] == "ELOQVEC.DELETE");
+
+    // ELOQVEC.DELETE <index_name> <key>
+    if (args.size() != 3)
+    {
+        output->OnError(
+            "ERR wrong number of arguments for 'eloqvec.delete' command");
+        return {false, DeleteVecIndexCommand()};
+    }
+
+    std::string_view index_name = args[1];
+    std::string_view key_str = args[2];
+
+    // Validate index name is not empty
+    if (index_name.empty())
+    {
+        output->OnError("ERR index name cannot be empty");
+        return {false, DeleteVecIndexCommand()};
+    }
+
+    // Parse key as uint64_t
+    uint64_t key;
+    if (!string2ull(key_str.data(), key_str.size(), key))
+    {
+        output->OnError("ERR key must be a valid integer");
+        return {false, DeleteVecIndexCommand()};
+    }
+
+    // Create command with parsed parameters
+    return {true, DeleteVecIndexCommand(index_name, key)};
+}
+
+void DeleteVecIndexCommand::OutputResult(OutputHandler *reply,
+                                         RedisConnectionContext *ctx) const
+{
+    // Output the result of the delete operation
+    if (result_.err_code_ == RD_OK)
+    {
+        reply->OnString("OK");
+    }
+    else
+    {
+        reply->OnError(redis_get_error_messages(result_.err_code_));
+    }
+}
+
+bool ParseVectorData(const std::string_view &vector_str,
+                     std::vector<float> &vector)
+{
+    if (vector_str.empty())
+    {
+        return false;
+    }
+
+    // Count the number of space-separated values to estimate vector size
+    size_t estimated_size = 1;  // At least one value
+    for (char c : vector_str)
+    {
+        if (std::isspace(static_cast<unsigned char>(c)))
+        {
+            estimated_size++;
+        }
+    }
+
+    // Reserve space based on estimated count to avoid reallocations
+    vector.reserve(estimated_size);
+
+    const char *start = vector_str.data();
+    const char *end = start + vector_str.size();
+    const char *current = start;
+
+    while (current < end)
+    {
+        // Skip leading whitespace
+        while (current < end &&
+               std::isspace(static_cast<unsigned char>(*current)))
+        {
+            ++current;
+        }
+
+        if (current >= end)
+        {
+            break;
+        }
+
+        // Find the end of the current number
+        const char *num_start = current;
+        while (current < end &&
+               !std::isspace(static_cast<unsigned char>(*current)))
+        {
+            ++current;
+        }
+
+        // Parse the number
+        float val;
+        if (!string2float(num_start, current - num_start, val))
+        {
+            // Return false on parse error
+            return false;
+        }
+        vector.push_back(val);
+    }
+
+    // Treat whitespace-only input as invalid
+    return !vector.empty();
+}
+
+std::tuple<bool, SearchVecIndexCommand> ParseSearchVecIndexCommand(
+    const std::vector<std::string_view> &args, OutputHandler *output)
+{
+    assert(args[0] == "eloqvec.search" || args[0] == "ELOQVEC.SEARCH");
+
+    // ELOQVEC.SEARCH <index_name> <k_count> "vector_data"
+    if (args.size() != 4)
+    {
+        output->OnError(
+            "ERR wrong number of arguments for 'eloqvec.search' command");
+        return {false, SearchVecIndexCommand()};
+    }
+
+    std::string_view index_name = args[1];
+    std::string_view k_count_str = args[2];
+    std::string_view vector_data_str = args[3];
+
+    // Validate index name is not empty
+    if (index_name.empty())
+    {
+        output->OnError("ERR index name cannot be empty");
+        return {false, SearchVecIndexCommand()};
+    }
+
+    // Parse k_count as size_t
+    size_t k_count;
+    if (!string2ull(k_count_str.data(), k_count_str.size(), k_count))
+    {
+        output->OnError("ERR k_count must be a valid integer");
+        return {false, SearchVecIndexCommand()};
+    }
+
+    // Parse vector data
+    std::vector<float> vector_data;
+    if (!ParseVectorData(vector_data_str, vector_data))
+    {
+        output->OnError("ERR vector data must be valid float values");
+        return {false, SearchVecIndexCommand()};
+    }
+
+    // Validate vector is not empty
+    if (vector_data.empty())
+    {
+        output->OnError("ERR vector data cannot be empty");
+        return {false, SearchVecIndexCommand()};
+    }
+
+    // Create command with parsed parameters
+    return {true,
+            SearchVecIndexCommand(index_name, std::move(vector_data), k_count)};
+}
+
+void SearchVecIndexCommand::OutputResult(OutputHandler *reply,
+                                         RedisConnectionContext *ctx) const
+{
+    // Output the result of the search operation
+    if (result_.err_code_ == RD_OK)
+    {
+        // Output search results as an array
+        reply->OnArrayStart(search_res_.ids.size());
+
+        for (size_t i = 0; i < search_res_.ids.size(); ++i)
+        {
+            // Each result is an array of [id, distance]
+            reply->OnArrayStart(2);
+            reply->OnInt(search_res_.ids[i]);
+            reply->OnString(std::to_string(search_res_.distances[i]));
+            reply->OnArrayEnd();
+        }
+
+        reply->OnArrayEnd();
+    }
+    else
+    {
+        reply->OnError(redis_get_error_messages(result_.err_code_));
+    }
+}
+#endif
+
 }  // namespace EloqKV

@@ -34,6 +34,7 @@
 #include <string>
 #include <string_view>
 #include <tuple>
+#include <unordered_map>
 #include <unordered_set>
 #include <utility>
 #include <vector>
@@ -48,6 +49,10 @@
 #include "tx_command.h"
 #include "tx_key.h"
 #include "tx_request.h"
+#ifdef VECTOR_INDEX_ENABLED
+#include "vector_handler.h"
+#include "vector_index.h"
+#endif
 
 /*
  * Copyright (c) 2009-2012, Salvatore Sanfilippo <antirez at gmail dot com>
@@ -300,6 +305,18 @@ enum struct RedisCommandType
     UNSUBSCRIBE,
     PSUBSCRIBE,
     PUNSUBSCRIBE,
+
+#ifdef VECTOR_INDEX_ENABLED
+    // vector index commands
+    ELOQVEC_CREATE,
+    ELOQVEC_INFO,
+    ELOQVEC_DROP,
+    ELOQVEC_ADD,
+    ELOQVEC_BADD,
+    ELOQVEC_UPDATE,
+    ELOQVEC_DELETE,
+    ELOQVEC_SEARCH,
+#endif
 };
 
 enum RedisResultType
@@ -6887,6 +6904,268 @@ struct ScanCommand : public CustomCommand
     RedisScanResult result_;
 };
 
+#ifdef VECTOR_INDEX_ENABLED
+struct CreateVecIndexCommand
+{
+    CreateVecIndexCommand() = default;
+
+    // Constructor with required parameters
+    CreateVecIndexCommand(
+        std::string_view index_name,
+        uint32_t dimensions,
+        EloqVec::Algorithm algorithm,
+        EloqVec::DistanceMetric metric_type,
+        int64_t threshold,
+        std::unordered_map<std::string, std::string> &&alg_params)
+        : index_name_(index_name),
+          dimensions_(dimensions),
+          algorithm_(algorithm),
+          metric_type_(metric_type),
+          persist_threshold_(threshold),
+          alg_params_(std::move(alg_params))
+    {
+    }
+
+    CreateVecIndexCommand(const CreateVecIndexCommand &rhs) = delete;
+    CreateVecIndexCommand(CreateVecIndexCommand &&rhs) = default;
+    CreateVecIndexCommand &operator=(const CreateVecIndexCommand &rhs) = delete;
+    CreateVecIndexCommand &operator=(CreateVecIndexCommand &&rhs) = delete;
+    ~CreateVecIndexCommand() = default;
+
+    void OutputResult(OutputHandler *reply, RedisConnectionContext *ctx) const;
+
+    // Name of the vector index
+    EloqString index_name_;
+    // Number of dimensions in the vectors
+    uint32_t dimensions_;
+    // HNSW or IVF (currently only HNSW supported)
+    EloqVec::Algorithm algorithm_;
+    // Distance metric (cosine, l2sq, ip)
+    EloqVec::DistanceMetric metric_type_;
+    // Persist threshold
+    int64_t persist_threshold_;
+
+    // Algorithm specific parameters (such as for HNSW: max_connectivity,
+    // ef_construction, ef_search, etc.)
+    std::unordered_map<std::string, std::string> alg_params_;
+
+    // Result storage
+    RedisCommandResult result_;
+};
+
+struct InfoVecIndexCommand
+{
+    InfoVecIndexCommand() = default;
+
+    // Constructor with required parameters
+    explicit InfoVecIndexCommand(std::string_view index_name)
+        : index_name_(index_name)
+    {
+    }
+
+    InfoVecIndexCommand(const InfoVecIndexCommand &rhs) = delete;
+    InfoVecIndexCommand(InfoVecIndexCommand &&rhs) = default;
+    InfoVecIndexCommand &operator=(const InfoVecIndexCommand &rhs) = delete;
+    InfoVecIndexCommand &operator=(InfoVecIndexCommand &&rhs) = delete;
+    ~InfoVecIndexCommand() = default;
+
+    void OutputResult(OutputHandler *reply, RedisConnectionContext *ctx) const;
+
+    // Name of the vector index to get info for
+    EloqString index_name_;
+
+    // Vector metadata
+    EloqVec::VectorIndexMetadata metadata_;
+
+    // Result storage
+    RedisCommandResult result_;
+};
+
+struct DropVecIndexCommand
+{
+    DropVecIndexCommand() = default;
+
+    // Constructor with required parameters
+    explicit DropVecIndexCommand(std::string_view index_name)
+        : index_name_(index_name)
+    {
+    }
+
+    DropVecIndexCommand(const DropVecIndexCommand &rhs) = delete;
+    DropVecIndexCommand(DropVecIndexCommand &&rhs) = default;
+    DropVecIndexCommand &operator=(const DropVecIndexCommand &rhs) = delete;
+    DropVecIndexCommand &operator=(DropVecIndexCommand &&rhs) = delete;
+    ~DropVecIndexCommand() = default;
+
+    void OutputResult(OutputHandler *reply, RedisConnectionContext *ctx) const;
+
+    // Name of the vector index to drop
+    EloqString index_name_;
+
+    // Result storage
+    RedisCommandResult result_;
+};
+
+struct AddVecIndexCommand
+{
+    AddVecIndexCommand() = default;
+
+    // Constructor with required parameters
+    AddVecIndexCommand(std::string_view index_name,
+                       uint64_t key,
+                       std::vector<float> &&vector)
+        : index_name_(index_name), key_(key), vector_(std::move(vector))
+    {
+    }
+
+    AddVecIndexCommand(const AddVecIndexCommand &rhs) = delete;
+    AddVecIndexCommand(AddVecIndexCommand &&rhs) = default;
+    AddVecIndexCommand &operator=(const AddVecIndexCommand &rhs) = delete;
+    AddVecIndexCommand &operator=(AddVecIndexCommand &&rhs) = delete;
+    ~AddVecIndexCommand() = default;
+
+    void OutputResult(OutputHandler *reply, RedisConnectionContext *ctx) const;
+
+    // Name of the vector index
+    EloqString index_name_;
+    // Key/ID for the vector
+    uint64_t key_;
+    // Vector data
+    std::vector<float> vector_;
+
+    // Result storage
+    RedisCommandResult result_;
+};
+
+struct BAddVecIndexCommand
+{
+    static constexpr uint64_t MAX_BATCH_ADD_SIZE = 10000;
+
+    BAddVecIndexCommand() = default;
+
+    // Constructor with required parameters
+    BAddVecIndexCommand(std::string_view index_name,
+                        std::vector<uint64_t> &&keys,
+                        std::vector<std::vector<float>> &&vectors)
+        : index_name_(index_name),
+          keys_(std::move(keys)),
+          vectors_(std::move(vectors))
+    {
+        assert(keys_.size() == vectors_.size());
+    }
+
+    BAddVecIndexCommand(const BAddVecIndexCommand &rhs) = delete;
+    BAddVecIndexCommand(BAddVecIndexCommand &&rhs) = default;
+    BAddVecIndexCommand &operator=(const BAddVecIndexCommand &rhs) = delete;
+    BAddVecIndexCommand &operator=(BAddVecIndexCommand &&rhs) = delete;
+    ~BAddVecIndexCommand() = default;
+
+    void OutputResult(OutputHandler *reply, RedisConnectionContext *ctx) const;
+
+    // Name of the vector index
+    EloqString index_name_;
+    // Keys to add
+    std::vector<uint64_t> keys_;
+    // Vector data corresponding to each key
+    std::vector<std::vector<float>> vectors_;
+
+    // Result storage
+    RedisCommandResult result_;
+};
+
+struct UpdateVecIndexCommand
+{
+    UpdateVecIndexCommand() = default;
+
+    // Constructor with required parameters
+    UpdateVecIndexCommand(std::string_view index_name,
+                          uint64_t key,
+                          std::vector<float> &&vector)
+        : index_name_(index_name), key_(key), vector_(std::move(vector))
+    {
+    }
+
+    UpdateVecIndexCommand(const UpdateVecIndexCommand &rhs) = delete;
+    UpdateVecIndexCommand(UpdateVecIndexCommand &&rhs) = default;
+    UpdateVecIndexCommand &operator=(const UpdateVecIndexCommand &rhs) = delete;
+    UpdateVecIndexCommand &operator=(UpdateVecIndexCommand &&rhs) = delete;
+    ~UpdateVecIndexCommand() = default;
+
+    void OutputResult(OutputHandler *reply, RedisConnectionContext *ctx) const;
+
+    // Name of the vector index
+    EloqString index_name_;
+    // Key/ID for the vector
+    uint64_t key_;
+    // Vector data
+    std::vector<float> vector_;
+
+    // Result storage
+    RedisCommandResult result_;
+};
+
+struct DeleteVecIndexCommand
+{
+    DeleteVecIndexCommand() = default;
+
+    // Constructor with required parameters
+    DeleteVecIndexCommand(std::string_view index_name, uint64_t key)
+        : index_name_(index_name), key_(key)
+    {
+    }
+
+    DeleteVecIndexCommand(const DeleteVecIndexCommand &rhs) = delete;
+    DeleteVecIndexCommand(DeleteVecIndexCommand &&rhs) = default;
+    DeleteVecIndexCommand &operator=(const DeleteVecIndexCommand &rhs) = delete;
+    DeleteVecIndexCommand &operator=(DeleteVecIndexCommand &&rhs) = delete;
+    ~DeleteVecIndexCommand() = default;
+
+    void OutputResult(OutputHandler *reply, RedisConnectionContext *ctx) const;
+
+    // Name of the vector index
+    EloqString index_name_;
+    // Key/ID for the vector to delete
+    uint64_t key_;
+
+    // Result storage
+    RedisCommandResult result_;
+};
+
+struct SearchVecIndexCommand
+{
+    SearchVecIndexCommand() = default;
+
+    // Constructor with required parameters
+    SearchVecIndexCommand(std::string_view index_name,
+                          std::vector<float> &&vector,
+                          size_t k_count)
+        : index_name_(index_name), vector_(std::move(vector)), k_count_(k_count)
+    {
+    }
+
+    SearchVecIndexCommand(const SearchVecIndexCommand &rhs) = delete;
+    SearchVecIndexCommand(SearchVecIndexCommand &&rhs) = default;
+    SearchVecIndexCommand &operator=(const SearchVecIndexCommand &rhs) = delete;
+    SearchVecIndexCommand &operator=(SearchVecIndexCommand &&rhs) = delete;
+    ~SearchVecIndexCommand() = default;
+
+    void OutputResult(OutputHandler *reply, RedisConnectionContext *ctx) const;
+
+    // Name of the vector index
+    EloqString index_name_;
+    // Query vector
+    std::vector<float> vector_;
+    // Number of results to return
+    size_t k_count_;
+
+    // Search result storage
+    EloqVec::SearchResult search_res_;
+
+    // Result storage
+    RedisCommandResult result_;
+};
+#endif
+
 struct DumpCommand : public RedisCommand
 {
     std::unique_ptr<txservice::TxRecord> CreateObject(
@@ -7956,4 +8235,35 @@ std::tuple<bool, EloqKey, GetExCommand> ParseGetExCommand(
 
 std::tuple<bool, TimeCommand> ParseTimeCommand(
     const std::vector<std::string_view> &args, OutputHandler *output);
+
+#ifdef VECTOR_INDEX_ENABLED
+std::tuple<bool, CreateVecIndexCommand> ParseCreateVecIndexCommand(
+    const std::vector<std::string_view> &args, OutputHandler *output);
+
+std::tuple<bool, InfoVecIndexCommand> ParseInfoVecIndexCommand(
+    const std::vector<std::string_view> &args, OutputHandler *output);
+
+std::tuple<bool, DropVecIndexCommand> ParseDropVecIndexCommand(
+    const std::vector<std::string_view> &args, OutputHandler *output);
+
+std::tuple<bool, AddVecIndexCommand> ParseAddVecIndexCommand(
+    const std::vector<std::string_view> &args, OutputHandler *output);
+
+std::tuple<bool, BAddVecIndexCommand> ParseBAddVecIndexCommand(
+    const std::vector<std::string_view> &args, OutputHandler *output);
+
+std::tuple<bool, UpdateVecIndexCommand> ParseUpdateVecIndexCommand(
+    const std::vector<std::string_view> &args, OutputHandler *output);
+
+std::tuple<bool, DeleteVecIndexCommand> ParseDeleteVecIndexCommand(
+    const std::vector<std::string_view> &args, OutputHandler *output);
+
+std::tuple<bool, SearchVecIndexCommand> ParseSearchVecIndexCommand(
+    const std::vector<std::string_view> &args, OutputHandler *output);
+
+// Global helper function to parse vector data from string_view
+bool ParseVectorData(const std::string_view &vector_str,
+                     std::vector<float> &vector);
+#endif
+
 }  // namespace EloqKV

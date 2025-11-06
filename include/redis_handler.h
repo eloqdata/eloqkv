@@ -2701,6 +2701,152 @@ private:
     RedisServiceImpl *redis_impl_;
 };
 
+#ifdef VECTOR_INDEX_ENABLED
+class CreateVecIndexHandler : public RedisCommandHandler
+{
+public:
+    explicit CreateVecIndexHandler(RedisServiceImpl *redis_impl)
+        : redis_impl_(redis_impl)
+    {
+    }
+
+    brpc::RedisCommandHandlerResult Run(
+        RedisConnectionContext *ctx,
+        const std::vector<butil::StringPiece> &args,
+        brpc::RedisReply *output,
+        bool /*flush_batched*/) override;
+
+private:
+    RedisServiceImpl *redis_impl_;
+};
+
+class InfoVecIndexHandler : public RedisCommandHandler
+{
+public:
+    explicit InfoVecIndexHandler(RedisServiceImpl *redis_impl)
+        : redis_impl_(redis_impl)
+    {
+    }
+
+    brpc::RedisCommandHandlerResult Run(
+        RedisConnectionContext *ctx,
+        const std::vector<butil::StringPiece> &args,
+        brpc::RedisReply *output,
+        bool /*flush_batched*/) override;
+
+private:
+    RedisServiceImpl *redis_impl_;
+};
+
+class DropVecIndexHandler : public RedisCommandHandler
+{
+public:
+    explicit DropVecIndexHandler(RedisServiceImpl *redis_impl)
+        : redis_impl_(redis_impl)
+    {
+    }
+
+    brpc::RedisCommandHandlerResult Run(
+        RedisConnectionContext *ctx,
+        const std::vector<butil::StringPiece> &args,
+        brpc::RedisReply *output,
+        bool /*flush_batched*/) override;
+
+private:
+    RedisServiceImpl *redis_impl_;
+};
+
+class AddVecIndexHandler : public RedisCommandHandler
+{
+public:
+    explicit AddVecIndexHandler(RedisServiceImpl *redis_impl)
+        : redis_impl_(redis_impl)
+    {
+    }
+
+    brpc::RedisCommandHandlerResult Run(
+        RedisConnectionContext *ctx,
+        const std::vector<butil::StringPiece> &args,
+        brpc::RedisReply *output,
+        bool /*flush_batched*/) override;
+
+private:
+    RedisServiceImpl *redis_impl_;
+};
+
+class BAddVecIndexHandler : public RedisCommandHandler
+{
+public:
+    explicit BAddVecIndexHandler(RedisServiceImpl *redis_impl)
+        : redis_impl_(redis_impl)
+    {
+    }
+
+    brpc::RedisCommandHandlerResult Run(
+        RedisConnectionContext *ctx,
+        const std::vector<butil::StringPiece> &args,
+        brpc::RedisReply *output,
+        bool /*flush_batched*/) override;
+
+private:
+    RedisServiceImpl *redis_impl_;
+};
+
+class UpdateVecIndexHandler : public RedisCommandHandler
+{
+public:
+    explicit UpdateVecIndexHandler(RedisServiceImpl *redis_impl)
+        : redis_impl_(redis_impl)
+    {
+    }
+
+    brpc::RedisCommandHandlerResult Run(
+        RedisConnectionContext *ctx,
+        const std::vector<butil::StringPiece> &args,
+        brpc::RedisReply *output,
+        bool /*flush_batched*/) override;
+
+private:
+    RedisServiceImpl *redis_impl_;
+};
+
+class DeleteVecIndexHandler : public RedisCommandHandler
+{
+public:
+    explicit DeleteVecIndexHandler(RedisServiceImpl *redis_impl)
+        : redis_impl_(redis_impl)
+    {
+    }
+
+    brpc::RedisCommandHandlerResult Run(
+        RedisConnectionContext *ctx,
+        const std::vector<butil::StringPiece> &args,
+        brpc::RedisReply *output,
+        bool /*flush_batched*/) override;
+
+private:
+    RedisServiceImpl *redis_impl_;
+};
+
+class SearchVecIndexHandler : public RedisCommandHandler
+{
+public:
+    explicit SearchVecIndexHandler(RedisServiceImpl *redis_impl)
+        : redis_impl_(redis_impl)
+    {
+    }
+
+    brpc::RedisCommandHandlerResult Run(
+        RedisConnectionContext *ctx,
+        const std::vector<butil::StringPiece> &args,
+        brpc::RedisReply *output,
+        bool /*flush_batched*/) override;
+
+private:
+    RedisServiceImpl *redis_impl_;
+};
+#endif
+
 class SubscribeHandler : public RedisCommandHandler
 {
 public:
