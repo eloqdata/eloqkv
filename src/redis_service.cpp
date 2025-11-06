@@ -220,6 +220,10 @@ DEFINE_uint32(node_log_limit_mb, 8192, "txservice node_log_limit_mb");
 DEFINE_uint32(max_standby_lag,
               400000,
               "txservice max msg lag between primary and standby");
+DEFINE_bool(cluster_mode,
+            false,
+            "enable cluster mode even if there is only one node group, "
+            "compatible with redis cluster protocol");
 DEFINE_bool(bootstrap, false, "init system tables and exit");
 DEFINE_uint32(maxclients, 10000, "maxclients");
 DEFINE_string(hm_ip, "", "host manager ip address");
@@ -606,6 +610,11 @@ bool RedisServiceImpl::Init(brpc::Server &brpc_server)
             ? FLAGS_auto_redirect
             : config_reader.GetBoolean(
                   "local", "auto_redirect", FLAGS_auto_redirect);
+
+    FLAGS_cluster_mode = !CheckCommandLineFlagIsDefault("cluster_mode")
+                             ? FLAGS_cluster_mode
+                             : config_reader.GetBoolean(
+                                   "local", "cluster_mode", FLAGS_cluster_mode);
 
     FLAGS_cc_notify =
         !CheckCommandLineFlagIsDefault("cc_notify")
@@ -2505,8 +2514,26 @@ bool RedisServiceImpl::SendTxRequestAndWaitResult(
                 }
             }
         }
-        else if (tx_req->ErrorCode() == TxErrorCode::DATA_NOT_ON_LOCAL_NODE)
+        else if (tx_req->ErrorCode() ==
+                     TxErrorCode::WRITE_REQUEST_ON_SLAVE_NODE &&
+                 !FLAGS_cluster_mode &&
+                 Sharder::Instance().NodeGroupCount() >
+                     1)  // In sentinel mode, write request on a
+                         // slave node is not allowed.
         {
+            if (error != nullptr)
+            {
+                error->OnError(
+                    "READONLY You can't write against a read only replica.");
+            }
+            return false;
+        }
+        else if (tx_req->ErrorCode() == TxErrorCode::DATA_NOT_ON_LOCAL_NODE ||
+                 tx_req->ErrorCode() ==
+                     TxErrorCode::WRITE_REQUEST_ON_SLAVE_NODE)
+        {
+            // If the tx request is a write request on a slave node in cluster
+            // mode, we need to generate a MOVED error message.
             if (auto object_tx_req =
                     dynamic_cast<ObjectCommandTxRequest *>(tx_req))
             {
