@@ -1676,8 +1676,7 @@ void ClusterSlotsCommand::Execute(RedisServiceImpl *redis_impl,
 void ClusterKeySlotCommand::Execute(RedisServiceImpl *redis_impl,
                                     RedisConnectionContext *ctx)
 {
-    int32_t slot_id = key_.Hash() & 0x3fff;
-    result_ = slot_id % total_range_buckets;
+    result_ = key_.Hash() & 0x3fff;
 }
 
 void FailoverCommand::Execute(RedisServiceImpl *redis_impl,
