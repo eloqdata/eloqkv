@@ -19,7 +19,7 @@
  *    <http://www.gnu.org/licenses/>.
  *
  */
-#include "eloq_key.h"
+#include "eloqkv_key.h"
 
 namespace EloqKV
 {

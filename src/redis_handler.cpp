@@ -35,8 +35,8 @@
 #include <vector>
 
 #include "cc_protocol.h"
-#include "eloq_key.h"
 #include "eloq_string.h"
+#include "eloqkv_key.h"
 #include "error_messages.h"
 #include "redis_command.h"
 #include "redis_connection_context.h"

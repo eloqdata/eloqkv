@@ -19,7 +19,7 @@
  *    <http://www.gnu.org/licenses/>.
  *
  */
-#include "eloq_catalog_factory.h"
+#include "eloqkv_catalog_factory.h"
 
 #include <memory>
 #include <vector>
@@ -28,7 +28,7 @@
 #include "cc/object_cc_map.h"
 #include "cc/range_cc_map.h"
 #include "cc/template_cc_map.h"
-#include "eloq_key.h"
+#include "eloqkv_key.h"
 #include "kv_store.h"
 #include "redis_object.h"
 #include "schema.h"

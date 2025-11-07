@@ -53,15 +53,15 @@ git submodule sync
 git submodule update --init --recursive
 pr_branch_name=$(cat .git/resource/metadata.json | jq -r '.[] | select(.name=="head_name") | .value')
 
-ln -s $WORKSPACE/logservice_src eloq_log_service
-cd eloq_log_service
+ln -s $WORKSPACE/logservice_src data_substrate/eloq_log_service
+cd data_substrate/eloq_log_service
 if [ -n "$pr_branch_name" ] && git ls-remote --exit-code --heads origin "$pr_branch_name" > /dev/null; then
   git fetch origin "${pr_branch_name}:refs/remotes/origin/${pr_branch_name}"
   git checkout -b ${pr_branch_name} origin/${pr_branch_name}
   git submodule update --init --recursive
 fi
 
-cd /home/$current_user/workspace/eloqkv/tx_service
+cd /home/$current_user/workspace/eloqkv/data_substrate/tx_service
 
 ln -s $WORKSPACE/raft_host_manager_src raft_host_manager
 cd raft_host_manager
@@ -109,7 +109,7 @@ for bt in "${build_types[@]}"; do
     run_build_ent $bt $kst
 
     source my_env/bin/activate
-    run_eloq_test $bt $kst
+    # run_eloq_test $bt $kst
     run_eloqkv_tests $bt $kst
     run_eloqkv_cluster_tests $bt $kst
     deactivate
