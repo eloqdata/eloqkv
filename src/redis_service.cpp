@@ -1017,7 +1017,9 @@ bool RedisServiceImpl::Init(brpc::Server &brpc_server)
 
         store_hd_ = std::make_unique<EloqKV::RocksDBHandlerImpl>(
             rocksdb_config,
-            (FLAGS_bootstrap || is_single_node),
+            true,  // for non shared storage, always pass
+                   // create_if_missing=true, since no confilcts will happen
+                   // under
             enable_cache_replacement_);
 
 #elif ELOQDS
@@ -1065,6 +1067,13 @@ bool RedisServiceImpl::Init(brpc::Server &brpc_server)
         }
         else
         {
+            if (ng_configs.size() > 1)
+            {
+                LOG(ERROR) << "EloqDS multi-node cluster must specify "
+                              "eloq_dss_peer_node.";
+                return false;
+            }
+
             EloqDS::DataStoreServiceClient::TxConfigsToDssClusterConfig(
                 dss_node_id,
                 native_ng_id,
@@ -1072,62 +1081,6 @@ bool RedisServiceImpl::Init(brpc::Server &brpc_server)
                 dss_leader_id,
                 ds_config);
         }
-
-        // std::string dss_config_file_path =
-        //     eloq_dss_data_path + "/dss_config.ini";
-        /*
-        EloqDS::DataStoreServiceClusterManager ds_config;
-        if (std::filesystem::exists(dss_config_file_path))
-        {
-            bool load_res = ds_config.Load(dss_config_file_path);
-            if (!load_res)
-            {
-                LOG(ERROR) << "Failed to load dss config file  : "
-                           << dss_config_file_path;
-                return false;
-            }
-        }
-        else
-        {
-            if (!eloq_dss_peer_node.empty())
-            {
-                ds_config.SetThisNode(local_ip, local_tx_port + 7);
-                // Fetch ds topology from peer node
-                if (!EloqDS::DataStoreService::FetchConfigFromPeer(
-                        eloq_dss_peer_node, ds_config))
-                {
-                    LOG(ERROR) << "Failed to fetch config from peer node: "
-                               << eloq_dss_peer_node;
-                    return false;
-                }
-
-                // Save the fetched config to the local file
-                if (!ds_config.Save(dss_config_file_path))
-                {
-                    LOG(ERROR) << "Failed to save config to file: "
-                               << dss_config_file_path;
-                    return false;
-                }
-            }
-            else if (FLAGS_bootstrap || is_single_node)
-            {
-                // Initialize the data store service config
-                ds_config.Initialize(local_ip, local_tx_port + 7);
-                if (!ds_config.Save(dss_config_file_path))
-                {
-                    LOG(ERROR) << "Failed to save config to file: "
-                               << dss_config_file_path;
-                    return false;
-                }
-            }
-            else
-            {
-                LOG(ERROR) << "Failed to load data store service config file: "
-                           << dss_config_file_path;
-                return false;
-            }
-        }
-        */
 
 #if defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB_CLOUD_S3) ||                       \
     defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB_CLOUD_GCS)
@@ -1160,8 +1113,19 @@ bool RedisServiceImpl::Init(brpc::Server &brpc_server)
 
         // Start data store service. (Also create datastore in StartService() if
         // needed)
-        bool ret = data_store_service_->StartService(
+        bool ret = true;
+#if defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB)
+        // For non shared storage like rocksdb,
+        // we always set create_if_missing to true
+        // since non conflicts will happen under
+        // multi-node deployment.
+        ret =
+            data_store_service_->StartService(true, dss_leader_id, dss_node_id);
+#else
+        ret = data_store_service_->StartService(
             (FLAGS_bootstrap || is_single_node), dss_leader_id, dss_node_id);
+#endif
+
         if (!ret)
         {
             LOG(ERROR) << "Failed to start data store service";
