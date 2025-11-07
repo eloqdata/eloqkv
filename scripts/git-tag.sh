@@ -55,6 +55,6 @@ if [ -n "$(git diff --name-only src/redis_server.cpp)" ]; then
   git push origin "$REL_BRANCH"
 fi
 
-create_and_push_release_branch "eloq_log_service" "$REL_BRANCH"
-create_and_push_release_branch "tx_service/raft_host_manager" "$REL_BRANCH"
+create_and_push_release_branch "data_substrate/eloq_log_service" "$REL_BRANCH"
+create_and_push_release_branch "data_substrate/tx_service/raft_host_manager" "$REL_BRANCH"
 

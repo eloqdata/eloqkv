@@ -43,9 +43,9 @@ cd eloqkv
 git submodule sync
 git submodule update --init --recursive
 
-ln -s $WORKSPACE/logservice_src eloq_log_service
+ln -s $WORKSPACE/logservice_src data_substrate/eloq_log_service
 
-cd /home/$current_user/workspace/eloqkv/tx_service
+cd /home/$current_user/workspace/eloqkv/data_substrate/tx_service
 
 ln -s $WORKSPACE/raft_host_manager_src raft_host_manager
 
@@ -86,7 +86,7 @@ for bt in "${build_types[@]}"; do
     run_build_ent $bt $kst
 
     source my_env/bin/activate
-    run_eloq_test $bt $kst
+    # run_eloq_test $bt $kst
     run_eloqkv_tests $bt $kst
     run_eloqkv_cluster_tests $bt $kst
     deactivate

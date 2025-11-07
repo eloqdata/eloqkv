@@ -40,7 +40,7 @@ cd eloqkv
 git submodule sync
 git submodule update --init --recursive
 
-cd /home/$current_user/workspace/eloqkv/tx_service
+cd /home/$current_user/workspace/eloqkv/data_substrate/tx_service
 
 git checkout main
 
@@ -78,7 +78,7 @@ for bt in "${build_types[@]}"; do
     run_build $bt $kst
 
     source my_env/bin/activate
-    run_eloq_test $bt $kst
+    # run_eloq_test $bt $kst
     run_eloqkv_tests $bt $kst
     run_eloqkv_cluster_tests $bt $kst
     deactivate

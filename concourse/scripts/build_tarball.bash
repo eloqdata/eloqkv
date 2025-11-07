@@ -231,7 +231,7 @@ build_upload_log_srv() {
     fi
     local log_tarball=$1
     local kv_type=$2
-    log_sv_src=${ELOQKV_SRC}/eloq_log_service
+    log_sv_src=${ELOQKV_SRC}/data_substrate/log_service
     cd ${log_sv_src}
     mkdir -p LogService/bin
     mkdir build && cd build

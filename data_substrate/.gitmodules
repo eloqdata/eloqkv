@@ -1,9 +1,0 @@
-[submodule "abseil-cpp"]
-	path = tx_service/abseil-cpp
-	url = https://github.com/abseil/abseil-cpp.git
-[submodule "tx-log-protos"]
-	path = tx_service/tx-log-protos
-	url = https://github.com/eloqdata/tx-log-protos.git
-[submodule "log_service"]
-	path = log_service
-	url = git@github.com:eloqdata/log_service.git
