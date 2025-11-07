@@ -177,10 +177,6 @@ public:
     {
         return tx_port - 10000;
     }
-    uint16_t RedisPortToTxPort(uint16_t redis_port) const
-    {
-        return redis_port + 10000;
-    }
 
     // Get all replica node status of node groups.
     // nodes_info is as: map{ng_id,[nodes_info,...]}

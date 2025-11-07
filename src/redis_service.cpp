@@ -191,10 +191,12 @@ bool RedisServiceImpl::Init(brpc::Server &brpc_server)
     skip_kv_ = !DataSubstrate::GetGlobal()->GetCoreConfig().enable_data_store;
     skip_wal_ = !DataSubstrate::GetGlobal()->GetCoreConfig().enable_wal;
 
-    std::string local_ip = DataSubstrate::GetGlobal()->GetNetworkConfig().local_ip;
+    std::string local_ip =
+        DataSubstrate::GetGlobal()->GetNetworkConfig().local_ip;
     redis_port_ = !CheckCommandLineFlagIsDefault("eloqkv_port")
                       ? FLAGS_eloqkv_port
-                      : config_reader.GetInteger("local", "eloqkv_port", FLAGS_eloqkv_port);
+                      : config_reader.GetInteger(
+                            "local", "eloqkv_port", FLAGS_eloqkv_port);
     FLAGS_cluster_mode = !CheckCommandLineFlagIsDefault("cluster_mode")
                              ? FLAGS_cluster_mode
                              : config_reader.GetBoolean(
@@ -918,7 +920,7 @@ bool RedisServiceImpl::SendTxRequestAndWaitResult(
         else if (tx_req->ErrorCode() ==
                      TxErrorCode::WRITE_REQUEST_ON_SLAVE_NODE &&
                  !FLAGS_cluster_mode &&
-                 Sharder::Instance().NodeGroupCount() >
+                 Sharder::Instance().NodeGroupCount() ==
                      1)  // In sentinel mode, write request on a
                          // slave node is not allowed.
         {
