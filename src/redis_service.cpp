@@ -2517,7 +2517,7 @@ bool RedisServiceImpl::SendTxRequestAndWaitResult(
         else if (tx_req->ErrorCode() ==
                      TxErrorCode::WRITE_REQUEST_ON_SLAVE_NODE &&
                  !FLAGS_cluster_mode &&
-                 Sharder::Instance().NodeGroupCount() >
+                 Sharder::Instance().NodeGroupCount() ==
                      1)  // In sentinel mode, write request on a
                          // slave node is not allowed.
         {
