@@ -62,7 +62,11 @@ const char *redis_error_messages[] = {
     "syntax error",
     "LIMIT can't be negative",
     "ERR weight value is not a valid float",
+#ifdef DATA_STORE_TYPE_ELOQDSS_ELOQSTORE
+    "ERR max key size limit of 2 KB exceeded",
+#else
     "ERR max key size limit of 32 MB exceeded",
+#endif
     "ERR max object size limit of 256 MB exceeded",
     "ERR the key has no associated expiration time",
     "ERR cluster is shutting down",
