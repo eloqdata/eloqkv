@@ -46,8 +46,14 @@ sudo chmod 777 /var/crash
 sudo chown -R $current_user /home/$current_user/workspace
 cd /home/$current_user/workspace
 ln -s $WORKSPACE/redis_pr eloqkv
-
 ln -s $WORKSPACE/eloq_test_src eloq_test
+
+cd eloqkv
+git submodule sync
+git submodule update --init --recursive
+pr_branch_name=$(cat .git/resource/metadata.json | jq -r '.[] | select(.name=="head_name") | .value')
+cd ..
+
 cd eloq_test
 if [ -n "$pr_branch_name" ] && git ls-remote --exit-code --heads origin "$pr_branch_name" > /dev/null; then
   git fetch origin "${pr_branch_name}:refs/remotes/origin/${pr_branch_name}"
@@ -57,10 +63,6 @@ fi
 cd ..
 
 cd eloqkv
-git submodule sync
-git submodule update --init --recursive
-pr_branch_name=$(cat .git/resource/metadata.json | jq -r '.[] | select(.name=="head_name") | .value')
-
 ln -s $WORKSPACE/logservice_src eloq_log_service
 cd eloq_log_service
 if [ -n "$pr_branch_name" ] && git ls-remote --exit-code --heads origin "$pr_branch_name" > /dev/null; then
