@@ -275,6 +275,7 @@ bool RedisServiceImpl::Init(brpc::Server &brpc_server)
     if (DataSubstrate::GetGlobal()->GetCoreConfig().bootstrap)
     {
         Stop();
+        DataSubstrate::GetGlobal()->Shutdown();
 
         LOG(INFO) << "bootstrap done !!!";
 

@@ -301,7 +301,7 @@ function run_eloqkv_tests() {
     # run redis
     echo "redirecting output to /tmp/ to prevent ci pipeline crash"
     /home/$current_user/workspace/eloqkv/cmake/eloqkv \
-      --eloqkv_port=6379 \
+      --port=6379 \
       --core_number=2 \
       --enable_wal=true \
       --enable_data_store=true \
@@ -342,7 +342,7 @@ function run_eloqkv_tests() {
     # run redis
     echo "redirecting output to /tmp/ to prevent ci pipeline crash"
     /home/$current_user/workspace/eloqkv/cmake/eloqkv \
-      --eloqkv_port=6379 \
+      --port=6379 \
       --core_number=2 \
       --enable_wal=true \
       --enable_data_store=true \
@@ -404,7 +404,7 @@ function run_eloqkv_tests() {
     # run redis with wal disabled.
     echo "redirecting output to /tmp/ to prevent ci pipeline crash"
     /home/$current_user/workspace/eloqkv/cmake/eloqkv \
-        --eloqkv_port=6379 \
+        --port=6379 \
         --core_number=2 \
         --enable_wal=false \
         --enable_data_store=true \
@@ -438,7 +438,7 @@ function run_eloqkv_tests() {
     # run redis with wal and data store disabled.
     echo "redirecting output to /tmp/ to prevent ci pipeline crash"
     /home/$current_user/workspace/eloqkv/cmake/eloqkv \
-        --eloqkv_port=6379 \
+        --port=6379 \
         --core_number=2 \
         --enable_wal=false \
         --enable_data_store=false \
@@ -467,7 +467,7 @@ function run_eloqkv_tests() {
     echo "bootstrap rocksdb"
 
     /home/$current_user/workspace/eloqkv/cmake/eloqkv \
-      --eloqkv_port=6379 \
+      --port=6379 \
       --core_number=2 \
       --enable_wal=true \
       --enable_data_store=true \
@@ -481,7 +481,7 @@ function run_eloqkv_tests() {
     # run redis
     echo "redirecting output to /tmp/ to prevent ci pipeline crash"
     /home/$current_user/workspace/eloqkv/cmake/eloqkv \
-      --eloqkv_port=6379 \
+      --port=6379 \
       --core_number=2 \
       --enable_wal=true \
       --enable_data_store=true \
@@ -520,7 +520,7 @@ function run_eloqkv_tests() {
     # run redis
     echo "redirecting output to /tmp/ to prevent ci pipeline crash"
     /home/$current_user/workspace/eloqkv/cmake/eloqkv \
-      --eloqkv_port=6379 \
+      --port=6379 \
       --core_number=2 \
       --enable_wal=true \
       --enable_data_store=true \
@@ -580,7 +580,7 @@ function run_eloqkv_tests() {
     # run redis with wal disabled.
     echo "redirecting output to /tmp/ to prevent ci pipeline crash"
     /home/$current_user/workspace/eloqkv/cmake/eloqkv \
-        --eloqkv_port=6379 \
+        --port=6379 \
         --core_number=2 \
         --enable_wal=false \
         --enable_data_store=true \
@@ -609,7 +609,7 @@ function run_eloqkv_tests() {
     # run redis with wal and data store disabled.
     echo "redirecting output to /tmp/ to prevent ci pipeline crash"
     /home/$current_user/workspace/eloqkv/cmake/eloqkv \
-        --eloqkv_port=6379 \
+        --port=6379 \
         --core_number=2 \
         --enable_wal=false \
         --enable_data_store=false \
@@ -651,7 +651,7 @@ function run_eloqkv_tests() {
     # run redis
     echo "redirecting output to /tmp/ to prevent ci pipeline crash"
     /home/$current_user/workspace/eloqkv/cmake/eloqkv \
-      --eloqkv_port=6379 \
+      --port=6379 \
       --core_number=2 \
       --enable_wal=true \
       --enable_data_store=true \
@@ -695,7 +695,7 @@ function run_eloqkv_tests() {
     # run redis
     echo "redirecting output to /tmp/ to prevent ci pipeline crash"
     /home/$current_user/workspace/eloqkv/cmake/eloqkv \
-      --eloqkv_port=6379 \
+      --port=6379 \
       --core_number=2 \
       --enable_wal=true \
       --enable_data_store=true \
@@ -760,7 +760,7 @@ function run_eloqkv_tests() {
     # run redis with wal disabled.
     echo "redirecting output to /tmp/ to prevent ci pipeline crash"
     /home/$current_user/workspace/eloqkv/cmake/eloqkv \
-        --eloqkv_port=6379 \
+        --port=6379 \
         --core_number=2 \
         --enable_wal=false \
         --enable_data_store=true \
@@ -796,7 +796,7 @@ function run_eloqkv_tests() {
     # run redis with wal and data store disabled.
     echo "redirecting output to /tmp/ to prevent ci pipeline crash"
     /home/$current_user/workspace/eloqkv/cmake/eloqkv \
-        --eloqkv_port=6379 \
+        --port=6379 \
         --core_number=2 \
         --enable_wal=false \
         --enable_data_store=false \
@@ -833,7 +833,7 @@ function run_eloqkv_tests() {
     local rocksdb_cloud_object_path=${ROCKSDB_CLOUD_OBJECT_PATH}
 
     /home/$current_user/workspace/eloqkv/cmake/eloqkv \
-      --eloqkv_port=6379 \
+      --port=6379 \
       --core_number=2 \
       --enable_wal=true \
       --enable_data_store=true \
@@ -852,7 +852,7 @@ function run_eloqkv_tests() {
     # run redis
     echo "redirecting output to /tmp/ to prevent ci pipeline crash"
     /home/$current_user/workspace/eloqkv/cmake/eloqkv \
-      --eloqkv_port=6379 \
+      --port=6379 \
       --core_number=2 \
       --enable_wal=true \
       --enable_data_store=true \
@@ -897,7 +897,7 @@ function run_eloqkv_tests() {
     # run redis
     echo "redirecting output to /tmp/ to prevent ci pipeline crash"
     /home/$current_user/workspace/eloqkv/cmake/eloqkv \
-      --eloqkv_port=6379 \
+      --port=6379 \
       --core_number=2 \
       --enable_wal=true \
       --enable_data_store=true \
@@ -963,7 +963,7 @@ function run_eloqkv_tests() {
     # run redis with wal disabled.
     echo "redirecting output to /tmp/ to prevent ci pipeline crash"
     /home/$current_user/workspace/eloqkv/cmake/eloqkv \
-        --eloqkv_port=6379 \
+        --port=6379 \
         --core_number=2 \
         --enable_wal=false \
         --enable_data_store=true \
@@ -998,7 +998,7 @@ function run_eloqkv_tests() {
     # run redis with wal and data store disabled.
     echo "redirecting output to /tmp/ to prevent ci pipeline crash"
     /home/$current_user/workspace/eloqkv/cmake/eloqkv \
-        --eloqkv_port=6379 \
+        --port=6379 \
         --core_number=2 \
         --enable_wal=false \
         --enable_data_store=false \
@@ -1046,7 +1046,7 @@ function run_eloqkv_tests() {
     echo "redirecting output to /tmp/ to prevent ci pipeline crash" >> /tmp/redis_single_node.log
     echo "small ckpt interval with wal and data store." >> /tmp/redis_single_node.log
     ${eloqkv_bin_path} \
-        --eloqkv_port=6379 \
+        --port=6379 \
         --core_number=2 \
         --enable_wal=true \
         --enable_data_store=true \
@@ -1083,7 +1083,7 @@ function run_eloqkv_tests() {
     echo "redirecting output to /tmp/ to prevent ci pipeline crash" >> /tmp/redis_single_node.log
     echo "big ckpt interval before replay with wal and data store." >> /tmp/redis_single_node.log
     ${eloqkv_bin_path} \
-      --eloqkv_port=6379 \
+      --port=6379 \
       --core_number=2 \
       --enable_wal=true \
       --enable_data_store=true \
@@ -1128,7 +1128,7 @@ function run_eloqkv_tests() {
     echo "redirecting output to /tmp/ to prevent ci pipeline crash" >> /tmp/redis_single_node.log
     echo "big ckpt interval after replay with wal and data store." >> /tmp/redis_single_node.log
     ${eloqkv_bin_path} \
-      --eloqkv_port=6379 \
+      --port=6379 \
       --core_number=2 \
       --enable_wal=true \
       --enable_data_store=true \
@@ -1198,7 +1198,7 @@ function run_eloqkv_tests() {
     echo "redirecting output to /tmp/ to prevent ci pipeline crash" >> /tmp/redis_single_node.log
     echo "default ckpt interval without wal and with data store." >> /tmp/redis_single_node.log
     ${eloqkv_bin_path} \
-        --eloqkv_port=6379 \
+        --port=6379 \
         --core_number=2 \
         --enable_wal=false \
         --enable_data_store=true \
@@ -1234,7 +1234,7 @@ function run_eloqkv_tests() {
     echo "redirecting output to /tmp/ to prevent ci pipeline crash" >> /tmp/redis_single_node.log
     echo "samll ckpt interval without wal and with data store." >> /tmp/redis_single_node.log
     ${eloqkv_bin_path} \
-        --eloqkv_port=6379 \
+        --port=6379 \
         --core_number=2 \
         --enable_wal=false \
         --enable_data_store=true \
@@ -1272,7 +1272,7 @@ function run_eloqkv_tests() {
     echo "redirecting output to /tmp/ to prevent ci pipeline crash" >> /tmp/redis_single_node.log
     echo "default ckpt interval without wal and without data store." >> /tmp/redis_single_node.log
     ${eloqkv_bin_path} \
-        --eloqkv_port=6379 \
+        --port=6379 \
         --core_number=2 \
         --enable_wal=false \
         --enable_data_store=false \
@@ -1398,7 +1398,7 @@ function start_dss_server() {
       ${dss_server_configs} \
       --data_path=${dss_data_path} \
       --ip=$dss_ip \
-      --eloqkv_port=$dss_port \
+      --port=$dss_port \
       --logtostderr=true \
       > ${dss_log_path} 2>&1 \
       &
@@ -1426,10 +1426,8 @@ function run_eloqkv_cluster_tests() {
 
     for port in "${ports[@]}"; do
       echo "redirecting output to /tmp/ to prevent ci pipeline crash"
-      local tx_port=$port+1000
       /home/$current_user/workspace/eloqkv/cmake/eloqkv \
-        --eloqkv_port=$port \
-        --tx_port=$tx_port \
+        --port=$port \
         --core_number=2 \
         --enable_wal=false \
         --enable_data_store=false \
@@ -1438,7 +1436,7 @@ function run_eloqkv_cluster_tests() {
         --auto_redirect=true \
         --maxclients=1000000 \
         --checkpoint_interval=36000 \
-        --ip_port_list=127.0.0.1:16379,127.0.0.1:17379,127.0.0.1:18379 \
+        --ip_port_list=127.0.0.1:6379,127.0.0.1:7379,127.0.0.1:8379 \
         --txlog_service_list=$log_service_ip_port \
         --txlog_group_replica_num=3 \
         --cass_hosts=$CASS_HOST \
@@ -1481,8 +1479,7 @@ function run_eloqkv_cluster_tests() {
 
     echo "bootstrap before start cluster to avoid contention"
     /home/$current_user/workspace/eloqkv/cmake/eloqkv \
-      --eloqkv_port=6379 \
-      --tx_port=16379 \
+      --port=6379 \
       --core_number=2 \
       --enable_wal=false \
       --enable_data_store=true \
@@ -1491,7 +1488,7 @@ function run_eloqkv_cluster_tests() {
       --auto_redirect=true \
       --maxclients=1000000 \
       --checkpoint_interval=36000 \
-      --ip_port_list=127.0.0.1:16379,127.0.0.1:17379,127.0.0.1:18379 \
+      --ip_port_list=127.0.0.1:6379,127.0.0.1:7379,127.0.0.1:8379 \
       --cass_hosts=$CASS_HOST \
       --cass_port=9042 \
       --cass_user=cassandra \
@@ -1514,10 +1511,8 @@ function run_eloqkv_cluster_tests() {
     redis_pids=()
     local index=0
     for port in "${ports[@]}"; do
-      local tx_port=$port+1000
       /home/$current_user/workspace/eloqkv/cmake/eloqkv \
-        --eloqkv_port=$port \
-        --tx_port=$tx_port \
+        --port=$port \
         --core_number=2 \
         --enable_wal=false \
         --enable_data_store=true \
@@ -1578,8 +1573,7 @@ function run_eloqkv_cluster_tests() {
 
     echo "bootstrap before start cluster to avoid contention"
     /home/$current_user/workspace/eloqkv/cmake/eloqkv \
-      --eloqkv_port=6379 \
-      --tx_port=16379 \
+      --port=6379 \
       --core_number=2 \
       --enable_wal=true \
       --enable_data_store=true \
@@ -1588,7 +1582,7 @@ function run_eloqkv_cluster_tests() {
       --auto_redirect=true \
       --maxclients=1000000 \
       --checkpoint_interval=36000 \
-      --ip_port_list=127.0.0.1:16379,127.0.0.1:17379,127.0.0.1:18379 \
+      --ip_port_list=127.0.0.1:6379,127.0.0.1:7379,127.0.0.1:8379 \
       --txlog_service_list=$log_service_ip_port \
       --txlog_group_replica_num=3 \
       --cass_hosts=$CASS_HOST \
@@ -1615,10 +1609,8 @@ function run_eloqkv_cluster_tests() {
 
     for port in "${ports[@]}"; do
       echo "redirecting output to /tmp/ to prevent ci pipeline crash"
-      local tx_port=$port+1000
       /home/$current_user/workspace/eloqkv/cmake/eloqkv \
-        --eloqkv_port=$port \
-        --tx_port=$tx_port \
+        --port=$port \
         --core_number=2 \
         --enable_wal=true \
         --enable_data_store=true \
@@ -1627,7 +1619,7 @@ function run_eloqkv_cluster_tests() {
         --auto_redirect=true \
         --maxclients=1000000 \
         --checkpoint_interval=36000 \
-        --ip_port_list=127.0.0.1:16379,127.0.0.1:17379,127.0.0.1:18379 \
+        --ip_port_list=127.0.0.1:6379,127.0.0.1:7379,127.0.0.1:8379 \
         --txlog_service_list=$log_service_ip_port \
         --txlog_group_replica_num=3 \
         --cass_hosts=$CASS_HOST \
@@ -1675,10 +1667,8 @@ function run_eloqkv_cluster_tests() {
     redis_pids=()
     local index=0
     for port in "${ports[@]}"; do
-      local tx_port=$port+1000
       /home/$current_user/workspace/eloqkv/cmake/eloqkv \
-        --eloqkv_port=$port \
-        --tx_port=$tx_port \
+        --port=$port \
         --core_number=2 \
         --enable_wal=true \
         --enable_data_store=true \
@@ -1687,7 +1677,7 @@ function run_eloqkv_cluster_tests() {
         --auto_redirect=true \
         --maxclients=1000000 \
         --checkpoint_interval=36000 \
-        --ip_port_list=127.0.0.1:16379,127.0.0.1:17379,127.0.0.1:18379 \
+        --ip_port_list=127.0.0.1:6379,127.0.0.1:7379,127.0.0.1:8379 \
         --txlog_service_list=127.0.0.1:9000 \
         --txlog_group_replica_num=3 \
         --cass_hosts=$CASS_HOST \
@@ -1745,8 +1735,7 @@ function run_eloqkv_cluster_tests() {
   elif [[ $kv_store_type = "ROCKSDB" ]]; then
     echo "bootstrap before start cluster to avoid contention"
     /home/$current_user/workspace/eloqkv/cmake/eloqkv \
-      --eloqkv_port=6379 \
-      --tx_port=16379 \
+      --port=6379 \
       --core_number=2 \
       --enable_wal=false \
       --enable_data_store=false \
@@ -1755,7 +1744,7 @@ function run_eloqkv_cluster_tests() {
       --auto_redirect=true \
       --maxclients=1000000 \
       --checkpoint_interval=36000 \
-      --ip_port_list=127.0.0.1:16379,127.0.0.1:17379,127.0.0.1:18379 \
+      --ip_port_list=127.0.0.1:6379,127.0.0.1:7379,127.0.0.1:8379 \
       --txlog_service_list=$log_service_ip_port \
       --txlog_group_replica_num=3 \
       --logtostderr=true \
@@ -1779,7 +1768,7 @@ function run_eloqkv_cluster_tests() {
     for port in "${ports[@]}"; do
       echo "redirecting output to /tmp/ to prevent ci pipeline crash"
       /home/$current_user/workspace/eloqkv/cmake/eloqkv \
-        --eloqkv_port=$port \
+        --port=$port \
         --core_number=2 \
         --enable_wal=false \
         --enable_data_store=false \
@@ -1829,7 +1818,7 @@ function run_eloqkv_cluster_tests() {
     for port in "${ports[@]}"; do
       echo "redirecting output to /tmp/ to prevent ci pipeline crash"
       /home/$current_user/workspace/eloqkv/cmake/eloqkv \
-        --eloqkv_port=$port \
+        --port=$port \
         --core_number=2 \
         --enable_wal=false \
         --enable_data_store=false \
@@ -1879,7 +1868,7 @@ function run_eloqkv_cluster_tests() {
 
     echo "bootstrap before start cluster to avoid contention"
     /home/$current_user/workspace/eloqkv/cmake/eloqkv \
-      --eloqkv_port=6379 \
+      --port=6379 \
       --core_number=2 \
       --enable_wal=false \
       --enable_data_store=true \
@@ -1909,7 +1898,7 @@ function run_eloqkv_cluster_tests() {
     redis_pids=()
     for port in "${ports[@]}"; do
       /home/$current_user/workspace/eloqkv/cmake/eloqkv \
-        --eloqkv_port=$port \
+        --port=$port \
         --core_number=2 \
         --enable_wal=false \
         --enable_data_store=true \
@@ -1972,7 +1961,7 @@ function run_eloqkv_cluster_tests() {
 
     echo "bootstrap before start cluster to avoid contention"
     /home/$current_user/workspace/eloqkv/cmake/eloqkv \
-      --eloqkv_port=6379 \
+      --port=6379 \
       --core_number=2 \
       --enable_wal=true \
       --enable_data_store=true \
@@ -2007,7 +1996,7 @@ function run_eloqkv_cluster_tests() {
     for port in "${ports[@]}"; do
       echo "redirecting output to /tmp/ to prevent ci pipeline crash"
       /home/$current_user/workspace/eloqkv/cmake/eloqkv \
-        --eloqkv_port=$port \
+        --port=$port \
         --core_number=2 \
         --enable_wal=true \
         --enable_data_store=true \
@@ -2063,7 +2052,7 @@ function run_eloqkv_cluster_tests() {
     local index=0
     for port in "${ports[@]}"; do
       /home/$current_user/workspace/eloqkv/cmake/eloqkv \
-        --eloqkv_port=$port \
+        --port=$port \
         --core_number=2 \
         --enable_wal=true \
         --enable_data_store=true \
@@ -2143,7 +2132,7 @@ function run_eloqkv_cluster_tests() {
     for port in "${ports[@]}"; do
       echo "redirecting output to /tmp/ to prevent ci pipeline crash"
       /home/$current_user/workspace/eloqkv/cmake/eloqkv \
-        --eloqkv_port=$port \
+        --port=$port \
         --core_number=2 \
         --enable_wal=false \
         --enable_data_store=false \
@@ -2186,8 +2175,7 @@ function run_eloqkv_cluster_tests() {
 
     echo "bootstrap before start cluster to avoid contention"
     /home/$current_user/workspace/eloqkv/cmake/eloqkv \
-      --eloqkv_port=6379 \
-      --tx_port=16379 \
+      --port=6379 \
       --core_number=2 \
       --enable_wal=false \
       --enable_data_store=true \
@@ -2196,7 +2184,7 @@ function run_eloqkv_cluster_tests() {
       --auto_redirect=true \
       --maxclients=1000000 \
       --checkpoint_interval=36000 \
-      --ip_port_list=127.0.0.1:16379,127.0.0.1:17379,127.0.0.1:18379 \
+      --ip_port_list=127.0.0.1:6379,127.0.0.1:7379,127.0.0.1:8379 \
       --eloq_dss_peer_node=$dss_server_ip_port \
       --logtostderr=true \
       --bootstrap \
@@ -2211,10 +2199,8 @@ function run_eloqkv_cluster_tests() {
     redis_pids=()
     local index=0
     for port in "${ports[@]}"; do
-      local tx_port=$port+1000
       /home/$current_user/workspace/eloqkv/cmake/eloqkv \
-        --eloqkv_port=$port \
-        --tx_port=$tx_port \
+        --port=$port \
         --core_number=2 \
         --enable_wal=false \
         --enable_data_store=true \
@@ -2269,8 +2255,7 @@ function run_eloqkv_cluster_tests() {
 
     echo "bootstrap before start cluster to avoid contention"
     /home/$current_user/workspace/eloqkv/cmake/eloqkv \
-      --eloqkv_port=6379 \
-      --tx_port=16379 \
+      --port=6379 \
       --core_number=2 \
       --enable_wal=true \
       --enable_data_store=true \
@@ -2279,7 +2264,7 @@ function run_eloqkv_cluster_tests() {
       --auto_redirect=true \
       --maxclients=1000000 \
       --checkpoint_interval=36000 \
-      --ip_port_list=127.0.0.1:16379,127.0.0.1:17379,127.0.0.1:18379 \
+      --ip_port_list=127.0.0.1:6379,127.0.0.1:7379,127.0.0.1:8379 \
       --txlog_service_list=$log_service_ip_port \
       --txlog_group_replica_num=3 \
       --eloq_dss_peer_node=$dss_server_ip_port \
@@ -2298,11 +2283,9 @@ function run_eloqkv_cluster_tests() {
     local index=0
 
     for port in "${ports[@]}"; do
-      local tx_port=$port+1000
       echo "redirecting output to /tmp/ to prevent ci pipeline crash"
       /home/$current_user/workspace/eloqkv/cmake/eloqkv \
-        --eloqkv_port=$port \
-        --tx_port=$tx_port \
+        --port=$port \
         --core_number=2 \
         --enable_wal=true \
         --enable_data_store=true \
@@ -2311,7 +2294,7 @@ function run_eloqkv_cluster_tests() {
         --auto_redirect=true \
         --maxclients=1000000 \
         --checkpoint_interval=36000 \
-        --ip_port_list=127.0.0.1:16379,127.0.0.1:17379,127.0.0.1:18379 \
+        --ip_port_list=127.0.0.1:6379,127.0.0.1:7379,127.0.0.1:8379 \
         --txlog_service_list=$log_service_ip_port \
         --txlog_group_replica_num=3 \
         --eloq_dss_peer_node=$dss_server_ip_port \
@@ -2352,10 +2335,8 @@ function run_eloqkv_cluster_tests() {
     redis_pids=()
     local index=0
     for port in "${ports[@]}"; do
-      local tx_port=$port+1000
       /home/$current_user/workspace/eloqkv/cmake/eloqkv \
-        --eloqkv_port=$port \
-        --tx_port=$tx_port \
+        --port=$port \
         --core_number=2 \
         --enable_wal=true \
         --enable_data_store=true \
@@ -2364,7 +2345,7 @@ function run_eloqkv_cluster_tests() {
         --auto_redirect=true \
         --maxclients=1000000 \
         --checkpoint_interval=36000 \
-        --ip_port_list=127.0.0.1:16379,127.0.0.1:17379,127.0.0.1:18379 \
+        --ip_port_list=127.0.0.1:6379,127.0.0.1:7379,127.0.0.1:8379 \
         --txlog_service_list=127.0.0.1:9000 \
         --txlog_group_replica_num=3 \
         --eloq_dss_peer_node=$dss_server_ip_port \
@@ -2433,10 +2414,8 @@ function run_eloqkv_cluster_tests() {
 
     for port in "${ports[@]}"; do
       echo "redirecting output to /tmp/ to prevent ci pipeline crash for $index node." >> /tmp/redis_cluster_with_eloqstore.log
-      local tx_port=$port+1000
       ${eloqkv_bin_path} \
-        --eloqkv_port=$port \
-        --tx_port=$tx_port \
+        --port=$port \
         --core_number=2 \
         --enable_wal=false \
         --enable_data_store=false \
@@ -2448,7 +2427,7 @@ function run_eloqkv_cluster_tests() {
         --maxclients=1000000 \
         --logtostderr=true \
         --checkpoint_interval=36000 \
-        --ip_port_list=127.0.0.1:16379,127.0.0.1:17379,127.0.0.1:18379 \
+        --ip_port_list=127.0.0.1:6379,127.0.0.1:7379,127.0.0.1:8379 \
         --txlog_group_replica_num=3 \
         >/tmp/redis_server_multi_node_nowal_nostore_$index.log 2>&1 \
         &
@@ -2485,8 +2464,7 @@ function run_eloqkv_cluster_tests() {
     rm -rf /tmp/redis_server_data_2/*
     echo "bootstrap before start cluster to avoid contention" >> /tmp/redis_cluster_with_eloqstore.log
     ${eloqkv_bin_path} \
-      --eloqkv_port=6379 \
-      --tx_port=16379 \
+      --port=6379 \
       --core_number=2 \
       --enable_wal=false \
       --enable_data_store=true \
@@ -2497,7 +2475,7 @@ function run_eloqkv_cluster_tests() {
       --auto_redirect=true \
       --maxclients=1000000 \
       --checkpoint_interval=36000 \
-      --ip_port_list=127.0.0.1:16379,127.0.0.1:17379,127.0.0.1:18379 \
+      --ip_port_list=127.0.0.1:6379,127.0.0.1:7379,127.0.0.1:8379 \
       --eloq_dss_peer_node=${dss_peer_node} \
       --bootstrap \
       >/tmp/redis_server_multi_node_bootstrap.log 2>&1 \
@@ -2514,10 +2492,8 @@ function run_eloqkv_cluster_tests() {
 
     for port in "${ports[@]}"; do
       echo "redirecting output to /tmp/ to prevent ci pipeline crash for $index node." >> /tmp/redis_cluster_with_eloqstore.log
-      local tx_port=$port+1000
       ${eloqkv_bin_path} \
-        --eloqkv_port=$port \
-        --tx_port=$tx_port \
+        --port=$port \
         --core_number=2 \
         --enable_wal=false \
         --enable_data_store=true \
@@ -2530,7 +2506,7 @@ function run_eloqkv_cluster_tests() {
         --logtostderr=true \
         --checkpoint_interval=1 \
 	      --kickout_data_for_test=true \
-        --ip_port_list=127.0.0.1:16379,127.0.0.1:17379,127.0.0.1:18379 \
+        --ip_port_list=127.0.0.1:6379,127.0.0.1:7379,127.0.0.1:8379 \
         --txlog_group_replica_num=3 \
         --eloq_dss_peer_node=${dss_peer_node} \
         >/tmp/redis_server_multi_node_nowal_withstore_smallckptinterval_$index.log 2>&1 \
@@ -2572,8 +2548,7 @@ function run_eloqkv_cluster_tests() {
     rm -rf /tmp/redis_server_data_2/*
     echo "bootstrap before start cluster to avoid contention" >> /tmp/redis_cluster_with_eloqstore.log
     ${eloqkv_bin_path} \
-      --eloqkv_port=6379 \
-      --tx_port=16379 \
+      --port=6379 \
       --core_number=2 \
       --enable_wal=false \
       --enable_data_store=true \
@@ -2584,7 +2559,7 @@ function run_eloqkv_cluster_tests() {
       --auto_redirect=true \
       --maxclients=1000000 \
       --checkpoint_interval=36000 \
-      --ip_port_list=127.0.0.1:16379,127.0.0.1:17379,127.0.0.1:18379 \
+      --ip_port_list=127.0.0.1:6379,127.0.0.1:7379,127.0.0.1:8379 \
       --eloq_dss_peer_node=${dss_peer_node} \
       --bootstrap \
       >/tmp/redis_server_multi_node_bootstrap.log 2>&1 \
@@ -2599,17 +2574,15 @@ function run_eloqkv_cluster_tests() {
     local index=0
     for port in "${ports[@]}"; do
       echo "redirecting output to /tmp/ to prevent ci pipeline crash for $index node." >> /tmp/redis_cluster_with_eloqstore.log
-      local tx_port=$port+1000
       ${eloqkv_bin_path} \
-        --eloqkv_port=$port \
-        --tx_port=$tx_port \
+        --port=$port \
         --core_number=2 \
         --enable_wal=false \
         --enable_data_store=true \
         --log_dir="/tmp/redis_server_logs_$index" \
         --eloq_data_path="/tmp/redis_server_data_$index" \
         --node_memory_limit_mb=${node_memory_limit_mb} \
-        --ip_port_list=127.0.0.1:16379,127.0.0.1:17379,127.0.0.1:18379 \
+        --ip_port_list=127.0.0.1:6379,127.0.0.1:7379,127.0.0.1:8379 \
         --txlog_group_replica_num=3 \
         --eloq_dss_peer_node=${dss_peer_node} \
         --maxclients=1000000 \
@@ -2671,8 +2644,7 @@ function run_eloqkv_cluster_tests() {
     rm -rf /tmp/redis_server_data_2/*
     echo "bootstrap before start cluster to avoid contention" >> /tmp/redis_cluster_with_eloqstore.log
     ${eloqkv_bin_path} \
-      --eloqkv_port=6379 \
-      --tx_port=16379 \
+      --port=6379 \
       --core_number=2 \
       --enable_wal=true \
       --enable_data_store=true \
@@ -2683,7 +2655,7 @@ function run_eloqkv_cluster_tests() {
       --auto_redirect=true \
       --maxclients=1000000 \
       --checkpoint_interval=36000 \
-      --ip_port_list=127.0.0.1:16379,127.0.0.1:17379,127.0.0.1:18379 \
+      --ip_port_list=127.0.0.1:6379,127.0.0.1:7379,127.0.0.1:8379 \
       --txlog_service_list=$log_service_ip_port \
       --txlog_group_replica_num=3 \
       --eloq_dss_peer_node=${dss_peer_node} \
@@ -2702,10 +2674,8 @@ function run_eloqkv_cluster_tests() {
 
     for port in "${ports[@]}"; do
       echo "redirecting output to /tmp/ to prevent ci pipeline crash for $index node." >> /tmp/redis_cluster_with_eloqstore.log
-      local tx_port=$port+1000
       ${eloqkv_bin_path} \
-        --eloqkv_port=$port \
-        --tx_port=$tx_port \
+        --port=$port \
         --core_number=2 \
         --enable_wal=true \
         --enable_data_store=true \
@@ -2717,7 +2687,7 @@ function run_eloqkv_cluster_tests() {
         --maxclients=1000000 \
         --logtostderr=true \
         --checkpoint_interval=36000 \
-        --ip_port_list=127.0.0.1:16379,127.0.0.1:17379,127.0.0.1:18379 \
+        --ip_port_list=127.0.0.1:6379,127.0.0.1:7379,127.0.0.1:8379 \
         --txlog_service_list=$log_service_ip_port \
         --txlog_group_replica_num=3 \
         --eloq_dss_peer_node=${dss_peer_node} \
@@ -2760,10 +2730,8 @@ function run_eloqkv_cluster_tests() {
     local index=0
     for port in "${ports[@]}"; do
       echo "redirecting output to /tmp/ to prevent ci pipeline crash for $index node." >> /tmp/redis_cluster_with_eloqstore.log
-      local tx_port=$port+1000
       ${eloqkv_bin_path} \
-        --eloqkv_port=$port \
-        --tx_port=$tx_port \
+        --port=$port \
         --core_number=2 \
         --enable_wal=true \
         --enable_data_store=true \
@@ -2775,7 +2743,7 @@ function run_eloqkv_cluster_tests() {
         --maxclients=1000000 \
         --logtostderr=true \
         --checkpoint_interval=36000 \
-        --ip_port_list=127.0.0.1:16379,127.0.0.1:17379,127.0.0.1:18379 \
+        --ip_port_list=127.0.0.1:6379,127.0.0.1:7379,127.0.0.1:8379 \
         --txlog_service_list=$log_service_ip_port \
         --txlog_group_replica_num=3 \
         --eloq_dss_peer_node=${dss_peer_node} \
