@@ -2964,13 +2964,8 @@ function run_eloq_test(){
     # rm -rf runtime/*
 
     # run standby tests.
-    # python3 redis_test/standby_test/test_with_kv.py --dbtype redis --storage eloqdss-rocksdb-cloud-s3 --install_path ${eloqkv_install_path}
-    # rm -rf runtime/*
-    # sleep 1
-    # python3 redis_test/standby_test/test_with_wal_and_cass.py --dbtype redis --storage eloqdss-rocksdb-cloud-s3 --install_path ${eloqkv_install_path}
-    # rm -rf runtime/*
-    # sleep 1
-    # python3 redis_test/standby_test/test_with_failover.py --dbtype redis --storage eloqdss-rocksdb-cloud-s3 --install_path ${eloqkv_install_path}
+    python3 run_tests.py --dbtype redis --group standby --storage eloqdss-rocksdb-cloud-s3 --install_path ${eloqkv_install_path}
+    rm -rf runtime/*
 
     # rm -rf runtime/*
     # python3 redis_test/datastore_test/datastore_scale_test.py --dbtype redis --storage eloqdss-rocksdb-cloud-s3 --install_path ${eloqkv_install_path}
