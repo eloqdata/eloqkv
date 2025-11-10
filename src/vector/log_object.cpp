@@ -905,7 +905,8 @@ LogError LogObject::scan_log(const std::string &log_name,
                                                  false,
                                                  nullptr,
                                                  nullptr,
-                                                 nullptr);
+                                                 nullptr,
+                                                 true);
     txm->Execute(&batch_read_req);
     batch_read_req.Wait();
 
@@ -1204,6 +1205,7 @@ LogError LogObject::exists_sharded(const std::string &base_log_name,
                                                  nullptr,
                                                  nullptr,
                                                  nullptr,
+                                                 true,
                                                  0,
                                                  true);
 
