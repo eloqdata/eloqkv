@@ -46,7 +46,15 @@ sudo chmod 777 /var/crash
 sudo chown -R $current_user /home/$current_user/workspace
 cd /home/$current_user/workspace
 ln -s $WORKSPACE/redis_pr eloqkv
+
 ln -s $WORKSPACE/eloq_test_src eloq_test
+cd eloq_test
+if [ -n "$pr_branch_name" ] && git ls-remote --exit-code --heads origin "$pr_branch_name" > /dev/null; then
+  git fetch origin "${pr_branch_name}:refs/remotes/origin/${pr_branch_name}"
+  git checkout -b ${pr_branch_name} origin/${pr_branch_name}
+  git submodule update --init --recursive
+fi
+cd ..
 
 cd eloqkv
 git submodule sync
