@@ -52,7 +52,17 @@ cd eloqkv
 git submodule sync
 git submodule update --init --recursive
 pr_branch_name=$(cat .git/resource/metadata.json | jq -r '.[] | select(.name=="head_name") | .value')
+cd ..
 
+cd eloq_test
+if [ -n "$pr_branch_name" ] && git ls-remote --exit-code --heads origin "$pr_branch_name" > /dev/null; then
+  git fetch origin "${pr_branch_name}:refs/remotes/origin/${pr_branch_name}"
+  git checkout -b ${pr_branch_name} origin/${pr_branch_name}
+  git submodule update --init --recursive
+fi
+cd ..
+
+cd eloqkv
 ln -s $WORKSPACE/logservice_src eloq_log_service
 cd eloq_log_service
 if [ -n "$pr_branch_name" ] && git ls-remote --exit-code --heads origin "$pr_branch_name" > /dev/null; then
