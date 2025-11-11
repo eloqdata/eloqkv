@@ -379,7 +379,11 @@ brpc::Acceptor *server_acceptor = nullptr;
 
 // The maximum size of a object.
 constexpr uint64_t MAX_OBJECT_SIZE = 256 * 1024 * 1024;  // 256MB
-constexpr uint64_t MAX_KEY_SIZE = 32 * 1024 * 1024;      // 32MB
+#if defined(DATA_STORE_TYPE_ELOQDSS_ELOQSTORE)
+constexpr uint64_t MAX_KEY_SIZE = 2048;
+#else
+constexpr uint64_t MAX_KEY_SIZE = 32 * 1024 * 1024;  // 32MB
+#endif
 
 // Maintain slow log for each bthread task group.
 
