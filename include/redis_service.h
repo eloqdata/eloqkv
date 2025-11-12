@@ -239,7 +239,7 @@ public:
     // For ClusterSlots command. Results will be returned through arg 'info'.
     void RedisClusterSlots(std::vector<SlotInfo> &info);
 
-    std::string GenerateMovedErrorMessage(uint16_t slot_num);
+    std::string GenerateMovedErrorMessage(uint16_t slot_id);
 
     std::unique_ptr<brpc::ConnectionContext> NewConnectionContext(
         brpc::Socket *socket) const override;

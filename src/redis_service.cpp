@@ -2498,17 +2498,17 @@ void RedisServiceImpl::RedisClusterSlots(std::vector<SlotInfo> &info)
     }
 }
 
-std::string RedisServiceImpl::GenerateMovedErrorMessage(uint16_t slot_num)
+std::string RedisServiceImpl::GenerateMovedErrorMessage(uint16_t slot_id)
 {
     std::vector<SlotInfo> slot_infos;
     RedisClusterSlots(slot_infos);
 
     std::string error_msg("MOVED ");
-    error_msg.append(std::to_string(slot_num));
+    error_msg.append(std::to_string(slot_id));
     for (auto &slot_info : slot_infos)
     {
-        if (slot_info.start_slot_range <= slot_num &&
-            slot_info.end_slot_range >= slot_num)
+        if (slot_info.start_slot_range <= slot_id &&
+            slot_info.end_slot_range >= slot_id)
         {
             error_msg.append(" ");
             error_msg.append(slot_info.hosts.front().ip);
@@ -2585,11 +2585,11 @@ bool RedisServiceImpl::SendTxRequestAndWaitResult(
                     dynamic_cast<ObjectCommandTxRequest *>(tx_req))
             {
                 auto key = object_tx_req->Key();
-                uint16_t slot_num = key->Hash() & 0x3fff;
+                uint16_t slot_id = key->Hash() & 0x3fff;
 
                 if (error != nullptr)
                 {
-                    std::string error_msg = GenerateMovedErrorMessage(slot_num);
+                    std::string error_msg = GenerateMovedErrorMessage(slot_id);
                     error->OnError(error_msg);
                 }
                 return false;
@@ -2604,11 +2604,11 @@ bool RedisServiceImpl::SendTxRequestAndWaitResult(
                     multi_obj_cmd->KeyPointers(0);
                 assert(!keys->empty());
                 // first key slot
-                uint16_t slot_num = keys->at(0).Hash() & 0x3fff;
+                uint16_t slot_id = keys->at(0).Hash() & 0x3fff;
 
                 if (error != nullptr)
                 {
-                    std::string error_msg = GenerateMovedErrorMessage(slot_num);
+                    std::string error_msg = GenerateMovedErrorMessage(slot_id);
                     error->OnError(error_msg);
                 }
 
