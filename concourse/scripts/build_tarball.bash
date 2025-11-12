@@ -161,8 +161,18 @@ mv redis-cli ${DEST_DIR}/bin/eloqkv-cli
 # build eloqkv
 cd $ELOQKV_SRC
 mkdir build && cd build
+
+BUILD_TYPE_NORMALIZED=$(echo "${BUILD_TYPE}" | tr '[:upper:]' '[:lower:]')
+# Keep checkpoint reporting and code line trimming enabled for Debug builds.
+CKPT_REPORT_FLAG="ON"
+CODE_LINE_FLAG="ON"
+if [[ "${BUILD_TYPE_NORMALIZED}" == "debug" ]]; then
+    CKPT_REPORT_FLAG="OFF"
+    CODE_LINE_FLAG="OFF"
+fi
+
 cmake .. -DCMAKE_BUILD_TYPE=$BUILD_TYPE -DWITH_DATA_STORE=$DATA_STORE_TYPE $CMAKE_ARGS \
-    -DWITH_LOG_SERVICE=ON -DDISABLE_CKPT_REPORT=ON -DDISABLE_CODE_LINE_IN_LOG=ON \
+    -DWITH_LOG_SERVICE=ON -DDISABLE_CKPT_REPORT=${CKPT_REPORT_FLAG} -DDISABLE_CODE_LINE_IN_LOG=${CODE_LINE_FLAG} \
     -DWITH_ASAN=$ASAN -DOPEN_LOG_SERVICE=OFF -DFORK_HM_PROCESS=ON
 cmake --build . --config ${BUILD_TYPE} -j${NCORE}
 copy_libraries eloqkv ${DEST_DIR}/lib
