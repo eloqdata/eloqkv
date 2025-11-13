@@ -1201,6 +1201,7 @@ bool RedisServiceImpl::Init(brpc::Server &brpc_server)
             FLAGS_bootstrap || is_single_node,
             catalog_factory,
             ds_config,
+            eloq_dss_peer_node.empty(),
             data_store_service_.get());
 
 #endif
