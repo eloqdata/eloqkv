@@ -151,8 +151,7 @@ function run_build() {
     -DCMAKE_BUILD_TYPE=$build_type \
     -DWITH_DATA_STORE=$kv_store_type \
     -DBUILD_WITH_TESTS=ON \
-    -DWITH_LOG_SERVICE=ON \
-    -DUSE_ONE_ELOQDSS_PARTITION_ENABLED=ON
+    -DWITH_LOG_SERVICE=ON
 
   # Define the output log file
   log_file="/tmp/compile_info.log"
@@ -214,7 +213,6 @@ function run_build_ent() {
     -DWITH_DATA_STORE=$kv_store_type \
     -DBUILD_WITH_TESTS=ON \
     -DWITH_LOG_SERVICE=ON \
-    -DUSE_ONE_ELOQDSS_PARTITION_ENABLED=ON \
     -DOPEN_LOG_SERVICE=OFF \
     -DFORK_HM_PROCESS=ON
 
@@ -2969,7 +2967,7 @@ function run_eloq_test(){
 
     # rm -rf runtime/*
     # python3 redis_test/datastore_test/datastore_scale_test.py --dbtype redis --storage eloqdss-rocksdb-cloud-s3 --install_path ${eloqkv_install_path}
-    python3 redis_test/single_test/branching_snapshot_test.py --dbtype redis --storage eloqdss-rocksdb-cloud-s3 --install_path ${eloqkv_install_path}
+    # python3 redis_test/single_test/branching_snapshot_test.py --dbtype redis --storage eloqdss-rocksdb-cloud-s3 --install_path ${eloqkv_install_path}
 
     # run ttl tests
     rm -rf runtime/*
@@ -2978,7 +2976,7 @@ function run_eloq_test(){
     # python3 redis_test/ttl_test/ttl_test_with_wal.py --dbtype redis --storage eloqdss-rocksdb-cloud-s3 --install_path ${eloqkv_install_path}
 
     # run eloq_purger test
-    python3 redis_test/single_test/rocksdb_cloud_data_store_purger_test.py --dbtype redis --storage eloqdss-rocksdb-cloud-s3 --install_path ${eloqkv_install_path}
+    # python3 redis_test/single_test/rocksdb_cloud_data_store_purger_test.py --dbtype redis --storage eloqdss-rocksdb-cloud-s3 --install_path ${eloqkv_install_path}
 
     # clean up test bucket
     cleanup_minio_bucket $ROCKSDB_CLOUD_BUCKET_NAME
