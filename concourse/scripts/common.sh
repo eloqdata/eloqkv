@@ -308,7 +308,7 @@ function run_eloqkv_tests() {
       --cass_hosts=$CASS_HOST \
       --cass_keyspace=$keyspace_name \
       --maxclients=1000000 \
-      --checkpoint_interval=36000 \
+      --checkpointer_interval=36000 \
       --enable_io_uring=${enable_io_uring} \
       --logtostderr=true \
       >/tmp/redis_server_single_node_before_replay.log 2>&1 \
@@ -349,7 +349,7 @@ function run_eloqkv_tests() {
       --cass_hosts=$CASS_HOST \
       --cass_keyspace=$keyspace_name \
       --maxclients=1000000 \
-      --checkpoint_interval=36000 \
+      --checkpointer_interval=36000 \
       --enable_io_uring=${enable_io_uring} \
       --logtostderr=true \
       >/tmp/redis_server_single_node_after_replay.log 2>&1 \
@@ -411,7 +411,7 @@ function run_eloqkv_tests() {
         --cass_hosts=$CASS_HOST \
         --cass_keyspace=$keyspace_name \
         --maxclients=1000000 \
-        --checkpoint_interval=10 \
+        --checkpointer_interval=10 \
         --enable_io_uring=${enable_io_uring} \
         --logtostderr=true \
         >/tmp/redis_server_single_node_no_wal.log 2>&1 \
@@ -443,7 +443,7 @@ function run_eloqkv_tests() {
         --enable_wal=false \
         --enable_data_store=false \
         --maxclients=1000000 \
-        --checkpoint_interval=10 \
+        --checkpointer_interval=10 \
         --enable_io_uring=${enable_io_uring} \
         --logtostderr=true \
         >/tmp/redis_server_single_node_no_wal_no_data_store.log 2>&1 \
@@ -486,7 +486,7 @@ function run_eloqkv_tests() {
       --enable_wal=true \
       --enable_data_store=true \
       --maxclients=1000000 \
-      --checkpoint_interval=36000 \
+      --checkpointer_interval=36000 \
       --enable_io_uring=${enable_io_uring} \
       --logtostderr=true \
       >/tmp/redis_server_single_node_before_replay.log 2>&1 \
@@ -525,7 +525,7 @@ function run_eloqkv_tests() {
       --enable_wal=true \
       --enable_data_store=true \
       --maxclients=1000000 \
-      --checkpoint_interval=36000 \
+      --checkpointer_interval=36000 \
       --enable_io_uring=${enable_io_uring} \
       --logtostderr=true \
       >/tmp/redis_server_single_node_after_replay.log 2>&1 \
@@ -585,7 +585,7 @@ function run_eloqkv_tests() {
         --enable_wal=false \
         --enable_data_store=true \
         --maxclients=1000000 \
-        --checkpoint_interval=10 \
+        --checkpointer_interval=10 \
         --enable_io_uring=${enable_io_uring} \
         --logtostderr=true \
         >/tmp/redis_server_single_node_no_wal.log 2>&1 \
@@ -614,7 +614,7 @@ function run_eloqkv_tests() {
         --enable_wal=false \
         --enable_data_store=false \
         --maxclients=1000000 \
-        --checkpoint_interval=10 \
+        --checkpointer_interval=10 \
         --enable_io_uring=${enable_io_uring} \
         --logtostderr=true \
         >/tmp/redis_server_single_node_no_wal_no_data_store.log 2>&1 \
@@ -661,7 +661,7 @@ function run_eloqkv_tests() {
       --aws_secret_key=$aws_secret_key \
       --dynamodb_keyspace=$keyspace_name \
       --maxclients=1000000 \
-      --checkpoint_interval=10 \
+      --checkpointer_interval=10 \
       --enable_io_uring=${enable_io_uring} \
       --logtostderr=true \
       >/tmp/redis_server_single_node_before_replay.log 2>&1 \
@@ -705,7 +705,7 @@ function run_eloqkv_tests() {
       --aws_secret_key=$aws_secret_key \
       --dynamodb_keyspace=$keyspace_name \
       --maxclients=1000000 \
-      --checkpoint_interval=10 \
+      --checkpointer_interval=10 \
       --enable_io_uring=${enable_io_uring} \
       --logtostderr=true \
       >/tmp/redis_server_single_node_after_replay.log 2>&1 \
@@ -770,7 +770,7 @@ function run_eloqkv_tests() {
         --aws_secret_key=$aws_secret_key \
         --dynamodb_keyspace=$keyspace_name \
         --maxclients=1000000 \
-        --checkpoint_interval=10 \
+        --checkpointer_interval=10 \
         --enable_io_uring=${enable_io_uring} \
         --logtostderr=true \
         >/tmp/redis_server_single_node_no_wal.log 2>&1 \
@@ -801,7 +801,7 @@ function run_eloqkv_tests() {
         --enable_wal=false \
         --enable_data_store=false \
         --maxclients=1000000 \
-        --checkpoint_interval=10 \
+        --checkpointer_interval=10 \
         --enable_io_uring=${enable_io_uring} \
         --logtostderr=true \
         >/tmp/redis_server_single_node_no_wal_no_data_store.log 2>&1 \
@@ -863,7 +863,7 @@ function run_eloqkv_tests() {
       --rocksdb_cloud_object_path=${rocksdb_cloud_object_path} \
       --rocksdb_cloud_purger_periodicity_secs=30 \
       --maxclients=1000000 \
-      --checkpoint_interval=36000 \
+      --checkpointer_interval=36000 \
       --enable_io_uring=${enable_io_uring} \
       --logtostderr=true \
       >/tmp/redis_server_single_node_before_replay.log 2>&1 \
@@ -908,7 +908,7 @@ function run_eloqkv_tests() {
       --rocksdb_cloud_object_path=${rocksdb_cloud_object_path} \
       --rocksdb_cloud_purger_periodicity_secs=30 \
       --maxclients=1000000 \
-      --checkpoint_interval=36000 \
+      --checkpointer_interval=36000 \
       --enable_io_uring=${enable_io_uring} \
       --logtostderr=true \
       >/tmp/redis_server_single_node_after_replay.log 2>&1 \
@@ -974,7 +974,7 @@ function run_eloqkv_tests() {
         --rocksdb_cloud_object_path=${rocksdb_cloud_object_path} \
         --rocksdb_cloud_purger_periodicity_secs=30 \
         --maxclients=1000000 \
-        --checkpoint_interval=10 \
+        --checkpointer_interval=10 \
         --enable_io_uring=${enable_io_uring} \
         --logtostderr=true \
         >/tmp/redis_server_single_node_no_wal.log 2>&1 \
@@ -1009,7 +1009,7 @@ function run_eloqkv_tests() {
         --rocksdb_cloud_object_path=${rocksdb_cloud_object_path} \
         --rocksdb_cloud_purger_periodicity_secs=30 \
         --maxclients=1000000 \
-        --checkpoint_interval=10 \
+        --checkpointer_interval=10 \
         --enable_io_uring=${enable_io_uring} \
         --logtostderr=true \
         >/tmp/redis_server_single_node_no_wal_no_data_store.log 2>&1 \
@@ -1056,7 +1056,7 @@ function run_eloqkv_tests() {
         --eloq_store_data_path=${eloq_store_data_path} \
         --maxclients=1000000 \
 	      --logtostderr=true \
-        --checkpoint_interval=1 \
+        --checkpointer_interval=1 \
 	      --kickout_data_for_test=true \
         >/tmp/redis_server_single_node_small_ckpt_interval.log 2>&1 \
         &
@@ -1093,7 +1093,7 @@ function run_eloqkv_tests() {
       --eloq_store_data_path=${eloq_store_data_path} \
       --maxclients=1000000 \
       --logtostderr=true \
-      --checkpoint_interval=36000 \
+      --checkpointer_interval=36000 \
       >/tmp/redis_server_single_node_before_replay.log 2>&1 \
       &
     local redis_pid=$!
@@ -1138,7 +1138,7 @@ function run_eloqkv_tests() {
       --eloq_store_data_path=${eloq_store_data_path} \
       --maxclients=1000000 \
       --logtostderr=true \
-      --checkpoint_interval=36000 \
+      --checkpointer_interval=36000 \
       >/tmp/redis_server_single_node_after_replay.log 2>&1 \
       &
     local redis_pid=$!
@@ -1208,7 +1208,7 @@ function run_eloqkv_tests() {
         --eloq_store_data_path=${eloq_store_data_path} \
         --maxclients=1000000 \
         --logtostderr=true \
-        --checkpoint_interval=10 \
+        --checkpointer_interval=10 \
         >/tmp/redis_server_single_node_no_wal_default_ckpt_interval.log 2>&1 \
         &
     local redis_pid=$!
@@ -1244,7 +1244,7 @@ function run_eloqkv_tests() {
         --eloq_store_data_path=${eloq_store_data_path} \
         --maxclients=1000000 \
         --logtostderr=true \
-        --checkpoint_interval=1 \
+        --checkpointer_interval=1 \
 	      --kickout_data_for_test=true \
         >/tmp/redis_server_single_node_nowal_small_ckpt_interval.log 2>&1 \
         &
@@ -1282,7 +1282,7 @@ function run_eloqkv_tests() {
         --eloq_store_data_path=${eloq_store_data_path} \
         --maxclients=1000000 \
         --logtostderr=true \
-        --checkpoint_interval=10 \
+        --checkpointer_interval=10 \
         >/tmp/redis_server_single_node_no_wal_no_data_store_default_ckpt_interval.log 2>&1 \
         &
     local redis_pid=$!
@@ -1435,7 +1435,7 @@ function run_eloqkv_cluster_tests() {
         --event_dispatcher_num=1 \
         --auto_redirect=true \
         --maxclients=1000000 \
-        --checkpoint_interval=36000 \
+        --checkpointer_interval=36000 \
         --ip_port_list=127.0.0.1:6379,127.0.0.1:7379,127.0.0.1:8379 \
         --txlog_service_list=$log_service_ip_port \
         --txlog_group_replica_num=3 \
@@ -1487,7 +1487,7 @@ function run_eloqkv_cluster_tests() {
       --event_dispatcher_num=1 \
       --auto_redirect=true \
       --maxclients=1000000 \
-      --checkpoint_interval=36000 \
+      --checkpointer_interval=36000 \
       --ip_port_list=127.0.0.1:6379,127.0.0.1:7379,127.0.0.1:8379 \
       --cass_hosts=$CASS_HOST \
       --cass_port=9042 \
@@ -1581,7 +1581,7 @@ function run_eloqkv_cluster_tests() {
       --event_dispatcher_num=1 \
       --auto_redirect=true \
       --maxclients=1000000 \
-      --checkpoint_interval=36000 \
+      --checkpointer_interval=36000 \
       --ip_port_list=127.0.0.1:6379,127.0.0.1:7379,127.0.0.1:8379 \
       --txlog_service_list=$log_service_ip_port \
       --txlog_group_replica_num=3 \
@@ -1618,7 +1618,7 @@ function run_eloqkv_cluster_tests() {
         --event_dispatcher_num=1 \
         --auto_redirect=true \
         --maxclients=1000000 \
-        --checkpoint_interval=36000 \
+        --checkpointer_interval=36000 \
         --ip_port_list=127.0.0.1:6379,127.0.0.1:7379,127.0.0.1:8379 \
         --txlog_service_list=$log_service_ip_port \
         --txlog_group_replica_num=3 \
@@ -1676,7 +1676,7 @@ function run_eloqkv_cluster_tests() {
         --event_dispatcher_num=1 \
         --auto_redirect=true \
         --maxclients=1000000 \
-        --checkpoint_interval=36000 \
+        --checkpointer_interval=36000 \
         --ip_port_list=127.0.0.1:6379,127.0.0.1:7379,127.0.0.1:8379 \
         --txlog_service_list=127.0.0.1:9000 \
         --txlog_group_replica_num=3 \
@@ -1743,7 +1743,7 @@ function run_eloqkv_cluster_tests() {
       --event_dispatcher_num=1 \
       --auto_redirect=true \
       --maxclients=1000000 \
-      --checkpoint_interval=36000 \
+      --checkpointer_interval=36000 \
       --ip_port_list=127.0.0.1:6379,127.0.0.1:7379,127.0.0.1:8379 \
       --txlog_service_list=$log_service_ip_port \
       --txlog_group_replica_num=3 \
@@ -1777,7 +1777,7 @@ function run_eloqkv_cluster_tests() {
         --event_dispatcher_num=1 \
         --auto_redirect=true \
         --maxclients=1000000 \
-        --checkpoint_interval=36000 \
+        --checkpointer_interval=36000 \
         --ip_port_list=127.0.0.1:6379,127.0.0.1:7379,127.0.0.1:8379 \
         --txlog_service_list=$log_service_ip_port \
         --txlog_group_replica_num=3 \
@@ -1826,7 +1826,7 @@ function run_eloqkv_cluster_tests() {
         --event_dispatcher_num=1 \
         --auto_redirect=true \
         --maxclients=1000000 \
-        --checkpoint_interval=36000 \
+        --checkpointer_interval=36000 \
         --ip_port_list=127.0.0.1:6379,127.0.0.1:7379,127.0.0.1:8379 \
         --txlog_service_list=$log_service_ip_port \
         --txlog_group_replica_num=3 \
@@ -1876,7 +1876,7 @@ function run_eloqkv_cluster_tests() {
       --event_dispatcher_num=1 \
       --auto_redirect=true \
       --maxclients=1000000 \
-      --checkpoint_interval=10 \
+      --checkpointer_interval=10 \
       --ip_port_list=127.0.0.1:6379,127.0.0.1:7379,127.0.0.1:8379 \
       --dynamodb_endpoint=$dynamodb_endpoint \
       --dynamodb_region=$dynamodb_region \
@@ -1908,7 +1908,7 @@ function run_eloqkv_cluster_tests() {
         --aws_access_key_id=$aws_access_key_id \
         --aws_secret_key=$aws_secret_key \
         --dynamodb_keyspace=$keyspace_name \
-        --checkpoint_interval=10 \
+        --checkpointer_interval=10 \
         --logtostderr=true \
         --maxclients=1000000 \
         --enable_io_uring=${enable_io_uring} \
@@ -1969,7 +1969,7 @@ function run_eloqkv_cluster_tests() {
       --event_dispatcher_num=1 \
       --auto_redirect=true \
       --maxclients=1000000 \
-      --checkpoint_interval=10 \
+      --checkpointer_interval=10 \
       --ip_port_list=127.0.0.1:6379,127.0.0.1:7379,127.0.0.1:8379 \
       --txlog_service_list=$log_service_ip_port \
       --txlog_group_replica_num=3 \
@@ -2004,7 +2004,7 @@ function run_eloqkv_cluster_tests() {
         --event_dispatcher_num=1 \
         --auto_redirect=true \
         --maxclients=1000000 \
-        --checkpoint_interval=10 \
+        --checkpointer_interval=10 \
         --ip_port_list=127.0.0.1:6379,127.0.0.1:7379,127.0.0.1:8379 \
         --txlog_service_list=$log_service_ip_port \
         --txlog_group_replica_num=3 \
@@ -2060,7 +2060,7 @@ function run_eloqkv_cluster_tests() {
         --event_dispatcher_num=1 \
         --auto_redirect=true \
         --maxclients=1000000 \
-        --checkpoint_interval=10 \
+        --checkpointer_interval=10 \
         --ip_port_list=127.0.0.1:6379,127.0.0.1:7379,127.0.0.1:8379 \
         --txlog_service_list=$log_service_ip_port \
         --txlog_group_replica_num=3 \
@@ -2140,7 +2140,7 @@ function run_eloqkv_cluster_tests() {
         --event_dispatcher_num=1 \
         --auto_redirect=true \
         --maxclients=1000000 \
-        --checkpoint_interval=36000 \
+        --checkpointer_interval=36000 \
         --ip_port_list=127.0.0.1:6379,127.0.0.1:7379,127.0.0.1:8379 \
         --txlog_service_list=$log_service_ip_port \
         --txlog_group_replica_num=3 \
@@ -2183,7 +2183,7 @@ function run_eloqkv_cluster_tests() {
       --event_dispatcher_num=1 \
       --auto_redirect=true \
       --maxclients=1000000 \
-      --checkpoint_interval=36000 \
+      --checkpointer_interval=36000 \
       --ip_port_list=127.0.0.1:6379,127.0.0.1:7379,127.0.0.1:8379 \
       --eloq_dss_peer_node=$dss_server_ip_port \
       --logtostderr=true \
@@ -2263,7 +2263,7 @@ function run_eloqkv_cluster_tests() {
       --event_dispatcher_num=1 \
       --auto_redirect=true \
       --maxclients=1000000 \
-      --checkpoint_interval=36000 \
+      --checkpointer_interval=36000 \
       --ip_port_list=127.0.0.1:6379,127.0.0.1:7379,127.0.0.1:8379 \
       --txlog_service_list=$log_service_ip_port \
       --txlog_group_replica_num=3 \
@@ -2293,7 +2293,7 @@ function run_eloqkv_cluster_tests() {
         --event_dispatcher_num=1 \
         --auto_redirect=true \
         --maxclients=1000000 \
-        --checkpoint_interval=36000 \
+        --checkpointer_interval=36000 \
         --ip_port_list=127.0.0.1:6379,127.0.0.1:7379,127.0.0.1:8379 \
         --txlog_service_list=$log_service_ip_port \
         --txlog_group_replica_num=3 \
@@ -2344,7 +2344,7 @@ function run_eloqkv_cluster_tests() {
         --event_dispatcher_num=1 \
         --auto_redirect=true \
         --maxclients=1000000 \
-        --checkpoint_interval=36000 \
+        --checkpointer_interval=36000 \
         --ip_port_list=127.0.0.1:6379,127.0.0.1:7379,127.0.0.1:8379 \
         --txlog_service_list=127.0.0.1:9000 \
         --txlog_group_replica_num=3 \
@@ -2426,7 +2426,7 @@ function run_eloqkv_cluster_tests() {
         --auto_redirect=true \
         --maxclients=1000000 \
         --logtostderr=true \
-        --checkpoint_interval=36000 \
+        --checkpointer_interval=36000 \
         --ip_port_list=127.0.0.1:6379,127.0.0.1:7379,127.0.0.1:8379 \
         --txlog_group_replica_num=3 \
         >/tmp/redis_server_multi_node_nowal_nostore_$index.log 2>&1 \
@@ -2474,7 +2474,7 @@ function run_eloqkv_cluster_tests() {
       --event_dispatcher_num=1 \
       --auto_redirect=true \
       --maxclients=1000000 \
-      --checkpoint_interval=36000 \
+      --checkpointer_interval=36000 \
       --ip_port_list=127.0.0.1:6379,127.0.0.1:7379,127.0.0.1:8379 \
       --eloq_dss_peer_node=${dss_peer_node} \
       --bootstrap \
@@ -2504,7 +2504,7 @@ function run_eloqkv_cluster_tests() {
         --auto_redirect=true \
         --maxclients=1000000 \
         --logtostderr=true \
-        --checkpoint_interval=1 \
+        --checkpointer_interval=1 \
 	      --kickout_data_for_test=true \
         --ip_port_list=127.0.0.1:6379,127.0.0.1:7379,127.0.0.1:8379 \
         --txlog_group_replica_num=3 \
@@ -2558,7 +2558,7 @@ function run_eloqkv_cluster_tests() {
       --event_dispatcher_num=1 \
       --auto_redirect=true \
       --maxclients=1000000 \
-      --checkpoint_interval=36000 \
+      --checkpointer_interval=36000 \
       --ip_port_list=127.0.0.1:6379,127.0.0.1:7379,127.0.0.1:8379 \
       --eloq_dss_peer_node=${dss_peer_node} \
       --bootstrap \
@@ -2654,7 +2654,7 @@ function run_eloqkv_cluster_tests() {
       --event_dispatcher_num=1 \
       --auto_redirect=true \
       --maxclients=1000000 \
-      --checkpoint_interval=36000 \
+      --checkpointer_interval=36000 \
       --ip_port_list=127.0.0.1:6379,127.0.0.1:7379,127.0.0.1:8379 \
       --txlog_service_list=$log_service_ip_port \
       --txlog_group_replica_num=3 \
@@ -2686,7 +2686,7 @@ function run_eloqkv_cluster_tests() {
         --auto_redirect=true \
         --maxclients=1000000 \
         --logtostderr=true \
-        --checkpoint_interval=36000 \
+        --checkpointer_interval=36000 \
         --ip_port_list=127.0.0.1:6379,127.0.0.1:7379,127.0.0.1:8379 \
         --txlog_service_list=$log_service_ip_port \
         --txlog_group_replica_num=3 \
@@ -2742,7 +2742,7 @@ function run_eloqkv_cluster_tests() {
         --auto_redirect=true \
         --maxclients=1000000 \
         --logtostderr=true \
-        --checkpoint_interval=36000 \
+        --checkpointer_interval=36000 \
         --ip_port_list=127.0.0.1:6379,127.0.0.1:7379,127.0.0.1:8379 \
         --txlog_service_list=$log_service_ip_port \
         --txlog_group_replica_num=3 \
