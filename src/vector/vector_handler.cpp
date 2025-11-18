@@ -420,7 +420,8 @@ VectorOpResult VectorHandler::Search(const std::string &name,
     }
 
     // 4. Parse filter JSON if provided
-    std::optional<std::function<bool(VectorId)>> filter_func = std::nullopt;
+    std::optional<std::function<bool(const VectorId &)>> filter_func =
+        std::nullopt;
     std::optional<PredicateExpression> filter_expr = std::nullopt;
     if (!filter_json.empty())
     {
@@ -433,13 +434,13 @@ VectorOpResult VectorHandler::Search(const std::string &name,
         }
 
         // Create lightweight filter function
-        filter_func =
-            [&filter_expr = filter_expr.value(),
-             &schema = cache.metadata_->Metadata()](VectorId vector_id) -> bool
+        filter_func = [&filter_expr = filter_expr.value(),
+                       &schema = cache.metadata_->Metadata()](
+                          const VectorId &vector_id) -> bool
         {
             std::vector<size_t> offsets;
             schema.Decode(vector_id.metadata_, offsets);
-            return filter_expr.Evaluate(vector_id.metadata_, offsets, schema);
+            return filter_expr.Evaluate(vector_id, offsets, schema);
         };
     }
 
@@ -885,7 +886,7 @@ VectorOpResult VectorHandler::BatchAdd(
     // NOTE: the sequence of vector_ids is not same as the sequence of ids,
     // because the vector_ids are constructed in the order of shard_group.
     std::vector<VectorId> vector_ids;
-    vector_ids.reserve(ids.size());
+    vector_ids.resize(ids.size());
     // Process each shard
     for (const auto &shard_pair : shard_group)
     {
@@ -898,10 +899,10 @@ VectorOpResult VectorHandler::BatchAdd(
         for (size_t idx : indices)
         {
             // Serialize the vector at this index
-            vector_ids.emplace_back(ids[idx],
-                                    std::move(encoded_metadata_list[idx]));
+            VectorId vector_id(ids[idx], std::move(encoded_metadata_list[idx]));
+            vector_ids[idx] = std::move(vector_id);
             std::string serialized_id;
-            vector_ids.back().Serialize(serialized_id);
+            vector_ids[idx].Serialize(serialized_id);
             std::string serialized_vector;
             serialize_vector(vectors[idx], serialized_vector);
             // Create log item

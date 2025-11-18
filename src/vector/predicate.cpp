@@ -85,6 +85,18 @@ static bool CompareValues(const char *lhs_ptr,
     }
 }
 
+static bool CompareID(const VectorId &vector_id, const LeafPredNode &leaf_node)
+{
+    char id_buf[sizeof(uint64_t)];
+    const char *id_ptr = reinterpret_cast<const char *>(&vector_id.id_);
+    sort_string(id_ptr, id_buf, sizeof(uint64_t));
+    return CompareValues(id_buf,
+                         sizeof(uint64_t),
+                         leaf_node.value_.data(),
+                         leaf_node.value_.size(),
+                         leaf_node.op_);
+}
+
 // Parse operator string to PredicateOp enum
 PredicateOp ParseJSONOperator(const std::string &op)
 {
@@ -355,16 +367,16 @@ bool PredicateExpression::Parse(const std::string_view &json_str,
     }
 }
 
-bool PredicateExpression::Evaluate(const std::vector<char> &metadata,
+bool PredicateExpression::Evaluate(const VectorId &vector_id,
                                    const std::vector<size_t> &offsets,
                                    const VectorRecordMetadata &schema) const
 {
     assert(root_node_ != nullptr);
-    return EvaluateNode(*root_node_, metadata, offsets, schema);
+    return EvaluateNode(*root_node_, vector_id, offsets, schema);
 }
 
 bool PredicateExpression::EvaluateNode(const PredicateNode &node,
-                                       const std::vector<char> &metadata,
+                                       const VectorId &vector_id,
                                        const std::vector<size_t> &offsets,
                                        const VectorRecordMetadata &schema) const
 {
@@ -375,7 +387,7 @@ bool PredicateExpression::EvaluateNode(const PredicateNode &node,
     {
         const ParentPredNode &and_node =
             static_cast<const ParentPredNode &>(node);
-        if (and_node.children_.size() < 2)
+        if (and_node.children_.empty())
         {
             return false;
         }
@@ -385,7 +397,7 @@ bool PredicateExpression::EvaluateNode(const PredicateNode &node,
              ++it)
         {
             const PredicateNode &child = **it;
-            result = result && EvaluateNode(child, metadata, offsets, schema);
+            result = result && EvaluateNode(child, vector_id, offsets, schema);
         }
         return result;
     }
@@ -393,7 +405,7 @@ bool PredicateExpression::EvaluateNode(const PredicateNode &node,
     {
         const ParentPredNode &or_node =
             static_cast<const ParentPredNode &>(node);
-        if (or_node.children_.size() < 2)
+        if (or_node.children_.empty())
         {
             return false;
         }
@@ -403,7 +415,7 @@ bool PredicateExpression::EvaluateNode(const PredicateNode &node,
              ++it)
         {
             const PredicateNode &child = **it;
-            result = result || EvaluateNode(child, metadata, offsets, schema);
+            result = result || EvaluateNode(child, vector_id, offsets, schema);
         }
         return result;
     }
@@ -416,7 +428,7 @@ bool PredicateExpression::EvaluateNode(const PredicateNode &node,
             return false;
         }
         return !EvaluateNode(
-            *not_node.children_.front(), metadata, offsets, schema);
+            *not_node.children_.front(), vector_id, offsets, schema);
     }
     default:
         break;
@@ -425,12 +437,17 @@ bool PredicateExpression::EvaluateNode(const PredicateNode &node,
     // Handle comparison operators (leaf nodes)
     const LeafPredNode &leaf_node = static_cast<const LeafPredNode &>(node);
     assert(leaf_node.IsLeaf());
+    if (leaf_node.field_name_.compare(PredicateNode::ID_FIELD_NAME) == 0)
+    {
+        return CompareID(vector_id, leaf_node);
+    }
     // Get field type from schema
     assert(schema.HasMetadataField(leaf_node.field_name_));
     size_t field_index = schema.GetFieldIndex(leaf_node.field_name_);
     assert(field_index < offsets.size());
     // binary format of the field value, with length prefix for string fields.
     const size_t start_idx = offsets[field_index];
+    const std::vector<char> &metadata = vector_id.metadata_;
     const char *metadata_ptr = metadata.data() + start_idx;
     size_t metadata_size = field_index == offsets.size() - 1
                                ? metadata.size() - start_idx

@@ -158,12 +158,12 @@ public:
 
     /**
      * @brief Evaluate the predicate against metadata
-     * @param metadata Metadata field values
+     * @param vector_id Vector ID
      * @param offsets The offsets of each field in the metadata
      * @param schema Metadata schema for type information
      * @return true if predicate is satisfied, false otherwise
      */
-    bool Evaluate(const std::vector<char> &metadata,
+    bool Evaluate(const VectorId &vector_id,
                   const std::vector<size_t> &offsets,
                   const VectorRecordMetadata &schema) const;
 
@@ -179,13 +179,13 @@ private:
     /**
      * @brief Evaluate a single predicate node
      * @param node Predicate node
-     * @param metadata Metadata field values
+     * @param vector_id Vector ID
      * @param offsets The offsets of each field in the metadata
      * @param schema Metadata schema for type information
      * @return true if predicate is satisfied, false otherwise
      */
     bool EvaluateNode(const PredicateNode &node,
-                      const std::vector<char> &metadata,
+                      const VectorId &vector_id,
                       const std::vector<size_t> &offsets,
                       const VectorRecordMetadata &schema) const;
 

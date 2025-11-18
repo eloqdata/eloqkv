@@ -28,7 +28,7 @@
 
 namespace EloqVec
 {
-static inline void sort_string(char *ptr, char *to, size_t len)
+static inline void sort_string(const char *ptr, char *to, size_t len)
 {
 #if WORDS_BIGENDIAN
     std::memcpy(to, ptr, len);
