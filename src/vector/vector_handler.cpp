@@ -20,9 +20,11 @@
 
 #include "hnsw_vector_index.h"
 #include "log_object.h"
+#include "predicate.h"
 #include "tx_request.h"
 #include "tx_util.h"
 #include "tx_worker_pool.h"
+#include "vector_util.h"
 
 namespace EloqVec
 {
@@ -192,12 +194,12 @@ VectorOpResult VectorHandler::Create(const VectorIndexMetadata &index_metadata)
         return VectorOpResult::INDEX_INIT_FAILED;
     }
 
-    // 2. encode the index metadata
-    std::string encoded_str;
-    index_metadata.Encode(encoded_str);
+    // 2. serialize the index metadata
+    std::string serialized_str;
+    index_metadata.Serialize(serialized_str);
     h_record->SetEncodedBlob(
-        reinterpret_cast<const unsigned char *>(encoded_str.data()),
-        encoded_str.size());
+        reinterpret_cast<const unsigned char *>(serialized_str.data()),
+        serialized_str.size());
     // 3. upsert the metadata to the internal table
     // There is no need to check the schema ts of the internal table.
     UpsertTxRequest upsert_req(&vector_index_meta_table,
@@ -270,13 +272,13 @@ VectorOpResult VectorHandler::Drop(const std::string &name)
         return VectorOpResult::INDEX_NOT_EXIST;
     }
 
-    // 3. Decode metadata to get file path before deletion
+    // 3. Deserialize metadata to get file path before deletion
     uint64_t index_version = read_req.Result().second;
     VectorIndexMetadata metadata;
     const char *blob_data = h_record->EncodedBlobData();
     size_t blob_size = h_record->EncodedBlobSize();
     size_t offset = 0;
-    metadata.Decode(blob_data, blob_size, offset, index_version);
+    metadata.Deserialize(blob_data, blob_size, offset, index_version);
     const std::string &file_path = metadata.FilePath();
 
     // 4. The index exists, delete it using OperationType::Delete
@@ -367,11 +369,11 @@ VectorOpResult VectorHandler::Info(const std::string &name,
 
     uint64_t index_version = read_req.Result().second;
 
-    // 3. The index exists, decode the metadata
+    // 3. The index exists, deserialize the metadata
     const char *blob_data = h_record->EncodedBlobData();
     size_t blob_size = h_record->EncodedBlobSize();
     size_t offset = 0;
-    metadata.Decode(blob_data, blob_size, offset, index_version);
+    metadata.Deserialize(blob_data, blob_size, offset, index_version);
 
     CommitTx(txm);
     return VectorOpResult::SUCCEED;
@@ -381,6 +383,7 @@ VectorOpResult VectorHandler::Search(const std::string &name,
                                      const std::vector<float> &query_vector,
                                      size_t k_count,
                                      size_t thread_id,
+                                     const std::string_view &filter_json,
                                      SearchResult &vector_result)
 {
     TransactionExecution *txm =
@@ -416,16 +419,41 @@ VectorOpResult VectorHandler::Search(const std::string &name,
         return get_result;
     }
 
-    // 4. Perform vector search
-    auto search_result =
-        cache.index_->search(query_vector, k_count, thread_id, vector_result);
+    // 4. Parse filter JSON if provided
+    std::optional<std::function<bool(VectorId)>> filter_func = std::nullopt;
+    std::optional<PredicateExpression> filter_expr = std::nullopt;
+    if (!filter_json.empty())
+    {
+        // Parse JSON filter with schema
+        filter_expr = std::make_optional<PredicateExpression>();
+        if (!filter_expr->Parse(filter_json, cache.metadata_->Metadata()))
+        {
+            AbortTx(txm);
+            return VectorOpResult::METADATA_OP_FAILED;
+        }
+
+        // Create lightweight filter function
+        filter_func =
+            [&filter_expr = filter_expr.value(),
+             &schema = cache.metadata_->Metadata()](VectorId vector_id) -> bool
+        {
+            std::vector<size_t> offsets;
+            schema.Decode(vector_id.metadata_, offsets);
+            return filter_expr.Evaluate(vector_id.metadata_, offsets, schema);
+        };
+    }
+
+    // 5. Perform vector search with optional filter
+    auto search_result = cache.index_->search(
+        query_vector, k_count, thread_id, vector_result, false, filter_func);
     CommitTx(txm);
     return search_result.error;
 }
 
 VectorOpResult VectorHandler::Add(const std::string &name,
                                   uint64_t id,
-                                  const std::vector<float> &vector)
+                                  const std::vector<float> &vector,
+                                  const std::string_view &metadata)
 {
     TransactionExecution *txm =
         NewTxInit(tx_service_, IsolationLevel::RepeatableRead, CcProtocol::OCC);
@@ -457,7 +485,20 @@ VectorOpResult VectorHandler::Add(const std::string &name,
         AbortTx(txm);
         return get_result;
     }
-    // Add item to log object.
+
+    // 4. Parse and validate metadata JSON
+    std::vector<char> encoded_metadata;
+    if (!metadata.empty() &&
+        !cache.metadata_->Metadata().Encode(metadata, encoded_metadata))
+    {
+        AbortTx(txm);
+        return VectorOpResult::METADATA_OP_FAILED;
+    }
+
+    // 5. Add item to log object.
+    VectorId vector_id(id, std::move(encoded_metadata));
+    std::string serialized_id;
+    vector_id.Serialize(serialized_id);
     std::string serialized_vector;
     serialize_vector(vector, serialized_vector);
     uint64_t log_id = 0;
@@ -465,7 +506,7 @@ VectorOpResult VectorHandler::Add(const std::string &name,
     uint64_t ts = LocalCcShards::ClockTs();
     std::vector<log_item_t> log_items;
     log_items.emplace_back(
-        LogOperationType::INSERT, std::to_string(id), serialized_vector, ts, 0);
+        LogOperationType::INSERT, serialized_id, serialized_vector, ts, 0);
     LogError log_err =
         LogObject::append_log_sharded(build_log_name(name),
                                       std::to_string(id),
@@ -479,15 +520,16 @@ VectorOpResult VectorHandler::Add(const std::string &name,
         AbortTx(txm);
         return VectorOpResult::INDEX_LOG_OP_FAILED;
     }
-    // 4. Add the vector to the index
-    auto add_result = cache.index_->add(vector, id);
+
+    // 6. Add the vector to the index
+    auto add_result = cache.index_->add(vector, vector_id);
     if (add_result.error == VectorOpResult::SUCCEED)
     {
         auto res_pair = CommitTx(txm);
         if (!res_pair.first)
         {
             // Remove the vector from the index cache.
-            cache.index_->remove(id);
+            cache.index_->remove(vector_id);
             return VectorOpResult::INDEX_ADD_FAILED;
         }
 
@@ -521,7 +563,8 @@ VectorOpResult VectorHandler::Add(const std::string &name,
 
 VectorOpResult VectorHandler::Update(const std::string &name,
                                      uint64_t id,
-                                     const std::vector<float> &vector)
+                                     const std::vector<float> &vector,
+                                     const std::string_view &metadata)
 {
     TransactionExecution *txm =
         NewTxInit(tx_service_, IsolationLevel::RepeatableRead, CcProtocol::OCC);
@@ -556,7 +599,19 @@ VectorOpResult VectorHandler::Update(const std::string &name,
         return get_result;
     }
 
-    // Add item to log object.
+    // 4. Parse and validate metadata JSON
+    std::vector<char> encoded_metadata;
+    if (!metadata.empty() &&
+        !cache.metadata_->Metadata().Encode(metadata, encoded_metadata))
+    {
+        AbortTx(txm);
+        return VectorOpResult::METADATA_OP_FAILED;
+    }
+
+    // 5. Add item to log object.
+    VectorId vector_id(id, std::move(encoded_metadata));
+    std::string serialized_id;
+    vector_id.Serialize(serialized_id);
     std::string serialized_vector;
     serialize_vector(vector, serialized_vector);
     uint64_t log_id = 0;
@@ -564,7 +619,7 @@ VectorOpResult VectorHandler::Update(const std::string &name,
     uint64_t ts = LocalCcShards::ClockTs();
     std::vector<log_item_t> log_items;
     log_items.emplace_back(
-        LogOperationType::UPDATE, std::to_string(id), serialized_vector, ts, 0);
+        LogOperationType::UPDATE, serialized_id, serialized_vector, ts, 0);
     LogError log_err =
         LogObject::append_log_sharded(build_log_name(name),
                                       std::to_string(id),
@@ -579,9 +634,9 @@ VectorOpResult VectorHandler::Update(const std::string &name,
         return VectorOpResult::INDEX_LOG_OP_FAILED;
     }
 
-    // 4. Update the vector in the index
+    // 6. Update the vector in the index
     std::vector<float> update_vec;
-    auto idx_res = cache.index_->get(id, update_vec);
+    auto idx_res = cache.index_->get(vector_id, update_vec);
     if (idx_res.error != VectorOpResult::SUCCEED || update_vec.size() == 0)
     {
         // The index operation failed or the vector with this id does not exist.
@@ -589,14 +644,14 @@ VectorOpResult VectorHandler::Update(const std::string &name,
         return idx_res.error;
     }
 
-    idx_res = cache.index_->update(vector, id);
+    idx_res = cache.index_->update(vector, vector_id);
     if (idx_res.error == VectorOpResult::SUCCEED)
     {
         auto res_pair = CommitTx(txm);
         if (!res_pair.first)
         {
             // Restore the vector to the index cache.
-            cache.index_->update(update_vec, id);
+            cache.index_->update(update_vec, vector_id);
             return VectorOpResult::INDEX_UPDATE_FAILED;
         }
 
@@ -664,16 +719,16 @@ VectorOpResult VectorHandler::Delete(const std::string &name, uint64_t id)
     }
 
     // Add item to log object.
+    VectorId vector_id(id);
+    std::string serialized_id;
+    vector_id.Serialize(serialized_id);
     std::string serialized_empty_vec;
     uint64_t log_id = 0;
     uint64_t log_count = 0;
     uint64_t ts = LocalCcShards::ClockTs();
     std::vector<log_item_t> log_items;
-    log_items.emplace_back(LogOperationType::DELETE,
-                           std::to_string(id),
-                           serialized_empty_vec,
-                           ts,
-                           0);
+    log_items.emplace_back(
+        LogOperationType::DELETE, serialized_id, serialized_empty_vec, ts, 0);
     LogError log_err =
         LogObject::append_log_sharded(build_log_name(name),
                                       std::to_string(id),
@@ -690,7 +745,7 @@ VectorOpResult VectorHandler::Delete(const std::string &name, uint64_t id)
 
     // 4. Delete the vector from the index
     std::vector<float> deleted_vector;
-    auto idx_res = cache.index_->get(id, deleted_vector);
+    auto idx_res = cache.index_->get(vector_id, deleted_vector);
     if (idx_res.error != VectorOpResult::SUCCEED || deleted_vector.size() == 0)
     {
         // The index operation failed or the vector with this id does not exist.
@@ -698,14 +753,14 @@ VectorOpResult VectorHandler::Delete(const std::string &name, uint64_t id)
         return idx_res.error;
     }
 
-    idx_res = cache.index_->remove(id);
+    idx_res = cache.index_->remove(vector_id);
     if (idx_res.error == VectorOpResult::SUCCEED)
     {
         auto res_pair = CommitTx(txm);
         if (!res_pair.first)
         {
             // Restore the vector to the index cache.
-            cache.index_->add(deleted_vector, id);
+            cache.index_->add(deleted_vector, vector_id);
             return VectorOpResult::INDEX_DELETE_FAILED;
         }
 
@@ -740,10 +795,17 @@ VectorOpResult VectorHandler::Delete(const std::string &name, uint64_t id)
 VectorOpResult VectorHandler::BatchAdd(
     const std::string &name,
     const std::vector<uint64_t> &ids,
-    const std::vector<std::vector<float>> &vectors)
+    const std::vector<std::vector<float>> &vectors,
+    const std::vector<std::string_view> &metadata_list)
 {
     // Check if the ids and vectors are valid
     if (ids.empty() || ids.size() != vectors.size())
+    {
+        return VectorOpResult::INDEX_ADD_FAILED;
+    }
+
+    // Check if metadata_list size matches
+    if (!metadata_list.empty() && metadata_list.size() != ids.size())
     {
         return VectorOpResult::INDEX_ADD_FAILED;
     }
@@ -781,7 +843,26 @@ VectorOpResult VectorHandler::BatchAdd(
         return get_result;
     }
 
-    // Group ids by shard id
+    // 4. Parse and validate metadata JSON list
+    std::vector<std::vector<char>> encoded_metadata_list;
+    encoded_metadata_list.resize(ids.size());
+    if (!metadata_list.empty())
+    {
+        for (size_t i = 0; i < metadata_list.size(); ++i)
+        {
+            std::vector<char> encoded_metadata;
+            if (!metadata_list[i].empty() &&
+                !cache.metadata_->Metadata().Encode(metadata_list[i],
+                                                    encoded_metadata))
+            {
+                AbortTx(txm);
+                return VectorOpResult::METADATA_OP_FAILED;
+            }
+            encoded_metadata_list[i] = std::move(encoded_metadata);
+        }
+    }
+
+    // 5. Group ids by shard id
     // Sort the shard id to avoid potential deadlock.
     std::map<uint32_t, std::vector<size_t>> shard_group;
     for (size_t i = 0; i < ids.size(); i++)
@@ -797,10 +878,14 @@ VectorOpResult VectorHandler::BatchAdd(
         res_pair.first->second.push_back(i);
     }
 
-    // 4. Add items to log object by shard
+    // 6. Add items to log object by shard
     uint64_t ts = LocalCcShards::ClockTs();
     uint64_t log_id = 0;
     uint64_t log_count = 0;
+    // NOTE: the sequence of vector_ids is not same as the sequence of ids,
+    // because the vector_ids are constructed in the order of shard_group.
+    std::vector<VectorId> vector_ids;
+    vector_ids.reserve(ids.size());
     // Process each shard
     for (const auto &shard_pair : shard_group)
     {
@@ -813,11 +898,15 @@ VectorOpResult VectorHandler::BatchAdd(
         for (size_t idx : indices)
         {
             // Serialize the vector at this index
+            vector_ids.emplace_back(ids[idx],
+                                    std::move(encoded_metadata_list[idx]));
+            std::string serialized_id;
+            vector_ids.back().Serialize(serialized_id);
             std::string serialized_vector;
             serialize_vector(vectors[idx], serialized_vector);
             // Create log item
             log_items.emplace_back(LogOperationType::INSERT,
-                                   std::to_string(ids[idx]),
+                                   serialized_id,
                                    serialized_vector,
                                    ts,
                                    0);
@@ -840,16 +929,16 @@ VectorOpResult VectorHandler::BatchAdd(
         }
     }
 
-    // 4. Add the vectors to the index
-    auto add_result = cache.index_->add_batch(vectors, ids);
+    // 7. Add the vectors to the index
+    auto add_result = cache.index_->add_batch(vectors, vector_ids);
     if (add_result.error == VectorOpResult::SUCCEED)
     {
         auto res_pair = CommitTx(txm);
         if (!res_pair.first)
         {
-            for (const uint64_t id : ids)
+            for (const VectorId &vector_id : vector_ids)
             {
-                cache.index_->remove(id);
+                cache.index_->remove(vector_id);
             }
             return VectorOpResult::INDEX_ADD_FAILED;
         }
@@ -927,15 +1016,15 @@ std::pair<VectorHandler::IndexCache, VectorOpResult>
 VectorHandler::CreateAndInitializeIndex(const TxRecord::Uptr &h_record,
                                         TransactionExecution *txm)
 {
-    // Decode metadata from h_record (single decode!)
+    // Deserialize metadata from h_record
     auto metadata_sptr = std::make_shared<VectorIndexMetadata>();
     const char *blob_data = h_record->EncodedBlobData();
     size_t blob_size = h_record->EncodedBlobSize();
     size_t offset = 0;
     uint64_t unused_version = 0;
-    metadata_sptr->Decode(blob_data, blob_size, offset, unused_version);
+    metadata_sptr->Deserialize(blob_data, blob_size, offset, unused_version);
 
-    // Get IndexConfig directly from metadata (no reconstruction needed!)
+    // Get IndexConfig directly from metadata
     const IndexConfig &config = metadata_sptr->Config();
     const std::string &index_name = metadata_sptr->Name();
     const std::string &file_path = metadata_sptr->FilePath();
@@ -1029,12 +1118,12 @@ VectorOpResult VectorHandler::PersistIndex(const std::string &name, bool force)
     }
 
     uint64_t index_version = read_req.Result().second;
-    // 2. Decode metadata
+    // 2. Deserialize metadata
     VectorIndexMetadata metadata;
     const char *blob_data = h_record->EncodedBlobData();
     size_t blob_size = h_record->EncodedBlobSize();
     size_t offset = 0;
-    metadata.Decode(blob_data, blob_size, offset, index_version);
+    metadata.Deserialize(blob_data, blob_size, offset, index_version);
     // 3. Get the current index instance from cache
     std::shared_ptr<VectorIndex> index_sptr = nullptr;
     {
@@ -1099,12 +1188,12 @@ VectorOpResult VectorHandler::PersistIndex(const std::string &name, bool force)
     // 8. Update metadata with new file path and persistence info
     metadata.SetFilePath(new_file_path);
     metadata.SetLastPersistTs(LocalCcShards::ClockTs());
-    // 9. Encode updated metadata
-    std::string encoded_metadata;
-    metadata.Encode(encoded_metadata);
+    // 9. Serialize updated metadata
+    std::string serialized_metadata;
+    metadata.Serialize(serialized_metadata);
     h_record->SetEncodedBlob(
-        reinterpret_cast<const unsigned char *>(encoded_metadata.data()),
-        encoded_metadata.size());
+        reinterpret_cast<const unsigned char *>(serialized_metadata.data()),
+        serialized_metadata.size());
     // 10. Update metadata in storage
     UpsertTxRequest upsert_req(&vector_index_meta_table,
                                std::move(tx_key),
@@ -1185,7 +1274,7 @@ VectorOpResult VectorHandler::ApplyLogItems(
     // Apply log items to the index
     std::vector<float> update_vec;
     std::vector<std::vector<float>> insert_vecs;
-    std::vector<uint64_t> insert_ids;
+    std::vector<VectorId> insert_ids;
     insert_vecs.reserve(log_items.size());
     insert_ids.reserve(log_items.size());
 
@@ -1216,7 +1305,10 @@ VectorOpResult VectorHandler::ApplyLogItems(
         {
             insert_vecs.emplace_back();
             deserialize_vector(item.value, insert_vecs.back());
-            insert_ids.emplace_back(std::stoull(item.key));
+            VectorId &vector_id = insert_ids.emplace_back();
+            size_t offset = 0;
+            vector_id.Deserialize(item.key.data(), offset);
+            assert(offset == item.key.size());
             break;
         }
         case LogOperationType::UPDATE:
@@ -1229,8 +1321,11 @@ VectorOpResult VectorHandler::ApplyLogItems(
 
             update_vec.clear();
             deserialize_vector(item.value, update_vec);
-            uint64_t id = std::stoull(item.key);
-            auto update_result = index_sptr->update(update_vec, id);
+            VectorId vector_id;
+            size_t offset = 0;
+            vector_id.Deserialize(item.key.data(), offset);
+            assert(offset == item.key.size());
+            auto update_result = index_sptr->update(update_vec, vector_id);
             if (update_result.error != VectorOpResult::SUCCEED)
             {
                 LOG(ERROR) << "ApplyLogItems: Failed to update vector: "
@@ -1247,7 +1342,11 @@ VectorOpResult VectorHandler::ApplyLogItems(
                 return VectorOpResult::INDEX_LOG_OP_FAILED;
             }
 
-            auto delete_result = index_sptr->remove(std::stoull(item.key));
+            VectorId vector_id;
+            size_t offset = 0;
+            vector_id.Deserialize(item.key.data(), offset);
+            assert(offset == item.key.size());
+            auto delete_result = index_sptr->remove(vector_id);
             if (delete_result.error != VectorOpResult::SUCCEED)
             {
                 LOG(ERROR) << "ApplyLogItems: Failed to delete vector: "
