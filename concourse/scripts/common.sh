@@ -297,7 +297,7 @@ function run_eloqkv_tests() {
 
     # run redis
     echo "redirecting output to /tmp/ to prevent ci pipeline crash"
-    export LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH}
+    env LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH} \
     /home/$current_user/workspace/eloqkv/install/bin/eloqkv \
       --port=6379 \
       --core_number=2 \
@@ -339,7 +339,7 @@ function run_eloqkv_tests() {
 
     # run redis
     echo "redirecting output to /tmp/ to prevent ci pipeline crash"
-    export LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH}
+    env LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH} \
     /home/$current_user/workspace/eloqkv/install/bin/eloqkv \
       --port=6379 \
       --core_number=2 \
@@ -402,7 +402,7 @@ function run_eloqkv_tests() {
 
     # run redis with wal disabled.
     echo "redirecting output to /tmp/ to prevent ci pipeline crash"
-    export LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH}
+    env LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH} \
     /home/$current_user/workspace/eloqkv/install/bin/eloqkv \
         --port=6379 \
         --core_number=2 \
@@ -437,7 +437,7 @@ function run_eloqkv_tests() {
 
     # run redis with wal and data store disabled.
     echo "redirecting output to /tmp/ to prevent ci pipeline crash"
-    export LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH}
+    env LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH} \
     /home/$current_user/workspace/eloqkv/install/bin/eloqkv \
         --port=6379 \
         --core_number=2 \
@@ -467,7 +467,7 @@ function run_eloqkv_tests() {
 
     echo "bootstrap rocksdb"
 
-    export LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH}
+    env LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH} \
     /home/$current_user/workspace/eloqkv/install/bin/eloqkv \
       --port=6379 \
       --core_number=2 \
@@ -482,7 +482,7 @@ function run_eloqkv_tests() {
 
     # run redis
     echo "redirecting output to /tmp/ to prevent ci pipeline crash"
-    export LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH}
+    env LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH} \
     /home/$current_user/workspace/eloqkv/install/bin/eloqkv \
       --port=6379 \
       --core_number=2 \
@@ -522,7 +522,7 @@ function run_eloqkv_tests() {
 
     # run redis
     echo "redirecting output to /tmp/ to prevent ci pipeline crash"
-    export LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH}
+    env LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH} \
     /home/$current_user/workspace/eloqkv/install/bin/eloqkv \
       --port=6379 \
       --core_number=2 \
@@ -583,7 +583,7 @@ function run_eloqkv_tests() {
 
     # run redis with wal disabled.
     echo "redirecting output to /tmp/ to prevent ci pipeline crash"
-    export LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH}
+    env LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH} \
     /home/$current_user/workspace/eloqkv/install/bin/eloqkv \
         --port=6379 \
         --core_number=2 \
@@ -613,7 +613,7 @@ function run_eloqkv_tests() {
 
     # run redis with wal and data store disabled.
     echo "redirecting output to /tmp/ to prevent ci pipeline crash"
-    export LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH}
+    env LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH} \
     /home/$current_user/workspace/eloqkv/install/bin/eloqkv \
         --port=6379 \
         --core_number=2 \
@@ -656,7 +656,7 @@ function run_eloqkv_tests() {
 
     # run redis
     echo "redirecting output to /tmp/ to prevent ci pipeline crash"
-    export LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH}
+    env LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH} \
     /home/$current_user/workspace/eloqkv/install/bin/eloqkv \
       --port=6379 \
       --core_number=2 \
@@ -701,7 +701,7 @@ function run_eloqkv_tests() {
 
     # run redis
     echo "redirecting output to /tmp/ to prevent ci pipeline crash"
-    export LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH}
+    env LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH} \
     /home/$current_user/workspace/eloqkv/install/bin/eloqkv \
       --port=6379 \
       --core_number=2 \
@@ -767,7 +767,7 @@ function run_eloqkv_tests() {
 
     # run redis with wal disabled.
     echo "redirecting output to /tmp/ to prevent ci pipeline crash"
-    export LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH}
+    env LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH} \
     /home/$current_user/workspace/eloqkv/install/bin/eloqkv \
         --port=6379 \
         --core_number=2 \
@@ -804,7 +804,7 @@ function run_eloqkv_tests() {
 
     # run redis with wal and data store disabled.
     echo "redirecting output to /tmp/ to prevent ci pipeline crash"
-    export LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH}
+    env LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH} \
     /home/$current_user/workspace/eloqkv/install/bin/eloqkv \
         --port=6379 \
         --core_number=2 \
@@ -847,7 +847,7 @@ function run_eloqkv_tests() {
     local txlog_rocksdb_cloud_object_path=${TXLOG_ROCKSDB_CLOUD_OBJECT_PATH}
     local txlog_rocksdb_cloud_s3_endpoint_url=${ROCKSDB_CLOUD_S3_ENDPOINT}
 
-    export LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH}
+    env LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH} \
     /home/$current_user/workspace/eloqkv/install/bin/eloqkv \
       --port=6379 \
       --core_number=2 \
@@ -872,7 +872,7 @@ function run_eloqkv_tests() {
 
     # run redis
     echo "redirecting output to /tmp/ to prevent ci pipeline crash"
-    export LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH}
+    env LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH} \
     /home/$current_user/workspace/eloqkv/install/bin/eloqkv \
       --port=6379 \
       --core_number=2 \
@@ -923,7 +923,7 @@ function run_eloqkv_tests() {
 
     # run redis
     echo "redirecting output to /tmp/ to prevent ci pipeline crash"
-    export LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH}
+    env LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH} \
     /home/$current_user/workspace/eloqkv/install/bin/eloqkv \
       --port=6379 \
       --core_number=2 \
@@ -995,7 +995,7 @@ function run_eloqkv_tests() {
 
     # run redis with wal disabled.
     echo "redirecting output to /tmp/ to prevent ci pipeline crash"
-    export LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH}
+    env LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH} \
     /home/$current_user/workspace/eloqkv/install/bin/eloqkv \
         --port=6379 \
         --core_number=2 \
@@ -1036,7 +1036,7 @@ function run_eloqkv_tests() {
 
     # run redis with wal and data store disabled.
     echo "redirecting output to /tmp/ to prevent ci pipeline crash"
-    export LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH}
+    env LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH} \
     /home/$current_user/workspace/eloqkv/install/bin/eloqkv \
         --port=6379 \
         --core_number=2 \
@@ -1090,7 +1090,7 @@ function run_eloqkv_tests() {
     rm -rf ${eloq_data_path}/*
     echo "redirecting output to /tmp/ to prevent ci pipeline crash" >> /tmp/redis_single_node.log
     echo "small ckpt interval with wal and data store." >> /tmp/redis_single_node.log
-    export LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH}
+    env LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH} \
     ${eloqkv_bin_path} \
         --port=6379 \
         --core_number=2 \
@@ -1128,7 +1128,7 @@ function run_eloqkv_tests() {
     rm -rf ${eloq_data_path}/*
     echo "redirecting output to /tmp/ to prevent ci pipeline crash" >> /tmp/redis_single_node.log
     echo "big ckpt interval before replay with wal and data store." >> /tmp/redis_single_node.log
-    export LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH}
+    env LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH} \
     ${eloqkv_bin_path} \
       --port=6379 \
       --core_number=2 \
@@ -1174,7 +1174,7 @@ function run_eloqkv_tests() {
     # run redis
     echo "redirecting output to /tmp/ to prevent ci pipeline crash" >> /tmp/redis_single_node.log
     echo "big ckpt interval after replay with wal and data store." >> /tmp/redis_single_node.log
-    export LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH}
+    env LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH} \
     ${eloqkv_bin_path} \
       --port=6379 \
       --core_number=2 \
@@ -1474,7 +1474,7 @@ function run_eloqkv_cluster_tests() {
 
     for port in "${ports[@]}"; do
       echo "redirecting output to /tmp/ to prevent ci pipeline crash"
-      export LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH}
+      env LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH} \
       /home/$current_user/workspace/eloqkv/install/bin/eloqkv \
         --port=$port \
         --core_number=2 \
@@ -1527,7 +1527,7 @@ function run_eloqkv_cluster_tests() {
     /home/$current_user/workspace/apache-cassandra-4.0.6/bin/cqlsh $CASS_HOST -e "DROP KEYSPACE IF EXISTS $keyspace_name;"
 
     echo "bootstrap before start cluster to avoid contention"
-    export LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH}
+    env LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH} \
     /home/$current_user/workspace/eloqkv/install/bin/eloqkv \
       --port=6379 \
       --core_number=2 \
@@ -1561,7 +1561,7 @@ function run_eloqkv_cluster_tests() {
     redis_pids=()
     local index=0
     for port in "${ports[@]}"; do
-      export LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH}
+      env LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH} \
       /home/$current_user/workspace/eloqkv/install/bin/eloqkv \
         --port=$port \
         --core_number=2 \
@@ -1623,7 +1623,7 @@ function run_eloqkv_cluster_tests() {
     /home/$current_user/workspace/apache-cassandra-4.0.6/bin/cqlsh $CASS_HOST -e "DROP KEYSPACE IF EXISTS $keyspace_name;"
 
     echo "bootstrap before start cluster to avoid contention"
-    export LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH}
+    env LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH} \
     /home/$current_user/workspace/eloqkv/install/bin/eloqkv \
       --port=6379 \
       --core_number=2 \
@@ -1661,7 +1661,7 @@ function run_eloqkv_cluster_tests() {
 
     for port in "${ports[@]}"; do
       echo "redirecting output to /tmp/ to prevent ci pipeline crash"
-      export LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH}
+      env LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH} \
       /home/$current_user/workspace/eloqkv/install/bin/eloqkv \
         --port=$port \
         --core_number=2 \
@@ -1720,7 +1720,7 @@ function run_eloqkv_cluster_tests() {
     redis_pids=()
     local index=0
     for port in "${ports[@]}"; do
-      export LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH}
+      env LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH} \
       /home/$current_user/workspace/eloqkv/install/bin/eloqkv \
         --port=$port \
         --core_number=2 \
@@ -1788,7 +1788,7 @@ function run_eloqkv_cluster_tests() {
 
   elif [[ $kv_store_type = "ROCKSDB" ]]; then
     echo "bootstrap before start cluster to avoid contention"
-    export LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH}
+    env LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH} \
     /home/$current_user/workspace/eloqkv/install/bin/eloqkv \
       --port=6379 \
       --core_number=2 \
@@ -1822,7 +1822,7 @@ function run_eloqkv_cluster_tests() {
 
     for port in "${ports[@]}"; do
       echo "redirecting output to /tmp/ to prevent ci pipeline crash"
-      export LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH}
+      env LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH} \
       /home/$current_user/workspace/eloqkv/install/bin/eloqkv \
         --port=$port \
         --core_number=2 \
@@ -1873,7 +1873,7 @@ function run_eloqkv_cluster_tests() {
 
     for port in "${ports[@]}"; do
       echo "redirecting output to /tmp/ to prevent ci pipeline crash"
-      export LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH}
+      env LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH} \
       /home/$current_user/workspace/eloqkv/install/bin/eloqkv \
         --port=$port \
         --core_number=2 \
@@ -1924,7 +1924,7 @@ function run_eloqkv_cluster_tests() {
     local aws_secret_key=${AWS_SECRET_ACCESS_KEY}
 
     echo "bootstrap before start cluster to avoid contention"
-    export LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH}
+    env LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH} \
     /home/$current_user/workspace/eloqkv/install/bin/eloqkv \
       --port=6379 \
       --core_number=2 \
@@ -1955,7 +1955,7 @@ function run_eloqkv_cluster_tests() {
     local index=0
     redis_pids=()
     for port in "${ports[@]}"; do
-      export LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH}
+      env LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH} \
       /home/$current_user/workspace/eloqkv/install/bin/eloqkv \
         --port=$port \
         --core_number=2 \
@@ -2019,7 +2019,7 @@ function run_eloqkv_cluster_tests() {
     echo "dynamo keyspace name is, ${keyspace_name}"
 
     echo "bootstrap before start cluster to avoid contention"
-    export LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH}
+    env LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH} \
     /home/$current_user/workspace/eloqkv/install/bin/eloqkv \
       --port=6379 \
       --core_number=2 \
@@ -2055,7 +2055,7 @@ function run_eloqkv_cluster_tests() {
 
     for port in "${ports[@]}"; do
       echo "redirecting output to /tmp/ to prevent ci pipeline crash"
-      export LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH}
+      env LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH} \
       /home/$current_user/workspace/eloqkv/install/bin/eloqkv \
         --port=$port \
         --core_number=2 \
@@ -2112,7 +2112,7 @@ function run_eloqkv_cluster_tests() {
     redis_pids=()
     local index=0
     for port in "${ports[@]}"; do
-      export LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH}
+      env LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH} \
       /home/$current_user/workspace/eloqkv/install/bin/eloqkv \
         --port=$port \
         --core_number=2 \
@@ -2204,7 +2204,7 @@ function run_eloqkv_cluster_tests() {
 
     for port in "${ports[@]}"; do
       echo "redirecting output to /tmp/ to prevent ci pipeline crash"
-      export LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH}
+      env LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH} \
       /home/$current_user/workspace/eloqkv/install/bin/eloqkv \
         --port=$port \
         --core_number=2 \
@@ -2258,7 +2258,7 @@ function run_eloqkv_cluster_tests() {
     rm -rf /tmp/redis_server_data*
 
     echo "bootstrap before start cluster to avoid contention"
-    export LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH}
+    env LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH} \
     /home/$current_user/workspace/eloqkv/install/bin/eloqkv \
       --port=6379 \
       --core_number=2 \
@@ -2294,7 +2294,7 @@ function run_eloqkv_cluster_tests() {
     redis_pids=()
     local index=0
     for port in "${ports[@]}"; do
-      export LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH}
+      env LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH} \
       /home/$current_user/workspace/eloqkv/install/bin/eloqkv \
         --port=$port \
         --core_number=2 \
@@ -2360,7 +2360,7 @@ function run_eloqkv_cluster_tests() {
     rm -rf /tmp/redis_server_data*
 
     echo "bootstrap before start cluster to avoid contention"
-    export LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH}
+    env LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH} \
     /home/$current_user/workspace/eloqkv/install/bin/eloqkv \
       --port=6379 \
       --core_number=2 \
@@ -2401,7 +2401,7 @@ function run_eloqkv_cluster_tests() {
 
     for port in "${ports[@]}"; do
       echo "redirecting output to /tmp/ to prevent ci pipeline crash"
-      export LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH}
+      env LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH} \
       /home/$current_user/workspace/eloqkv/install/bin/eloqkv \
         --port=$port \
         --core_number=2 \
@@ -2463,7 +2463,7 @@ function run_eloqkv_cluster_tests() {
     redis_pids=()
     local index=0
     for port in "${ports[@]}"; do
-      export LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH}
+      env LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH} \
       /home/$current_user/workspace/eloqkv/install/bin/eloqkv \
         --port=$port \
         --core_number=2 \
