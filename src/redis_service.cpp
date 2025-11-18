@@ -6499,15 +6499,11 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
         vector_index_worker_pool_->SubmitWork(
             [cmd, &res, &mux, &cv, &finished](size_t)
             {
-                EloqVec::IndexConfig index_config(cmd->dimensions_,
-                                                  cmd->algorithm_,
-                                                  cmd->metric_type_,
-                                                  std::move(cmd->alg_params_));
-
                 // Create VectorIndexMetadata
                 EloqVec::VectorIndexMetadata index_metadata(
-                    cmd->index_name_.String(),
-                    index_config,
+                    std::move(cmd->index_name_.String()),
+                    std::move(cmd->index_config_),
+                    std::move(cmd->record_metadata_),
                     cmd->persist_threshold_,
                     EloqVec::VectorHandler::Instance().VectorIndexDataPath());
 
@@ -6621,7 +6617,10 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
             [cmd, &res, &mux, &cv, &finished](size_t)
             {
                 res = EloqVec::VectorHandler::Instance().Add(
-                    cmd->index_name_.String(), cmd->key_, cmd->vector_);
+                    cmd->index_name_.String(),
+                    cmd->key_,
+                    cmd->vector_,
+                    cmd->metadata_.StringView());
                 std::unique_lock<bthread::Mutex> lk(mux);
                 finished = true;
                 cv.notify_one();
@@ -6657,8 +6656,17 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
         vector_index_worker_pool_->SubmitWork(
             [cmd, &res, &mux, &cv, &finished](size_t)
             {
+                std::vector<std::string_view> metadata_list;
+                metadata_list.reserve(cmd->metadata_list_.size());
+                for (const auto &metadata : cmd->metadata_list_)
+                {
+                    metadata_list.emplace_back(metadata.StringView());
+                }
                 res = EloqVec::VectorHandler::Instance().BatchAdd(
-                    cmd->index_name_.String(), cmd->keys_, cmd->vectors_);
+                    cmd->index_name_.String(),
+                    cmd->keys_,
+                    cmd->vectors_,
+                    metadata_list);
                 std::unique_lock<bthread::Mutex> lk(mux);
                 finished = true;
                 cv.notify_one();
@@ -6695,7 +6703,10 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
             [cmd, &res, &mux, &cv, &finished](size_t)
             {
                 res = EloqVec::VectorHandler::Instance().Update(
-                    cmd->index_name_.String(), cmd->key_, cmd->vector_);
+                    cmd->index_name_.String(),
+                    cmd->key_,
+                    cmd->vector_,
+                    cmd->metadata_.StringView());
                 std::unique_lock<bthread::Mutex> lk(mux);
                 finished = true;
                 cv.notify_one();
@@ -6773,6 +6784,7 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
                     cmd->vector_,
                     cmd->k_count_,
                     thread_id,
+                    cmd->filter_json_.StringView(),
                     cmd->search_res_);
                 std::unique_lock<bthread::Mutex> lk(mux);
                 finished = true;

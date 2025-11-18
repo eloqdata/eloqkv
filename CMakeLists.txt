@@ -481,6 +481,13 @@ if(VECTOR_INDEX_ENABLED)
     set(DYNAMIC_LIB ${DYNAMIC_LIB} ${CURL_LIBRARIES})
 endif()
 
+# Add nlohmann::json for json parsing
+find_package(nlohmann_json 3.12.0 REQUIRED)
+if(NOT nlohmann_json_FOUND)
+    message(FATAL_ERROR "Fail to find nlohmann::json")
+endif()
+include_directories(${nlohmann_json_INCLUDE_DIRS})
+
 INCLUDE(build_tx_service.cmake)
 
 if(WITH_LOG_SERVICE)

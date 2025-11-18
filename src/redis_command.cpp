@@ -35,6 +35,7 @@
 #include <cstdint>
 #include <limits>
 #include <memory>
+#include <nlohmann/json.hpp>
 #include <optional>
 #include <shared_mutex>
 #include <sstream>
@@ -19727,82 +19728,119 @@ std::tuple<bool, CreateVecIndexCommand> ParseCreateVecIndexCommand(
 {
     assert(args[0] == "eloqvec.create" || args[0] == "ELOQVEC.CREATE");
 
-    // Minimum required parameters: ELOQVEC.CREATE <index_name> DIMENSIONS
-    // <dimensions> METRIC <metric_type> ALGORITHM <algorithm> PERSIST_STRATEGY
-    // <persist_strategy> That's 10 arguments minimum (including the command)
-    if (args.size() < 10)
+    // Minimum required parameters: ELOQVEC.CREATE <index_name> "config_json"
+    // ["schema_json"]
+    if (args.size() < 3 || args.size() > 4)
     {
         output->OnError(
             "ERR wrong number of arguments for 'eloqvec.create' command");
         return {false, CreateVecIndexCommand()};
     }
 
-    // Variables to hold parsed parameters
-    std::string_view index_name;
-    uint64_t dimensions;
-    EloqVec::Algorithm algorithm;
-    EloqVec::DistanceMetric metric_type;
-    EloqVec::PersistStrategy persist_strategy;
-    // -1 means MANUAL strategy
-    int64_t threshold = -1;
-    std::unordered_map<std::string, std::string> alg_params;
-
     size_t pos = 1;
-
+    // Variables to hold parsed parameters
     // Parse index_name
-    index_name = args[pos++];
+    std::string_view index_name = args[pos++];
+    std::string_view config_json = args[pos++];
 
-    // Parse DIMENSIONS keyword and dimensions value
-    if (!stringcomp("dimensions", args[pos++], 1))
+    // Parse config JSON object
+    nlohmann::ordered_json config_obj;
+    try
     {
-        output->OnError("ERR syntax error: expected 'DIMENSIONS' keyword");
-        return {false, CreateVecIndexCommand()};
+        config_obj = nlohmann::ordered_json::parse(config_json);
     }
-    if (!string2ull(args[pos].data(), args[pos].size(), dimensions) ||
-        dimensions == 0)
+    catch (const nlohmann::ordered_json::parse_error &e)
     {
-        output->OnError(
-            "ERR invalid value for DIMENSIONS: must be a positive integer");
-        return {false, CreateVecIndexCommand()};
-    }
-    pos++;
-
-    // Parse METRIC keyword and metric_type
-    if (!stringcomp("metric", args[pos++], 1))
-    {
-        output->OnError("ERR syntax error: expected 'METRIC' keyword");
-        return {false, CreateVecIndexCommand()};
-    }
-    // Convert metric string to proper format for string_to_distance_metric
-    metric_type = EloqVec::string_to_distance_metric(args[pos++]);
-    if (metric_type == EloqVec::DistanceMetric::UNKNOWN)
-    {
-        output->OnError(
-            "ERR unsupported metric: only COSINE, L2SQ and IP are supported");
+        output->OnError("ERR invalid config JSON format");
         return {false, CreateVecIndexCommand()};
     }
 
-    // Parse ALGORITHM keyword and algorithm
-    if (!stringcomp("algorithm", args[pos++], 1))
+    if (!config_obj.is_object())
     {
-        output->OnError("ERR syntax error: expected 'ALGORITHM' keyword");
-        return {false, CreateVecIndexCommand()};
-    }
-    algorithm = EloqVec::string_to_algorithm(args[pos++]);
-    if (algorithm == EloqVec::Algorithm::UNKNOWN)
-    {
-        output->OnError("ERR unsupported algorithm: only HNSW are supported");
+        output->OnError("ERR config must be a JSON object");
         return {false, CreateVecIndexCommand()};
     }
 
-    // Parse persist_strategy
-    if (!stringcomp("persist_strategy", args[pos++], 1))
+    // Build IndexConfig
+    EloqVec::IndexConfig config;
+    auto it = config_obj.begin();
+    // 1. dimension
+    if (it == config_obj.end() || it.key() != "dimension")
     {
-        output->OnError(
-            "ERR syntax error: expected 'PERSIST_STRATEGY' keyword");
+        output->OnError("ERR missing or misplaced 'dimension' field");
         return {false, CreateVecIndexCommand()};
     }
-    persist_strategy = EloqVec::string_to_persist_strategy(args[pos++]);
+    if (!it.value().is_number_unsigned())
+    {
+        output->OnError("ERR 'dimension' must be an unsigned integer");
+        return {false, CreateVecIndexCommand()};
+    }
+    config.dimension = it.value().get<uint64_t>();
+    if (config.dimension == 0)
+    {
+        output->OnError("ERR 'dimension' must be positive");
+        return {false, CreateVecIndexCommand()};
+    }
+    ++it;
+
+    // 2. metric
+    if (it == config_obj.end() || it.key() != "metric")
+    {
+        output->OnError("ERR missing or misplaced 'metric' field");
+        return {false, CreateVecIndexCommand()};
+    }
+    if (!it.value().is_string())
+    {
+        output->OnError("ERR 'metric' must be a string");
+        return {false, CreateVecIndexCommand()};
+    }
+    std::string_view metric = it.value().get<std::string>();
+    config.distance_metric = EloqVec::string_to_distance_metric(metric);
+    if (config.distance_metric == EloqVec::DistanceMetric::UNKNOWN)
+    {
+        std::string msg("ERR unsupported metric: ");
+        msg.append(metric.data(), metric.size());
+        output->OnError(msg);
+        return {false, CreateVecIndexCommand()};
+    }
+    ++it;
+
+    // 3. algorithm
+    if (it == config_obj.end() || it.key() != "algorithm")
+    {
+        output->OnError("ERR missing or misplaced 'algorithm' field");
+        return {false, CreateVecIndexCommand()};
+    }
+    if (!it.value().is_string())
+    {
+        output->OnError("ERR 'algorithm' must be a string");
+        return {false, CreateVecIndexCommand()};
+    }
+    std::string_view algo = it.value().get<std::string>();
+    config.algorithm = EloqVec::string_to_algorithm(algo);
+    if (config.algorithm == EloqVec::Algorithm::UNKNOWN)
+    {
+        std::string msg("ERR unsupported algorithm: ");
+        msg.append(algo.data(), algo.size());
+        output->OnError(algo);
+        return {false, CreateVecIndexCommand()};
+    }
+    ++it;
+
+    // 4. persist strategy
+    if (it == config_obj.end() || it.key() != "persist_strategy")
+    {
+        output->OnError("ERR missing or misplaced 'persist_strategy' field");
+        return {false, CreateVecIndexCommand()};
+    }
+    if (!it.value().is_string())
+    {
+        output->OnError("ERR 'persist_strategy' must be s string");
+        return {false, CreateVecIndexCommand()};
+    }
+    const std::string_view persist_strategy_str = it.value().get<std::string>();
+    EloqVec::PersistStrategy persist_strategy =
+        EloqVec::string_to_persist_strategy(persist_strategy_str);
     if (persist_strategy == EloqVec::PersistStrategy::UNKNOWN)
     {
         output->OnError(
@@ -19810,105 +19848,127 @@ std::tuple<bool, CreateVecIndexCommand> ParseCreateVecIndexCommand(
             "supported");
         return {false, CreateVecIndexCommand()};
     }
-    // Handle threshold parameter based on persist strategy
+    ++it;
+
+    // 5. Handle threshold parameter based on persist strategy
     bool requires_threshold =
         (persist_strategy == EloqVec::PersistStrategy::EVERY_N);
-    bool has_threshold = stringcomp("threshold", args[pos], 1);
+    bool has_threshold = it != config_obj.end() && it.key() == "threshold";
     // EVERY_N strategy requires threshold parameter
     if (requires_threshold && !has_threshold)
     {
-        output->OnError("ERR syntax error: expected 'THRESHOLD' keyword");
+        output->OnError("ERR missing or misplaced 'threshold' field");
         return {false, CreateVecIndexCommand()};
     }
     // Parse threshold if present
+    int64_t threshold = -1;
     if (has_threshold)
     {
-        pos++;
-        bool parse_success =
-            string2ll(args[pos].data(), args[pos].size(), threshold);
-        // Validate threshold for EVERY_N strategy
-        if (requires_threshold && (!parse_success || threshold <= 0))
+        if (!it.value().is_number_integer())
         {
-            output->OnError(
-                "ERR invalid value for THRESHOLD: must be a positive integer");
+            output->OnError("ERR 'threshold' must be a integer");
             return {false, CreateVecIndexCommand()};
         }
+        threshold = it.value().get<int64_t>();
         // MANUAL strategy ignores threshold value
         if (persist_strategy == EloqVec::PersistStrategy::MANUAL)
         {
             threshold = -1;
         }
-        pos++;
-    }
-
-    // Parse optional parameters
-    while (pos < args.size())
-    {
-        if (pos + 1 >= args.size())
+        else if (threshold <= 0)
         {
-            output->OnError("ERR syntax error: parameter missing value");
+            output->OnError("ERR 'threshold' must be a positive integer");
             return {false, CreateVecIndexCommand()};
         }
+        ++it;
+    }
 
-        std::string_view param = args[pos];
-        std::string_view value = args[pos + 1];
-
-        if (stringcomp("max_connectivity", param, 1))
+    // 5. Remaining optional algorithm-specific parameters
+    while (it != config_obj.end())
+    {
+        const std::string &key = it.key();
+        // Convert value to string for params map
+        if (it.value().is_number_integer())
         {
-            int64_t connectivity;
-            if (!string2ll(value.data(), value.size(), connectivity) ||
-                connectivity <= 0)
-            {
-                output->OnError(
-                    "ERR invalid value for CONNECTIVITY: must be a positive "
-                    "integer");
-                return {false, CreateVecIndexCommand()};
-            }
-            alg_params["m"] = std::string(value);
+            config.params[key] = std::to_string(it.value().get<int64_t>());
         }
-        else if (stringcomp("ef_construction", param, 1))
+        else if (it.value().is_number_float())
         {
-            int64_t ef_construct;
-            if (!string2ll(value.data(), value.size(), ef_construct) ||
-                ef_construct <= 0)
-            {
-                output->OnError(
-                    "ERR invalid value for EF_CONSTRUCT: must be a positive "
-                    "integer");
-                return {false, CreateVecIndexCommand()};
-            }
-            alg_params["ef_construction"] = std::string(value);
+            config.params[key] = std::to_string(it.value().get<double>());
         }
-        else if (stringcomp("ef_search", param, 1))
+        else if (it.value().is_string())
         {
-            int64_t ef_search;
-            if (!string2ll(value.data(), value.size(), ef_search) ||
-                ef_search <= 0)
-            {
-                output->OnError(
-                    "ERR invalid value for EF_SEARCH: must be a positive "
-                    "integer");
-                return {false, CreateVecIndexCommand()};
-            }
-            alg_params["ef_search"] = std::string(value);
+            config.params[key] = it.value().get<std::string>();
         }
         else
         {
-            output->OnError("ERR unknown parameter: " + std::string(param));
+            output->OnError("ERR invalid algorithm parameter: " + key);
+            return {false, CreateVecIndexCommand()};
+        }
+        ++it;
+    }
+
+    CreateVecIndexCommand cmd;
+    cmd.index_name_ = std::move(EloqString(index_name));
+    cmd.index_config_ = std::move(config);
+    cmd.persist_threshold_ = threshold;
+    if (args.size() == 4)
+    {
+        std::string_view schema_json = args[pos++];
+        // Parse metadata schema JSON
+        nlohmann::ordered_json schema_obj;
+        try
+        {
+            schema_obj = nlohmann::ordered_json::parse(schema_json);
+        }
+        catch (const nlohmann::ordered_json::parse_error &e)
+        {
+            std::string msg("ERR invalid schema JSON format: ");
+            msg.append(e.what());
+            output->OnError(msg);
             return {false, CreateVecIndexCommand()};
         }
 
-        pos += 2;
+        if (!schema_obj.is_object())
+        {
+            output->OnError("ERR schema must be a JSON object");
+            return {false, CreateVecIndexCommand()};
+        }
+
+        std::vector<std::string> field_names;
+        std::vector<EloqVec::MetadataFieldType> field_types;
+        size_t field_count = schema_obj.size();
+        field_names.reserve(field_count);
+        field_types.reserve(field_count);
+
+        for (auto it = schema_obj.begin(); it != schema_obj.end(); ++it)
+        {
+            if (!it.value().is_string())
+            {
+                output->OnError("ERR schema field type must be a string");
+                return {false, CreateVecIndexCommand()};
+            }
+
+            const std::string_view &type_str = it.value().get<std::string>();
+            EloqVec::MetadataFieldType field_type =
+                EloqVec::string_to_field_type(type_str);
+            if (field_type == EloqVec::MetadataFieldType::Unknown)
+            {
+                output->OnError("ERR invalid metadata type: " +
+                                std::string(type_str));
+                return {false, CreateVecIndexCommand()};
+            }
+
+            field_names.emplace_back(std::move(it.key()));
+            field_types.emplace_back(field_type);
+        }
+        EloqVec::VectorRecordMetadata record_metadata(std::move(field_names),
+                                                      std::move(field_types));
+
+        cmd.record_metadata_ = std::move(record_metadata);
     }
 
-    // Create command with all parsed parameters using constructor
-    return {true,
-            CreateVecIndexCommand(index_name,
-                                  dimensions,
-                                  algorithm,
-                                  metric_type,
-                                  threshold,
-                                  std::move(alg_params))};
+    return {true, std::move(cmd)};
 }
 
 void CreateVecIndexCommand::OutputResult(OutputHandler *reply,
@@ -20028,8 +20088,8 @@ std::tuple<bool, AddVecIndexCommand> ParseAddVecIndexCommand(
 {
     assert(args[0] == "eloqvec.add" || args[0] == "ELOQVEC.ADD");
 
-    // ELOQVEC.ADD <index_name> <key> "vector_data"
-    if (args.size() != 4)
+    // ELOQVEC.ADD <index_name> <key> "vector_data" ["metadata_json"]
+    if (args.size() < 4 || args.size() > 5)
     {
         output->OnError(
             "ERR wrong number of arguments for 'eloqvec.add' command");
@@ -20070,8 +20130,17 @@ std::tuple<bool, AddVecIndexCommand> ParseAddVecIndexCommand(
         return {false, AddVecIndexCommand()};
     }
 
+    std::string_view metadata_str;
+    if (args.size() > 4)
+    {
+        assert(args.size() == 5);
+        metadata_str = args[4];
+    }
+
     // Create command with parsed parameters
-    return {true, AddVecIndexCommand(index_name, key, std::move(vector_data))};
+    return {true,
+            AddVecIndexCommand(
+                index_name, key, std::move(vector_data), metadata_str)};
 }
 
 std::tuple<bool, BAddVecIndexCommand> ParseBAddVecIndexCommand(
@@ -20079,8 +20148,8 @@ std::tuple<bool, BAddVecIndexCommand> ParseBAddVecIndexCommand(
 {
     assert(args[0] == "eloqvec.badd" || args[0] == "ELOQVEC.BADD");
 
-    // ELOQVEC.BADD <index_name> <key_count> <key1> <vector1_data> [<key2>
-    // <vector2_data> ...]
+    // ELOQVEC.BADD <index_name> <key_count> <key1> <vector1_data>
+    // [<vector1_metadata>] [<key2> <vector2_data> ...]
     if (args.size() < 5)
     {
         output->OnError(
@@ -20116,26 +20185,36 @@ std::tuple<bool, BAddVecIndexCommand> ParseBAddVecIndexCommand(
     }
 
     // Calculate expected argument count: command + index_name + key_count +
-    // key_count * 2 (key + vector_data)
+    // key_count * 2 (key + vector_data + [vectormetadata])
     const size_t pair_args = args.size() - 3;
-    if (pair_args % 2 != 0 || pair_args / 2 != key_count)
+    const size_t part_per_key = 2;
+    const size_t part_per_key_meta = 3;
+    if ((pair_args % part_per_key != 0 ||
+         pair_args / part_per_key != key_count) &&
+        (pair_args % part_per_key_meta != 0 ||
+         pair_args / part_per_key_meta != key_count))
     {
-        std::string msg("ERR wrong number of arguments: expected ");
-        msg.append(std::to_string(key_count * 2 + 3))
-            .append(" but got ")
-            .append(std::to_string(args.size()));
-        output->OnError(msg);
+        output->OnError("ERR wrong number of arguments");
         return {false, BAddVecIndexCommand()};
     }
+    bool with_meta = pair_args % part_per_key_meta == 0;
 
     std::vector<uint64_t> keys;
     std::vector<std::vector<float>> vectors;
+    std::vector<EloqString> metadatas;
     keys.reserve(key_count);
     vectors.reserve(key_count);
+    if (with_meta)
+    {
+        metadatas.reserve(key_count);
+    }
+
+    const size_t real_part_per_key =
+        with_meta ? part_per_key_meta : part_per_key;
     // Parse key-value pairs
     for (uint64_t i = 0; i < key_count; ++i)
     {
-        uint64_t arg_idx = 3 + i * 2;
+        uint64_t arg_idx = 3 + i * real_part_per_key;
         // Parse key
         std::string_view key_str = args[arg_idx];
         uint64_t key;
@@ -20163,12 +20242,21 @@ std::tuple<bool, BAddVecIndexCommand> ParseBAddVecIndexCommand(
         }
 
         vectors.push_back(std::move(vector_data));
+
+        // Vector metadata
+        if (with_meta)
+        {
+            EloqString metadata(args[arg_idx + 2]);
+            metadatas.emplace_back(std::move(metadata));
+        }
     }
 
     // Create command object
-    return {
-        true,
-        BAddVecIndexCommand(index_name, std::move(keys), std::move(vectors))};
+    return {true,
+            BAddVecIndexCommand(index_name,
+                                std::move(keys),
+                                std::move(vectors),
+                                std::move(metadatas))};
 }
 
 void AddVecIndexCommand::OutputResult(OutputHandler *reply,
@@ -20204,8 +20292,8 @@ std::tuple<bool, UpdateVecIndexCommand> ParseUpdateVecIndexCommand(
 {
     assert(args[0] == "eloqvec.update" || args[0] == "ELOQVEC.UPDATE");
 
-    // ELOQVEC.UPDATE <index_name> <key> "vector_data"
-    if (args.size() != 4)
+    // ELOQVEC.UPDATE <index_name> <key> "vector_data" ["metadata"]
+    if (args.size() < 4 || args.size() > 5)
     {
         output->OnError(
             "ERR wrong number of arguments for 'eloqvec.update' command");
@@ -20246,9 +20334,18 @@ std::tuple<bool, UpdateVecIndexCommand> ParseUpdateVecIndexCommand(
         return {false, UpdateVecIndexCommand()};
     }
 
+    // metadata
+    std::string_view metadata;
+    if (args.size() > 4)
+    {
+        assert(args.size() == 5);
+        metadata = args[4];
+    }
+
     // Create command with parsed parameters
     return {true,
-            UpdateVecIndexCommand(index_name, key, std::move(vector_data))};
+            UpdateVecIndexCommand(
+                index_name, key, std::move(vector_data), std::move(metadata))};
 }
 
 void UpdateVecIndexCommand::OutputResult(OutputHandler *reply,
@@ -20380,8 +20477,8 @@ std::tuple<bool, SearchVecIndexCommand> ParseSearchVecIndexCommand(
 {
     assert(args[0] == "eloqvec.search" || args[0] == "ELOQVEC.SEARCH");
 
-    // ELOQVEC.SEARCH <index_name> <k_count> "vector_data"
-    if (args.size() != 4)
+    // ELOQVEC.SEARCH <index_name> <k_count> "vector_data" ["filter_json"]
+    if (args.size() < 4 || args.size() > 5)
     {
         output->OnError(
             "ERR wrong number of arguments for 'eloqvec.search' command");
@@ -20422,9 +20519,18 @@ std::tuple<bool, SearchVecIndexCommand> ParseSearchVecIndexCommand(
         return {false, SearchVecIndexCommand()};
     }
 
+    // Filter JSON
+    std::string_view filter_json_str;
+    if (args.size() > 4)
+    {
+        assert(args.size() == 5);
+        filter_json_str = args[4];
+    }
+
     // Create command with parsed parameters
     return {true,
-            SearchVecIndexCommand(index_name, std::move(vector_data), k_count)};
+            SearchVecIndexCommand(
+                index_name, std::move(vector_data), k_count, filter_json_str)};
 }
 
 void SearchVecIndexCommand::OutputResult(OutputHandler *reply,
@@ -20440,7 +20546,7 @@ void SearchVecIndexCommand::OutputResult(OutputHandler *reply,
         {
             // Each result is an array of [id, distance]
             reply->OnArrayStart(2);
-            reply->OnInt(search_res_.ids[i]);
+            reply->OnInt(search_res_.ids[i].id_);
             reply->OnString(std::to_string(search_res_.distances[i]));
             reply->OnArrayEnd();
         }

@@ -6909,45 +6909,18 @@ struct CreateVecIndexCommand
 {
     CreateVecIndexCommand() = default;
 
-    // Constructor with required parameters
-    CreateVecIndexCommand(
-        std::string_view index_name,
-        uint32_t dimensions,
-        EloqVec::Algorithm algorithm,
-        EloqVec::DistanceMetric metric_type,
-        int64_t threshold,
-        std::unordered_map<std::string, std::string> &&alg_params)
-        : index_name_(index_name),
-          dimensions_(dimensions),
-          algorithm_(algorithm),
-          metric_type_(metric_type),
-          persist_threshold_(threshold),
-          alg_params_(std::move(alg_params))
-    {
-    }
-
     CreateVecIndexCommand(const CreateVecIndexCommand &rhs) = delete;
     CreateVecIndexCommand(CreateVecIndexCommand &&rhs) = default;
     CreateVecIndexCommand &operator=(const CreateVecIndexCommand &rhs) = delete;
-    CreateVecIndexCommand &operator=(CreateVecIndexCommand &&rhs) = delete;
+    CreateVecIndexCommand &operator=(CreateVecIndexCommand &&rhs) = default;
     ~CreateVecIndexCommand() = default;
 
     void OutputResult(OutputHandler *reply, RedisConnectionContext *ctx) const;
 
-    // Name of the vector index
     EloqString index_name_;
-    // Number of dimensions in the vectors
-    uint32_t dimensions_;
-    // HNSW or IVF (currently only HNSW supported)
-    EloqVec::Algorithm algorithm_;
-    // Distance metric (cosine, l2sq, ip)
-    EloqVec::DistanceMetric metric_type_;
-    // Persist threshold
-    int64_t persist_threshold_;
-
-    // Algorithm specific parameters (such as for HNSW: max_connectivity,
-    // ef_construction, ef_search, etc.)
-    std::unordered_map<std::string, std::string> alg_params_;
+    EloqVec::IndexConfig index_config_;
+    EloqVec::VectorRecordMetadata record_metadata_;
+    int64_t persist_threshold_{-1};
 
     // Result storage
     RedisCommandResult result_;
@@ -7013,8 +6986,12 @@ struct AddVecIndexCommand
     // Constructor with required parameters
     AddVecIndexCommand(std::string_view index_name,
                        uint64_t key,
-                       std::vector<float> &&vector)
-        : index_name_(index_name), key_(key), vector_(std::move(vector))
+                       std::vector<float> &&vector,
+                       std::string_view metadata)
+        : index_name_(index_name),
+          key_(key),
+          vector_(std::move(vector)),
+          metadata_(metadata)
     {
     }
 
@@ -7032,6 +7009,8 @@ struct AddVecIndexCommand
     uint64_t key_;
     // Vector data
     std::vector<float> vector_;
+    // Vector metadata
+    EloqString metadata_;
 
     // Result storage
     RedisCommandResult result_;
@@ -7046,10 +7025,12 @@ struct BAddVecIndexCommand
     // Constructor with required parameters
     BAddVecIndexCommand(std::string_view index_name,
                         std::vector<uint64_t> &&keys,
-                        std::vector<std::vector<float>> &&vectors)
+                        std::vector<std::vector<float>> &&vectors,
+                        std::vector<EloqString> &&metadata_list)
         : index_name_(index_name),
           keys_(std::move(keys)),
-          vectors_(std::move(vectors))
+          vectors_(std::move(vectors)),
+          metadata_list_(std::move(metadata_list))
     {
         assert(keys_.size() == vectors_.size());
     }
@@ -7068,6 +7049,8 @@ struct BAddVecIndexCommand
     std::vector<uint64_t> keys_;
     // Vector data corresponding to each key
     std::vector<std::vector<float>> vectors_;
+    // Vector metadata corresponding to each key
+    std::vector<EloqString> metadata_list_;
 
     // Result storage
     RedisCommandResult result_;
@@ -7080,8 +7063,12 @@ struct UpdateVecIndexCommand
     // Constructor with required parameters
     UpdateVecIndexCommand(std::string_view index_name,
                           uint64_t key,
-                          std::vector<float> &&vector)
-        : index_name_(index_name), key_(key), vector_(std::move(vector))
+                          std::vector<float> &&vector,
+                          std::string_view metadata)
+        : index_name_(index_name),
+          key_(key),
+          vector_(std::move(vector)),
+          metadata_(metadata)
     {
     }
 
@@ -7099,6 +7086,8 @@ struct UpdateVecIndexCommand
     uint64_t key_;
     // Vector data
     std::vector<float> vector_;
+    // Vector metadata
+    EloqString metadata_;
 
     // Result storage
     RedisCommandResult result_;
@@ -7138,8 +7127,12 @@ struct SearchVecIndexCommand
     // Constructor with required parameters
     SearchVecIndexCommand(std::string_view index_name,
                           std::vector<float> &&vector,
-                          size_t k_count)
-        : index_name_(index_name), vector_(std::move(vector)), k_count_(k_count)
+                          size_t k_count,
+                          std::string_view filter_json)
+        : index_name_(index_name),
+          vector_(std::move(vector)),
+          k_count_(k_count),
+          filter_json_(filter_json)
     {
     }
 
@@ -7157,6 +7150,8 @@ struct SearchVecIndexCommand
     std::vector<float> vector_;
     // Number of results to return
     size_t k_count_;
+    // Filter JSON
+    EloqString filter_json_;
 
     // Search result storage
     EloqVec::SearchResult search_res_;
