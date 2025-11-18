@@ -2954,7 +2954,7 @@ function run_eloq_test(){
   # https://github.com/grpc/grpc/blob/master/doc/fork_support.md
   export GRPC_ENABLE_FORK_SUPPORT=0
 
-  local eloqkv_install_path="/home/$current_user/workspace/eloqkv/cmake/install"
+  local eloqkv_install_path="/home/$current_user/workspace/eloqkv/install"
 
   if [ ! -d "/home/$current_user/workspace/eloq_test/" ]; then
     echo "/home/$current_user/workspace/eloq_test/ not exists, exit !!!"
