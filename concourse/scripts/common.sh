@@ -151,6 +151,8 @@ function run_build() {
     -DCMAKE_INSTALL_PREFIX=/home/$current_user/workspace/eloqkv/install \
     -DCMAKE_BUILD_TYPE=$build_type \
     -DWITH_DATA_STORE=$kv_store_type \
+    -DELOQ_MODULE_ENABLED=ON \
+    -DEXT_TX_PROC_ENABLED=ON \
     -DBUILD_WITH_TESTS=ON \
     -DWITH_LOG_SERVICE=ON \
     -DUSE_ONE_ELOQDSS_PARTITION_ENABLED=ON
@@ -213,6 +215,8 @@ function run_build_ent() {
     -DCMAKE_BUILD_TYPE=$build_type \
     -DWITH_DATA_STORE=$kv_store_type \
     -DWITH_LOG_STATE=$txlog_log_state \
+    -DELOQ_MODULE_ENABLED=ON \
+    -DEXT_TX_PROC_ENABLED=ON \
     -DBUILD_WITH_TESTS=ON \
     -DWITH_LOG_SERVICE=ON \
     -DUSE_ONE_ELOQDSS_PARTITION_ENABLED=ON \
