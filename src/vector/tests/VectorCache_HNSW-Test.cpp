@@ -33,6 +33,7 @@ namespace EloqVec
 static std::unique_ptr<VectorIndex> vector_index(nullptr);
 static IndexConfig index_config;
 static std::string index_path = "hnsw_vector_index.index";
+static size_t metadata_size = 64;
 
 void SetUpIndexConfig()
 {
@@ -52,11 +53,13 @@ TEST_CASE("VectorCache HNSW Add Operation", "[vector-cache-hnsw]")
     REQUIRE(vector_index->is_ready());
 
     std::vector<float> vector = {1.0, 2.0, 3.0, 4.0};
-    IndexOpResult result = vector_index->add(vector, 1);
+    VectorId vector_id;
+    vector_id.id_ = 1;
+    IndexOpResult result = vector_index->add(vector, vector_id);
     REQUIRE(result.error == VectorOpResult::SUCCEED);
 
     std::vector<float> vec_result;
-    vector_index->get(1, vec_result);
+    vector_index->get(vector_id, vec_result);
     REQUIRE(vec_result.size() == 4);
     REQUIRE(vec_result[0] == 1.0);
     REQUIRE(vec_result[1] == 2.0);
@@ -75,12 +78,14 @@ TEST_CASE("VectorCache HNSW Batch Add Operation", "[vector-cache-hnsw]")
 
     std::vector<std::vector<float>> vectors = {{101.0, 102.0, 103.0, 104.0},
                                                {105.0, 106.0, 107.0, 108.0}};
-    std::vector<uint64_t> ids = {101, 102};
+    std::vector<VectorId> ids(2);
+    ids[0].id_ = 101;
+    ids[1].id_ = 102;
     IndexOpResult result = vector_index->add_batch(vectors, ids);
     REQUIRE(result.error == VectorOpResult::SUCCEED);
 
     std::vector<float> vec_result;
-    vector_index->get(102, vec_result);
+    vector_index->get(ids[1], vec_result);
     REQUIRE(vec_result.size() == 4);
     REQUIRE(vec_result[0] == 105.0);
     REQUIRE(vec_result[1] == 106.0);
@@ -98,7 +103,9 @@ TEST_CASE("VectorCache HNSW Search Operation", "[vector-cache-hnsw]")
     REQUIRE(vector_index->is_ready());
 
     std::vector<float> vector = {201.0, 202.0, 203.0, 204.0};
-    IndexOpResult result = vector_index->add(vector, 201);
+    VectorId vector_id;
+    vector_id.id_ = 201;
+    IndexOpResult result = vector_index->add(vector, vector_id);
     REQUIRE(result.error == VectorOpResult::SUCCEED);
 
     std::vector<float> query_vector = {201.0, 202.0, 203.0, 204.0};
@@ -120,7 +127,9 @@ TEST_CASE("VectorCache HNSW Save & ReInit Operation", "[vector-cache-hnsw]")
 
     // add a vector
     std::vector<float> vector = {301.0, 302.0, 303.0, 304.0};
-    IndexOpResult res = vector_index->add(vector, 301);
+    VectorId vector_id;
+    vector_id.id_ = 301;
+    IndexOpResult res = vector_index->add(vector, vector_id);
     REQUIRE(res.error == VectorOpResult::SUCCEED);
 
     bool result = vector_index->save(index_path);
@@ -135,7 +144,7 @@ TEST_CASE("VectorCache HNSW Save & ReInit Operation", "[vector-cache-hnsw]")
 
     // get the vector
     std::vector<float> vector_result;
-    res = vector_index->get(301, vector_result);
+    res = vector_index->get(vector_id, vector_result);
     REQUIRE(res.error == VectorOpResult::SUCCEED);
     REQUIRE(vector_result.size() == 4);
     REQUIRE(vector_result[0] == 301.0);
@@ -145,7 +154,9 @@ TEST_CASE("VectorCache HNSW Save & ReInit Operation", "[vector-cache-hnsw]")
 
     // add a vector
     std::vector<float> vector1 = {311.0, 312.0, 313.0, 314.0};
-    res = vector_index->add(vector1, 311);
+    VectorId vector_id1;
+    vector_id1.id_ = 311;
+    res = vector_index->add(vector1, vector_id1);
     REQUIRE(res.error == VectorOpResult::SUCCEED);
 
     DLOG(INFO) << "VectorCache HNSW Save & ReInit Operation done";
@@ -159,15 +170,17 @@ TEST_CASE("VectorCache HNSW Remove Operation", "[vector-cache-hnsw]")
     REQUIRE(vector_index->is_ready());
 
     std::vector<float> vector = {401.0, 402.0, 403.0, 404.0};
-    IndexOpResult result = vector_index->add(vector, 401);
+    VectorId vector_id;
+    vector_id.id_ = 401;
+    IndexOpResult result = vector_index->add(vector, vector_id);
     REQUIRE(result.error == VectorOpResult::SUCCEED);
 
-    result = vector_index->remove(401);
+    result = vector_index->remove(vector_id);
     REQUIRE(result.error == VectorOpResult::SUCCEED);
 
     // get the vector
     std::vector<float> vec_result;
-    result = vector_index->get(401, vec_result);
+    result = vector_index->get(vector_id, vec_result);
     REQUIRE(result.error == VectorOpResult::SUCCEED);
     REQUIRE(vec_result.size() == 0);
 
@@ -190,7 +203,9 @@ TEST_CASE("VectorCache HNSW Concurrency Add Operation", "[vector-cache-hnsw]")
                 float step = i * 5.0f;
                 std::vector<float> vector = {
                     501.0f + step, 502.0f + step, 503.0f + step, 504.0f + step};
-                IndexOpResult result = vector_index->add(vector, 501 + i);
+                VectorId vector_id;
+                vector_id.id_ = 501 + i;
+                IndexOpResult result = vector_index->add(vector, vector_id);
                 assert(result.error == VectorOpResult::SUCCEED);
             });
     }
@@ -201,7 +216,9 @@ TEST_CASE("VectorCache HNSW Concurrency Add Operation", "[vector-cache-hnsw]")
 
     // get the vector
     std::vector<float> vec_result;
-    IndexOpResult result = vector_index->get(501, vec_result);
+    VectorId vector_id;
+    vector_id.id_ = 501;
+    IndexOpResult result = vector_index->get(vector_id, vec_result);
     REQUIRE(result.error == VectorOpResult::SUCCEED);
     REQUIRE(vec_result.size() == 4);
     REQUIRE(vec_result[0] == 501.0);
@@ -230,11 +247,11 @@ TEST_CASE("VectorCache HNSW Concurrency Add Batch Operation",
             [i, batch_vector_num]()
             {
                 float worker_step = i * batch_vector_num;
-                std::vector<uint64_t> ids;
+                std::vector<VectorId> ids(batch_vector_num);
                 std::vector<std::vector<float>> vectors;
                 for (uint32_t j = 0; j < batch_vector_num; ++j)
                 {
-                    ids.push_back(601 + worker_step + j);
+                    ids[j].id_ = 601 + worker_step + j;
                     float step = worker_step + j * 4.0f;
                     vectors.push_back({601.0f + step,
                                        602.0f + step,
@@ -253,7 +270,9 @@ TEST_CASE("VectorCache HNSW Concurrency Add Batch Operation",
 
     // get the vector
     std::vector<float> vec_result;
-    IndexOpResult result = vector_index->get(601, vec_result);
+    VectorId vector_id;
+    vector_id.id_ = 601;
+    IndexOpResult result = vector_index->get(vector_id, vec_result);
     REQUIRE(result.error == VectorOpResult::SUCCEED);
     REQUIRE(vec_result.size() == 4);
     REQUIRE(vec_result[0] == 601.0);
@@ -284,8 +303,17 @@ TEST_CASE("VectorCache HNSW Concurrency Search Operation",
         {1671.0, 1672.0, 1673.0, 1674.0},
         {1681.0, 1682.0, 1683.0, 1684.0},
         {1691.0, 1692.0, 1693.0, 1694.0}};
-    std::vector<uint64_t> ids = {
-        1601, 1602, 1603, 1604, 1605, 1606, 1607, 1608, 1609, 1610};
+    std::vector<VectorId> ids(10);
+    ids[0].id_ = 1601;
+    ids[1].id_ = 1602;
+    ids[2].id_ = 1603;
+    ids[3].id_ = 1604;
+    ids[4].id_ = 1605;
+    ids[5].id_ = 1606;
+    ids[6].id_ = 1607;
+    ids[7].id_ = 1608;
+    ids[8].id_ = 1609;
+    ids[9].id_ = 1610;
     IndexOpResult result = vector_index->add_batch(vectors, ids);
     REQUIRE(result.error == VectorOpResult::SUCCEED);
 
@@ -314,7 +342,9 @@ TEST_CASE("VectorCache HNSW Concurrency Search Operation",
                 float worker_step = i * 10.0f;
                 // get the query vector
                 std::vector<float> vector;
-                IndexOpResult result = vector_index->get(1601 + i, vector);
+                VectorId vector_id;
+                vector_id.id_ = 1601 + i;
+                IndexOpResult result = vector_index->get(vector_id, vector);
                 assert(result.error == VectorOpResult::SUCCEED);
                 assert(vector.size() == 4);
                 assert(vector[0] == 1601.0f + worker_step);
@@ -364,8 +394,17 @@ TEST_CASE("VectorCache HNSW Concurrency Add Batch & Search Operation",
         {1781.0, 1782.0, 1783.0, 1784.0},
         {1791.0, 1792.0, 1793.0, 1794.0},
     };
-    std::vector<uint64_t> ids = {
-        1701, 1702, 1703, 1704, 1705, 1706, 1707, 1708, 1709, 1710};
+    std::vector<VectorId> ids(10);
+    ids[0].id_ = 1701;
+    ids[1].id_ = 1702;
+    ids[2].id_ = 1703;
+    ids[3].id_ = 1704;
+    ids[4].id_ = 1705;
+    ids[5].id_ = 1706;
+    ids[6].id_ = 1707;
+    ids[7].id_ = 1708;
+    ids[8].id_ = 1709;
+    ids[9].id_ = 1710;
     IndexOpResult result = vector_index->add_batch(vectors, ids);
     REQUIRE(result.error == VectorOpResult::SUCCEED);
 
@@ -389,7 +428,9 @@ TEST_CASE("VectorCache HNSW Concurrency Add Batch & Search Operation",
                      1814.0f + worker_step},
                 };
                 uint64_t step = i * 5.0f;
-                std::vector<uint64_t> ids = {1711 + step, 1712 + step};
+                std::vector<VectorId> ids(2);
+                ids[0].id_ = 1711 + step;
+                ids[1].id_ = 1712 + step;
                 IndexOpResult result = vector_index->add_batch(vectors, ids);
                 assert(result.error == VectorOpResult::SUCCEED);
             }
@@ -434,13 +475,19 @@ TEST_CASE("VectorCache HNSW Invalid Parameters Operation",
         {1801.0, 1802.0, 1803.0, 1804.0},
         {1811.0, 1812.0, 1813.0, 1814.0},
     };
-    std::vector<uint64_t> ids = {1801, 1802, 1803, 1804};
+    std::vector<VectorId> ids(4);
+    ids[0].id_ = 1801;
+    ids[1].id_ = 1802;
+    ids[2].id_ = 1803;
+    ids[3].id_ = 1804;
     IndexOpResult result = vector_index->add_batch(vectors, ids);
     REQUIRE(result.error == VectorOpResult::INDEX_ADD_FAILED);
 
     // add a vector with invalid parameters
     std::vector<float> vector = {1801.0, 1802.0, 1803.0, 1804.0, 1805.0};
-    result = vector_index->add(vector, 1801);
+    VectorId vector_id;
+    vector_id.id_ = 1801;
+    result = vector_index->add(vector, vector_id);
     REQUIRE(result.error == VectorOpResult::VECTOR_DIMENSION_MISMATCH);
 
     // add a batch of vectors with invalid parameters
@@ -448,7 +495,9 @@ TEST_CASE("VectorCache HNSW Invalid Parameters Operation",
         {1801.0, 1802.0, 1803.0, 1804.0, 1805.0},
         {1811.0, 1812.0, 1813.0, 1814.0, 1815.0},
     };
-    ids = {1801, 1802};
+    ids.resize(2);
+    ids[0].id_ = 1801;
+    ids[1].id_ = 1802;
     result = vector_index->add_batch(vectors, ids);
     REQUIRE(result.error == VectorOpResult::VECTOR_DIMENSION_MISMATCH);
 
@@ -476,8 +525,17 @@ TEST_CASE("VectorCache HNSW Concurrency Remove Operation",
         {1981.0, 1982.0, 1983.0, 1984.0},
         {1991.0, 1992.0, 1993.0, 1994.0},
     };
-    std::vector<uint64_t> ids = {
-        1901, 1902, 1903, 1904, 1905, 1906, 1907, 1908, 1909, 1910};
+    std::vector<VectorId> ids(10);
+    ids[0].id_ = 1901;
+    ids[1].id_ = 1902;
+    ids[2].id_ = 1903;
+    ids[3].id_ = 1904;
+    ids[4].id_ = 1905;
+    ids[5].id_ = 1906;
+    ids[6].id_ = 1907;
+    ids[7].id_ = 1908;
+    ids[8].id_ = 1909;
+    ids[9].id_ = 1910;
     IndexOpResult result = vector_index->add_batch(vectors, ids);
     REQUIRE(result.error == VectorOpResult::SUCCEED);
 
@@ -492,8 +550,10 @@ TEST_CASE("VectorCache HNSW Concurrency Remove Operation",
                 float worker_step = i * 10.0f;
                 // get the vector
                 std::vector<float> vector_result;
+                VectorId vector_id;
+                vector_id.id_ = 1901 + i;
                 IndexOpResult result =
-                    vector_index->get(1901 + i, vector_result);
+                    vector_index->get(vector_id, vector_result);
                 assert(result.error == VectorOpResult::SUCCEED);
                 assert(vector_result.size() == 4);
                 assert(vector_result[0] == 1901.0f + worker_step);
@@ -502,11 +562,11 @@ TEST_CASE("VectorCache HNSW Concurrency Remove Operation",
                 assert(vector_result[3] == 1904.0f + worker_step);
 
                 // remove the vector
-                result = vector_index->remove(1901 + i);
+                result = vector_index->remove(vector_id);
                 assert(result.error == VectorOpResult::SUCCEED);
 
                 // get the vector
-                result = vector_index->get(1901 + i, vector_result);
+                result = vector_index->get(vector_id, vector_result);
                 assert(result.error == VectorOpResult::SUCCEED);
                 assert(vector_result.size() == 0);
             });
@@ -517,6 +577,190 @@ TEST_CASE("VectorCache HNSW Concurrency Remove Operation",
     }
 
     DLOG(INFO) << "VectorCache HNSW Concurrency Remove Operation done";
+}
+
+/* id range of this case is [2001, 2100] */
+TEST_CASE("VectorCache HNSW Add Operation with Metadata", "[vector-cache-hnsw]")
+{
+    DLOG(INFO) << "VectorCache HNSW Add Operation with Metadata start";
+    REQUIRE(vector_index != nullptr);
+    REQUIRE(vector_index->is_ready());
+
+    // add a vector with metadata
+    std::vector<float> vector = {2001.0, 2002.0, 2003.0, 2004.0};
+    VectorId vector_id;
+    vector_id.id_ = 2001;
+    vector_id.metadata_.resize(metadata_size, 0);
+    for (size_t i = 0; i < metadata_size; ++i)
+    {
+        vector_id.metadata_[i] = 'a' + i;
+    }
+    IndexOpResult result = vector_index->add(vector, vector_id);
+    REQUIRE(result.error == VectorOpResult::SUCCEED);
+
+    std::vector<float> vec_result;
+    vector_index->get(vector_id, vec_result);
+    REQUIRE(vec_result.size() == 4);
+    REQUIRE(vec_result[0] == 2001.0);
+    REQUIRE(vec_result[1] == 2002.0);
+    REQUIRE(vec_result[2] == 2003.0);
+    REQUIRE(vec_result[3] == 2004.0);
+
+    DLOG(INFO) << "VectorCache HNSW Add Operation with Metadata done";
+}
+
+/* id range of this case is [2101, 2200] */
+TEST_CASE("VectorCache HNSW Batch Add Operation with Metadata",
+          "[vector-cache-hnsw]")
+{
+    DLOG(INFO) << "VectorCache HNSW Batch Add Operation with Metadata start";
+    REQUIRE(vector_index != nullptr);
+    REQUIRE(vector_index->is_ready());
+
+    std::vector<std::vector<float>> vectors = {
+        {2101.0, 2102.0, 2103.0, 2104.0}, {2111.0, 2112.0, 2113.0, 2114.0}};
+    std::vector<VectorId> ids(2);
+    ids[0].id_ = 2101;
+    ids[1].id_ = 2102;
+    ids[0].metadata_.resize(metadata_size, 0);
+    for (size_t i = 0; i < metadata_size; ++i)
+    {
+        ids[0].metadata_[i] = 'b' + i;
+    }
+    ids[1].metadata_.resize(metadata_size, 0);
+    for (size_t i = 0; i < metadata_size; ++i)
+    {
+        ids[1].metadata_[i] = 'b' + i;
+    }
+    IndexOpResult result = vector_index->add_batch(vectors, ids);
+    REQUIRE(result.error == VectorOpResult::SUCCEED);
+
+    std::vector<float> vec_result;
+    vector_index->get(ids[1], vec_result);
+    REQUIRE(vec_result.size() == 4);
+    REQUIRE(vec_result[0] == 2111.0);
+    REQUIRE(vec_result[1] == 2112.0);
+    REQUIRE(vec_result[2] == 2113.0);
+    REQUIRE(vec_result[3] == 2114.0);
+
+    DLOG(INFO) << "VectorCache HNSW Batch Add Operation with Metadata done";
+}
+
+/* id range of this case is [2201, 2300] */
+TEST_CASE("VectorCache HNSW Remove Operation with Metadata",
+          "[vector-cache-hnsw]")
+{
+    DLOG(INFO) << "VectorCache HNSW Remove Operation with Metadata start";
+    REQUIRE(vector_index != nullptr);
+    REQUIRE(vector_index->is_ready());
+
+    std::vector<float> vector = {2201.0, 2202.0, 2203.0, 2204.0};
+    VectorId vector_id;
+    vector_id.id_ = 2201;
+    vector_id.metadata_.resize(metadata_size, 0);
+    for (size_t i = 0; i < metadata_size; ++i)
+    {
+        vector_id.metadata_[i] = 'd' + i;
+    }
+    IndexOpResult result = vector_index->add(vector, vector_id);
+    REQUIRE(result.error == VectorOpResult::SUCCEED);
+
+    result = vector_index->remove(vector_id);
+    REQUIRE(result.error == VectorOpResult::SUCCEED);
+
+    // get the vector
+    std::vector<float> vec_result;
+    result = vector_index->get(vector_id, vec_result);
+    REQUIRE(result.error == VectorOpResult::SUCCEED);
+    REQUIRE(vec_result.size() == 0);
+
+    DLOG(INFO) << "VectorCache HNSW Remove Operation with Metadata done";
+}
+
+/* id range of this case is [2301, 2400] */
+TEST_CASE("VectorCache HNSW Search Operation with Metadata",
+          "[vector-cache-hnsw]")
+{
+    DLOG(INFO) << "VectorCache HNSW Search Operation with Metadata start";
+    REQUIRE(vector_index != nullptr);
+    REQUIRE(vector_index->is_ready());
+
+    std::vector<float> vector = {2301.0, 2302.0, 2303.0, 2304.0};
+    VectorId vector_id;
+    vector_id.id_ = 2301;
+    vector_id.metadata_.resize(metadata_size, 0);
+    for (size_t i = 0; i < metadata_size; ++i)
+    {
+        vector_id.metadata_[i] = 'e' + i;
+    }
+    IndexOpResult result = vector_index->add(vector, vector_id);
+    REQUIRE(result.error == VectorOpResult::SUCCEED);
+
+    std::vector<float> query_vector = {2301.0, 2302.0, 2303.0, 2304.0};
+    SearchResult search_result;
+    result = vector_index->search(query_vector, 1, 0, search_result);
+    REQUIRE(result.error == VectorOpResult::SUCCEED);
+    REQUIRE(search_result.ids.size() == 1);
+    REQUIRE(search_result.distances[0] == 0.0);
+
+    DLOG(INFO) << "VectorCache HNSW Search Operation with Metadata done";
+}
+
+/* id range of this case is [2401, 2500] */
+TEST_CASE("VectorCache HNSW Save & Load Operation with Metadata",
+          "[vector-cache-hnsw]")
+{
+    // TODO(ysw): Disable this test case for now
+    return;
+    DLOG(INFO) << "VectorCache HNSW Save & Load Operation with Metadata start";
+    REQUIRE(vector_index != nullptr);
+    REQUIRE(vector_index->is_ready());
+
+    // add a vector
+    std::vector<float> vector = {2401.0, 2402.0, 2403.0, 2404.0};
+    VectorId vector_id;
+    vector_id.id_ = 2401;
+    vector_id.metadata_.resize(metadata_size, 0);
+    for (size_t i = 0; i < metadata_size; ++i)
+    {
+        vector_id.metadata_[i] = 'f' + i;
+    }
+    IndexOpResult res = vector_index->add(vector, vector_id);
+    REQUIRE(res.error == VectorOpResult::SUCCEED);
+
+    bool result = vector_index->save(index_path);
+    REQUIRE(result);
+
+    // reinitialize the index
+    vector_index.reset();
+    vector_index = EloqVec::create_hnsw_vector_index();
+    REQUIRE(vector_index != nullptr);
+    REQUIRE(vector_index->initialize(index_config, index_path));
+    REQUIRE(vector_index->is_ready());
+
+    // get the vector
+    std::vector<float> vector_result;
+    res = vector_index->get(vector_id, vector_result);
+    REQUIRE(res.error == VectorOpResult::SUCCEED);
+    REQUIRE(vector_result.size() == 4);
+    REQUIRE(vector_result[0] == 2401.0);
+    REQUIRE(vector_result[1] == 2402.0);
+    REQUIRE(vector_result[2] == 2403.0);
+    REQUIRE(vector_result[3] == 2404.0);
+
+    // add a vector
+    std::vector<float> vector1 = {2411.0f, 2412.0f, 2413.0f, 2414.0f};
+    VectorId vector_id1;
+    vector_id1.id_ = 2411;
+    vector_id1.metadata_.resize(metadata_size, 0);
+    for (size_t i = 0; i < metadata_size; ++i)
+    {
+        vector_id1.metadata_[i] = 'g' + i;
+    }
+    res = vector_index->add(vector1, vector_id1);
+    REQUIRE(res.error == VectorOpResult::SUCCEED);
+
+    DLOG(INFO) << "VectorCache HNSW Save & Load Operation with Metadata done";
 }
 
 }  // namespace EloqVec
