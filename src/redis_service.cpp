@@ -19,8 +19,6 @@
  *    <http://www.gnu.org/licenses/>.
  *
  */
-#include "redis_service.h"
-
 #include <absl/types/span.h>
 #include <bthread/mutex.h>
 #include <bthread/task_group.h>
@@ -62,6 +60,7 @@
 #include "redis_connection_context.h"
 #include "redis_handler.h"
 #include "redis_metrics.h"
+#include "redis_service.h"
 #include "redis_stats.h"
 #include "redis_string_match.h"
 #include "sharder.h"
@@ -186,6 +185,25 @@ bool RedisServiceImpl::Init(brpc::Server &brpc_server)
     node_memory_limit_mb_ = FLAGS_node_memory_limit_mb;
 
     databases = config_reader.GetInteger("local", "databases", 16);
+    for (int i = 0; i < databases; i++)
+    {
+        std::string table_name("data_table_");
+        table_name.append(std::to_string(i));
+        TableName redis_table_name(
+            std::move(table_name), TableType::Primary, TableEngine::EloqKv);
+        std::string image = redis_table_name.String();
+#if defined(DATA_STORE_TYPE_CASSANDRA)
+        EloqDS::CassCatalogInfo temp_kv_info(image, "");
+        auto kv_info_str = temp_kv_info.Serialize();
+        image = EloqDS::SerializeSchemaImage("", kv_info_str, "");
+#elif defined(DATA_STORE_TYPE_DYNAMODB)
+        // TODO(lokax):
+#elif defined(DATA_STORE_TYPE_ROCKSDB)
+        // TODO(lokax):
+#endif
+        redis_table_names_.push_back(redis_table_name);
+    }
+
     requirepass = config_reader.GetString("local", "requirepass", "");
 
     skip_kv_ = !DataSubstrate::GetGlobal()->GetCoreConfig().enable_data_store;
@@ -847,7 +865,7 @@ void RedisServiceImpl::RedisClusterSlots(std::vector<SlotInfo> &info)
                 }
             }
         }  // end-if
-    }  // end-for
+    }      // end-for
 
     if (info.size() > 1)
     {
