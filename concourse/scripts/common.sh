@@ -1610,7 +1610,7 @@ function run_eloqkv_cluster_tests() {
     local log_service_ip_port="127.0.0.1:9000"
 
     rm -rf /tmp/log_data
-    /home/$current_user/workspace/eloqkv/cmake/install/bin/launch_sv \
+    /home/$current_user/workspace/eloqkv/install/bin/launch_sv \
       -conf=$log_service_ip_port \
       -node_id=0 \
       -storage_path="/tmp/log_data" \
@@ -2003,7 +2003,7 @@ function run_eloqkv_cluster_tests() {
     local log_service_ip_port="127.0.0.1:9000"
 
     rm -rf /tmp/log_data
-    /home/$current_user/workspace/eloqkv/cmake/install/bin/ \
+    /home/$current_user/workspace/eloqkv/install/bin/ \
       -conf=$log_service_ip_port \
       -node_id=0 \
       -storage_path="/tmp/log_data" \
@@ -2345,7 +2345,7 @@ function run_eloqkv_cluster_tests() {
     local log_service_ip_port="127.0.0.1:9000"
 
     rm -rf /tmp/log_data
-    /home/$current_user/workspace/eloqkv/cmake/install/bin/launch_sv \
+    /home/$current_user/workspace/eloqkv/install/bin/launch_sv \
       -conf=$log_service_ip_port \
       -node_id=0 \
       -storage_path="/tmp/log_data" \
@@ -2766,7 +2766,7 @@ function run_eloqkv_cluster_tests() {
     local log_service_ip_port="127.0.0.1:9000"
 
     rm -rf /tmp/log_data
-    /home/$current_user/workspace/eloqkv/cmake/install/bin/launch_sv \
+    /home/$current_user/workspace/eloqkv/install/bin/launch_sv \
       -conf=$log_service_ip_port \
       -node_id=0 \
       -storage_path="/tmp/log_data" \
