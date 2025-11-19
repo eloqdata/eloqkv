@@ -531,6 +531,7 @@ if(VECTOR_INDEX_ENABLED)
         src/vector/log_object.cpp
         src/vector/vector_type.cpp
         src/vector/cloud_manager.cpp
+        src/vector/predicate.cpp
     )
 endif()
 

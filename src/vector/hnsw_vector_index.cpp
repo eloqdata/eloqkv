@@ -213,7 +213,7 @@ bool HNSWVectorIndex::initialize_usearch_index(const IndexConfig &config)
         // Initialize the usearch index
         metric_punned_t metric(
             config.dimension, metric_type, scalar_kind_t::f32_k);
-        auto init_result = index_dense_t::make(metric, index_config);
+        auto init_result = index_dense_gt<VectorId>::make(metric, index_config);
         if (init_result.error)
         {
             return false;
@@ -290,7 +290,7 @@ IndexOpResult HNSWVectorIndex::search(
     size_t thread_id,
     SearchResult &result,
     bool exact,
-    std::optional<std::function<bool(uint64_t)>> filter)
+    std::optional<std::function<bool(const VectorId &)>> filter)
 {
     std::shared_lock<std::shared_mutex> lock(index_mutex_);
     if (!initialized_)
@@ -313,7 +313,7 @@ IndexOpResult HNSWVectorIndex::search(
             auto search_result = usearch_index_.filtered_search(
                 query_vector.data(),
                 k,
-                [&filter](auto key) { return (*filter)(key); },
+                [&filter](const VectorId &key) { return (*filter)(key); },
                 thread_id,  // thread
                 exact);
 
@@ -375,7 +375,7 @@ IndexOpResult HNSWVectorIndex::search(
  * reports an error or an exception occurs.
  */
 IndexOpResult HNSWVectorIndex::add(const std::vector<float> &vector,
-                                   uint64_t id)
+                                   const VectorId &id)
 {
     std::shared_lock<std::shared_mutex> lock(index_mutex_);
 
@@ -434,7 +434,7 @@ IndexOpResult HNSWVectorIndex::add(const std::vector<float> &vector,
  */
 IndexOpResult HNSWVectorIndex::add_batch(
     const std::vector<std::vector<float>> &vectors,
-    const std::vector<uint64_t> &ids)
+    const std::vector<VectorId> &ids)
 {
     std::shared_lock<std::shared_mutex> lock(index_mutex_);
 
@@ -490,7 +490,7 @@ IndexOpResult HNSWVectorIndex::add_batch(
  * @return IndexOpResult Result of the operation (SUCCEED, INDEX_NOT_EXIST, or
  * INDEX_INTERNAL_ERROR).
  */
-IndexOpResult HNSWVectorIndex::remove(uint64_t id)
+IndexOpResult HNSWVectorIndex::remove(const VectorId &id)
 {
     std::shared_lock<std::shared_mutex> lock(index_mutex_);
 
@@ -538,7 +538,7 @@ IndexOpResult HNSWVectorIndex::remove(uint64_t id)
  *   the underlying error text.
  */
 IndexOpResult HNSWVectorIndex::update(const std::vector<float> &vector,
-                                      uint64_t id)
+                                      const VectorId &id)
 {
     std::shared_lock<std::shared_mutex> lock(index_mutex_);
 
@@ -596,7 +596,8 @@ IndexOpResult HNSWVectorIndex::update(const std::vector<float> &vector,
  *   operation fails or an exception is thrown; the result message contains
  *   the underlying error text.
  */
-IndexOpResult HNSWVectorIndex::get(uint64_t id, std::vector<float> &vector)
+IndexOpResult HNSWVectorIndex::get(const VectorId &id,
+                                   std::vector<float> &vector)
 {
     std::shared_lock<std::shared_mutex> lock(index_mutex_);
     if (!initialized_)
@@ -702,3 +703,61 @@ std::unique_ptr<VectorIndex> create_hnsw_vector_index()
 }
 
 }  // namespace EloqVec
+
+namespace unum::usearch
+{
+template <>
+struct hash_gt<EloqVec::VectorId>
+{
+    std::size_t operator()(const EloqVec::VectorId &v) const
+    {
+        return std::hash<uint64_t>{}(v.id_);
+    }
+};
+
+template <typename T>
+class misaligned_ref_gt;
+
+// Specialize comparison operators for misaligned_ref_gt<const VectorId>
+inline bool operator==(const misaligned_ref_gt<const EloqVec::VectorId> &lhs,
+                       const EloqVec::VectorId &rhs)
+{
+    return std::memcmp(lhs.ptr(), &rhs.id_, sizeof(uint64_t)) == 0;
+}
+inline bool operator==(const EloqVec::VectorId &lhs,
+                       const misaligned_ref_gt<const EloqVec::VectorId> &rhs)
+{
+    return std::memcmp(&lhs.id_, rhs.ptr(), sizeof(uint64_t)) == 0;
+}
+inline bool operator!=(const misaligned_ref_gt<const EloqVec::VectorId> &lhs,
+                       const EloqVec::VectorId &rhs)
+{
+    return !(lhs == rhs);
+}
+inline bool operator!=(const EloqVec::VectorId &lhs,
+                       const misaligned_ref_gt<const EloqVec::VectorId> &rhs)
+{
+    return !(lhs == rhs);
+}
+//
+template <>
+void misaligned_store<EloqVec::VectorId>(void *ptr,
+                                         EloqVec::VectorId v) noexcept
+{
+    static_assert(!std::is_reference<EloqVec::VectorId>::value,
+                  "Can't store a reference");
+    EloqVec::VectorId *v_ptr = reinterpret_cast<EloqVec::VectorId *>(ptr);
+    *v_ptr = v;
+}
+template <>
+EloqVec::VectorId misaligned_load<EloqVec::VectorId>(void const *ptr) noexcept
+{
+    static_assert(!std::is_reference<EloqVec::VectorId>::value,
+                  "Can't load a reference");
+    EloqVec::VectorId v;
+    const EloqVec::VectorId *v_ptr =
+        reinterpret_cast<const EloqVec::VectorId *>(ptr);
+    v = *v_ptr;
+    return v;
+}
+}  // namespace unum::usearch

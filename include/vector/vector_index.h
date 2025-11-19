@@ -77,7 +77,8 @@ public:
         size_t thread_id,
         SearchResult &result,
         bool exact = false,
-        std::optional<std::function<bool(uint64_t)>> filter = std::nullopt) = 0;
+        std::optional<std::function<bool(const VectorId &)>> filter =
+            std::nullopt) = 0;
 
     /**
      * @brief Add a vector to the index
@@ -87,7 +88,7 @@ public:
      * @return IndexOpResult
      */
     virtual IndexOpResult add(const std::vector<float> &vector,
-                              uint64_t id) = 0;
+                              const VectorId &id) = 0;
 
     /**
      * @brief Add multiple vectors to the index in batch
@@ -98,7 +99,7 @@ public:
      */
     virtual IndexOpResult add_batch(
         const std::vector<std::vector<float>> &vectors,
-        const std::vector<uint64_t> &ids) = 0;
+        const std::vector<VectorId> &ids) = 0;
 
     /**
      * @brief Delete a vector from the index
@@ -106,7 +107,7 @@ public:
      * @param id Unique identifier of the vector to delete
      * @return IndexOpResult
      */
-    virtual IndexOpResult remove(uint64_t id) = 0;
+    virtual IndexOpResult remove(const VectorId &id) = 0;
 
     /**
      * @brief Update an existing vector in the index
@@ -116,7 +117,7 @@ public:
      * @return IndexOpResult
      */
     virtual IndexOpResult update(const std::vector<float> &vector,
-                                 uint64_t id) = 0;
+                                 const VectorId &id) = 0;
 
     /**
      * @brief Get a vector from the index
@@ -126,7 +127,8 @@ public:
      * means that no such @id exists in the index.
      * @return IndexOpResult
      */
-    virtual IndexOpResult get(uint64_t id, std::vector<float> &vector) = 0;
+    virtual IndexOpResult get(const VectorId &id,
+                              std::vector<float> &vector) = 0;
 
     /**
      * @brief Get the current memory usage of the index

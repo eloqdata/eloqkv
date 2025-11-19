@@ -19,6 +19,7 @@
 #include <usearch/index_plugins.hpp>
 
 #include "vector_index.h"
+
 namespace EloqVec
 {
 
@@ -54,16 +55,17 @@ public:
                          size_t thread_id,
                          SearchResult &result,
                          bool exact = false,
-                         std::optional<std::function<bool(uint64_t)>> filter =
-                             std::nullopt) override;
+                         std::optional<std::function<bool(const VectorId &)>>
+                             filter = std::nullopt) override;
 
-    IndexOpResult add(const std::vector<float> &vector, uint64_t id) override;
+    IndexOpResult add(const std::vector<float> &vector,
+                      const VectorId &id) override;
     IndexOpResult add_batch(const std::vector<std::vector<float>> &vectors,
-                            const std::vector<uint64_t> &ids) override;
-    IndexOpResult remove(uint64_t id) override;
+                            const std::vector<VectorId> &ids) override;
+    IndexOpResult remove(const VectorId &id) override;
     IndexOpResult update(const std::vector<float> &vector,
-                         uint64_t id) override;
-    IndexOpResult get(uint64_t id, std::vector<float> &vector) override;
+                         const VectorId &id) override;
+    IndexOpResult get(const VectorId &id, std::vector<float> &vector) override;
     size_t memory_usage() override;
     bool is_ready() override;
     size_t size() override;
@@ -102,7 +104,7 @@ private:
 
 private:
     // usearch index instance
-    unum::usearch::index_dense_t usearch_index_;
+    unum::usearch::index_dense_gt<VectorId> usearch_index_;
 
     // Thread safety
     std::shared_mutex index_mutex_;

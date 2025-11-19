@@ -9,6 +9,7 @@ set(TESTS_DIR ${CMAKE_CURRENT_SOURCE_DIR})
 set(SOURCES_SINGLE_FILE
     LogObject-Test.cpp
     VectorCache_HNSW-Test.cpp
+    VectorHandler-Test.cpp
 )
 
 set(SOURCES_ALL

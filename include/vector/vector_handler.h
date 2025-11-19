@@ -100,6 +100,8 @@ public:
      * @param name Name of the vector index to search
      * @param query_vector Query vector
      * @param k_count Number of nearest neighbors to return
+     * @param thread_id Thread ID to execute the search
+     * @param filter_json JSON filter view string for metadata filtering
      * @param vector_result (OUT) Result of the search vectors
      * @return Result of the search operation
      */
@@ -107,6 +109,7 @@ public:
                           const std::vector<float> &query_vector,
                           size_t k_count,
                           size_t thread_id,
+                          const std::string_view &filter_json,
                           SearchResult &vector_result);
 
     /**
@@ -115,11 +118,13 @@ public:
      * @param name Name of the vector index
      * @param id Unique identifier for the vector
      * @param vector Vector data
+     * @param metadata JSON string containing metadata for the vector record
      * @return Result of the add operation
      */
     VectorOpResult Add(const std::string &name,
                        uint64_t id,
-                       const std::vector<float> &vector);
+                       const std::vector<float> &vector,
+                       const std::string_view &metadata);
 
     /**
      * @brief Update a vector entry in an index
@@ -127,11 +132,14 @@ public:
      * @param name Name of the vector index
      * @param id Unique identifier for the vector
      * @param vector Vector data
+     * @param metadata JSON string containing metadata for the vector
+     * record
      * @return Result of the update operation
      */
     VectorOpResult Update(const std::string &name,
                           uint64_t id,
-                          const std::vector<float> &vector);
+                          const std::vector<float> &vector,
+                          const std::string_view &metadata);
 
     /**
      * @brief Delete a vector entry from an index
@@ -148,11 +156,14 @@ public:
      * @param name Name of the vector index
      * @param ids Vector of unique identifiers
      * @param vectors Vector of vectors
+     * @param metadata_list JSON strings containing metadata for each
+     * vector record
      * @return Result of the batch add operation
      */
     VectorOpResult BatchAdd(const std::string &name,
                             const std::vector<uint64_t> &ids,
-                            const std::vector<std::vector<float>> &vectors);
+                            const std::vector<std::vector<float>> &vectors,
+                            const std::vector<std::string_view> &metadata_list);
 
     /**
      * @brief Persist a vector index to disk and truncate its log
