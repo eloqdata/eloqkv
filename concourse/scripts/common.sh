@@ -227,9 +227,23 @@ function run_build_ent() {
   log_file="/tmp/compile_info.log"
 
   # Function to run cmake build and check for errors
+  # run_cmake_build() {
+  #   local target=$1
+  #   cmake --build /home/$current_user/workspace/eloqkv/cmake --target "$target" -j 8
+  #   local exit_status=$?
+  #
+  #   if [ $exit_status -ne 0 ]; then
+  #     echo "CMake build for target '$target' failed."
+  #     exit $exit_status
+  #   fi
+  # }
+  #
+  # # Run builds for the specified targets
+  # targets=("eloqkv" "host_manager" "object_serialize_deserialize_test" "eloqkv_to_aof" "eloqkv_to_rdb")
+
   run_cmake_build() {
     local target=$1
-    cmake --build /home/$current_user/workspace/eloqkv/cmake --target "$target" -j 8
+    cmake --build /home/$current_user/workspace/eloqkv/cmake -j 8
     local exit_status=$?
 
     if [ $exit_status -ne 0 ]; then
@@ -238,13 +252,8 @@ function run_build_ent() {
     fi
   }
 
-  # Run builds for the specified targets
-  targets=("eloqkv" "host_manager" "object_serialize_deserialize_test" "eloqkv_to_aof" "eloqkv_to_rdb")
-
   set +e
-  for target in "${targets[@]}"; do
-    run_cmake_build "$target"
-  done
+  run_cmake_build "$target"
   set -e
 
   cmake --install /home/$current_user/workspace/eloqkv/cmake
