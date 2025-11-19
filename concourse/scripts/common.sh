@@ -1791,6 +1791,23 @@ function run_eloqkv_cluster_tests() {
     /home/$current_user/workspace/apache-cassandra-4.0.6/bin/cqlsh $CASS_HOST -e "DROP KEYSPACE IF EXISTS $keyspace_name;"
 
   elif [[ $kv_store_type = "ROCKSDB" ]]; then
+    echo "starting log service"
+    local log_service_ip_port="127.0.0.1:9000"
+
+    rm -rf /tmp/log_data
+    /home/$current_user/workspace/eloqkv/install/bin/launch_sv \
+      -conf=$log_service_ip_port \
+      -node_id=0 \
+      -storage_path="/tmp/log_data" \
+      --logtostderr=true \
+      >/tmp/redis_log_service.log 2>&1 \
+      &
+
+    local log_service_pid=$!
+    echo "log_service is started, pid: $log_service_pid"
+    # wait for log service to be ready
+    sleep 10
+
     echo "bootstrap before start cluster to avoid contention"
     env LD_LIBRARY_PATH=/home/$current_user/workspace/eloqkv/install/lib/:${LD_LIBRARY_PATH} \
     /home/$current_user/workspace/eloqkv/install/bin/eloqkv \
@@ -1863,6 +1880,7 @@ function run_eloqkv_cluster_tests() {
       fi
     done
 
+    kill $log_service_pid
     wait_until_finished
 
   elif [[ $kv_store_type = "DYNAMODB" ]]; then
@@ -2003,7 +2021,7 @@ function run_eloqkv_cluster_tests() {
     local log_service_ip_port="127.0.0.1:9000"
 
     rm -rf /tmp/log_data
-    /home/$current_user/workspace/eloqkv/install/bin/ \
+    /home/$current_user/workspace/eloqkv/install/bin/launch_sv \
       -conf=$log_service_ip_port \
       -node_id=0 \
       -storage_path="/tmp/log_data" \
