@@ -236,18 +236,18 @@ function run_build_ent() {
       echo "CMake build for target '$target' failed."
       exit $exit_status
     fi
-
-    cmake --install /home/$current_user/workspace/eloqkv/cmake
   }
 
   # Run builds for the specified targets
-  targets=("eloqkv" "host_manager" "object_serialize_deserialize_test")
+  targets=("eloqkv" "host_manager" "object_serialize_deserialize_test" "eloqkv_to_aof" "eloqkv_to_rdb")
 
   set +e
   for target in "${targets[@]}"; do
     run_cmake_build "$target"
   done
   set -e
+
+  cmake --install /home/$current_user/workspace/eloqkv/cmake
 
   # compile log service to setup redis cluster later
   cd /home/$current_user/workspace/eloqkv/data_substrate/eloq_log_service
