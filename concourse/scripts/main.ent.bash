@@ -78,7 +78,6 @@ build_types=("Debug")
 # kv_store_types=("ELOQDSS_ROCKSDB_CLOUD_S3" "ROCKSDB")
 kv_store_types=("ROCKSDB")
 
-
 for bt in "${build_types[@]}"; do
   for kst in "${kv_store_types[@]}"; do
     rm -rf /home/$current_user/workspace/eloqkv/eloq_data
@@ -91,7 +90,7 @@ for bt in "${build_types[@]}"; do
 
     source my_env/bin/activate
     run_eloq_test $bt $kst
-    # run_eloqkv_tests $bt $kst
+    run_eloqkv_tests $bt $kst
     run_eloqkv_cluster_tests $bt $kst
     deactivate
   done
