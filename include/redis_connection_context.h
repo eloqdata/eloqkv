@@ -114,6 +114,7 @@ public:
     int db_id{0};
 
     int64_t connect_time_us{0};
+    size_t scan_cursor_cnt{0};
 
     // CLIENT SETNAME, CLIENT GETNAME.
     std::string connection_name;
@@ -129,11 +130,10 @@ public:
         scan_cursor_list{};
 
     uint64_t CreateBucketScanCursor(
-        std::string_view cursor_content,
         std::unique_ptr<BucketScanCursor> save_point);
 
     void RemoveBucketScanCursor();
-    uint64_t UpdateBucketScanCursor(std::string_view cursor_content);
+    uint64_t UpdateBucketScanCursor();
 
     BucketScanCursor *FindBucketScanCursor(uint64_t cursor_id);
     // <db_id, <cursor_id, cursor>
