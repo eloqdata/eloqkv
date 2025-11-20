@@ -3741,6 +3741,12 @@ bool RedisServiceImpl::EvalLua(const RedisConnectionContext *ctx,
             output->SetError("ERR Number of keys can't be negative");
             return false;
         }
+        else if (static_cast<size_t>(num_keys) > args.size() - 3)
+        {
+            output->SetError(
+                "ERR Number of keys can't be greater than number of args");
+            return false;
+        }
         script_keys.reserve(num_keys);
         size_t arg_idx = 3;
         for (int32_t i = 0; i < num_keys; i++)
