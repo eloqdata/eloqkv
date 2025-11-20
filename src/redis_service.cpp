@@ -365,6 +365,9 @@ DEFINE_string(eloq_dss_peer_node,
 DEFINE_string(eloq_dss_branch_name,
               "development",
               "Branch name of EloqDataStore");
+DEFINE_uint32(dss_file_cache_sync_interval_sec,
+              30,
+              "File cache sync interval in seconds for standby warm-up");
 #endif
 
 namespace EloqKV
@@ -1033,6 +1036,14 @@ bool RedisServiceImpl::Init(brpc::Server &brpc_server)
                 : config_reader.GetString(
                       "store", "eloq_dss_peer_node", FLAGS_eloq_dss_peer_node);
 
+        uint32_t dss_file_cache_sync_interval_sec =
+            !CheckCommandLineFlagIsDefault("dss_file_cache_sync_interval_sec")
+                ? FLAGS_dss_file_cache_sync_interval_sec
+                : config_reader.GetInteger(
+                      "store",
+                      "dss_file_cache_sync_interval_sec",
+                      FLAGS_dss_file_cache_sync_interval_sec);
+
         std::string eloq_dss_data_path = eloq_data_path + "/eloq_dss";
         if (!std::filesystem::exists(eloq_dss_data_path))
         {
@@ -1081,6 +1092,9 @@ bool RedisServiceImpl::Init(brpc::Server &brpc_server)
                 dss_leader_id,
                 ds_config);
         }
+
+        // Set file cache sync interval
+        ds_config.SetFileCacheSyncIntervalSec(dss_file_cache_sync_interval_sec);
 
 #if defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB_CLOUD_S3) ||                       \
     defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB_CLOUD_GCS)
