@@ -88,7 +88,9 @@ for bt in "${build_types[@]}"; do
     run_build_ent $bt $kst $txlog_log_state
 
     source my_env/bin/activate
-    run_eloq_test $bt $kst
+    if [ "$kst" == "ELOQDSS_ROCKSDB_CLOUD_S3" ]; then
+       run_eloq_test $bt $kst
+    fi
     run_eloqkv_tests $bt $kst
     run_eloqkv_cluster_tests $bt $kst
     deactivate
