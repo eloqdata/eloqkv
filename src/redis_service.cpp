@@ -6146,11 +6146,13 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
     EloqKey prefix_key;
     std::string_view pattern = cmd->pattern_.StringView();
 
+    bool start_inclusive = false;
     if (!pattern.empty())
     {
         size_t pos = pattern.find('*');
         if (pos != std::string_view::npos && pos != 0)
         {
+            start_inclusive = true;
             std::string_view prefix = pattern.substr(0, pos);
             prefix_key = std::move(EloqKey(prefix));
             start_tx_key = TxKey(&prefix_key);
@@ -6165,7 +6167,6 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
         start_tx_key = TxKey(EloqKey::NegativeInfinity());
     }
 
-    bool start_inclusive = false;
     bool end_inclusive = false;
     bool is_ckpt = false;
     bool is_for_write = false;
@@ -6356,8 +6357,6 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
             }
 
             size_t scan_batch_idx = 0;
-            static size_t scan_batch_size_total = 0;
-            scan_batch_size_total += scan_batch.size();
             for (; scan_batch_idx < scan_batch.size(); ++scan_batch_idx)
             {
                 const ScanBatchTuple &tuple = scan_batch[scan_batch_idx];
