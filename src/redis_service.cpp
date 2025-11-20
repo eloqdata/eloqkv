@@ -6155,12 +6155,32 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
                                       OutputHandler *output,
                                       bool auto_commit)
 {
-    const EloqKey *start_key = EloqKey::NegativeInfinity();
-    TxKey start_tx_key(start_key);
-    const EloqKey *end_key = EloqKey::PositiveInfinity();
-    TxKey end_tx_key(end_key);
+    TxKey start_tx_key;
+    TxKey end_tx_key(EloqKey::PositiveInfinity());
+    EloqKey prefix_key;
+    std::string_view pattern = cmd->pattern_.StringView();
 
     bool start_inclusive = false;
+    if (!pattern.empty())
+    {
+        size_t pos = pattern.find('*');
+        if (pos != std::string_view::npos && pos != 0)
+        {
+            start_inclusive = true;
+            std::string_view prefix = pattern.substr(0, pos);
+            prefix_key = std::move(EloqKey(prefix));
+            start_tx_key = TxKey(&prefix_key);
+        }
+        else
+        {
+            start_tx_key = TxKey(EloqKey::NegativeInfinity());
+        }
+    }
+    else
+    {
+        start_tx_key = TxKey(EloqKey::NegativeInfinity());
+    }
+
     bool end_inclusive = false;
     bool is_ckpt = false;
     bool is_for_write = false;
@@ -6210,7 +6230,6 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
             }
 
             vct_rst.emplace_back(cmd->scan_cursor_->cache_[cache_idx]);
-            obj_cnt++;
         }
     }
 
@@ -6315,6 +6334,7 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
 
         while (current_index < plan_size)
         {
+            obj_cnt += static_cast<int64_t>(plan.BucketNumber()) * 32;
             scan_batch.clear();
             ScanBatchTxRequest scan_batch_req(
                 scan_alias,
@@ -6363,7 +6383,6 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
                 }
 
                 vct_rst.emplace_back(sv);
-                obj_cnt++;
 
                 if (cmd->count_ > 0 && obj_cnt >= cmd->count_)
                 {
@@ -6477,13 +6496,12 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
         {
             scan_cursor_owner->obj_type_ = cmd->obj_type_;
             scan_cursor_owner->cmd_pattern_ = cmd->pattern_.String();
-            cmd->result_.cursor_id_ = ctx->CreateBucketScanCursor(
-                vct_rst.back(), std::move(scan_cursor_owner));
+            cmd->result_.cursor_id_ =
+                ctx->CreateBucketScanCursor(std::move(scan_cursor_owner));
         }
         else
         {
-            cmd->result_.cursor_id_ =
-                ctx->UpdateBucketScanCursor(vct_rst.back());
+            cmd->result_.cursor_id_ = ctx->UpdateBucketScanCursor();
         }
     }
 

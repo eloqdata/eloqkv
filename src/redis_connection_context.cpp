@@ -156,18 +156,10 @@ std::pair<bool, const std::string *> RedisConnectionContext::FindScanCursor(
 }
 
 uint64_t RedisConnectionContext::CreateBucketScanCursor(
-    std::string_view cursor_content,
     std::unique_ptr<BucketScanCursor> scan_cursor)
 {
-    // FNV-1a hash algorithm.
-    uint64_t hash = 14695981039346656037ULL;
-    for (size_t i = 0; i < cursor_content.size(); ++i)
-    {
-        hash ^= cursor_content[i];
-        hash *= 1099511628211ULL;
-    }
-
-    scan_cursor->cursor_id_ = hash;
+    size_t scan_cursor_id = ++scan_cursor_cnt;
+    scan_cursor->cursor_id_ = scan_cursor_id;
 
     auto iter = bucket_scan_cursors.find(db_id);
     if (iter == bucket_scan_cursors.end())
@@ -179,7 +171,7 @@ uint64_t RedisConnectionContext::CreateBucketScanCursor(
         iter->second = std::move(scan_cursor);
     }
 
-    return hash;
+    return scan_cursor_id;
 }
 
 void RedisConnectionContext::RemoveBucketScanCursor()
@@ -187,17 +179,8 @@ void RedisConnectionContext::RemoveBucketScanCursor()
     bucket_scan_cursors.erase(db_id);
 }
 
-uint64_t RedisConnectionContext::UpdateBucketScanCursor(
-    std::string_view cursor_content)
+uint64_t RedisConnectionContext::UpdateBucketScanCursor()
 {
-    // FNV-1a hash algorithm.
-    uint64_t hash = 14695981039346656037ULL;
-    for (size_t i = 0; i < cursor_content.size(); ++i)
-    {
-        hash ^= cursor_content[i];
-        hash *= 1099511628211ULL;
-    }
-
     auto it = bucket_scan_cursors.find(db_id);
     if (it == bucket_scan_cursors.end())
     {
@@ -205,8 +188,9 @@ uint64_t RedisConnectionContext::UpdateBucketScanCursor(
         // No cursor to update for this DB. Avoid throwing; signal caller.
         return 0;
     }
-    it->second->cursor_id_ = hash;
-    return hash;
+    size_t scan_cursor_id = ++scan_cursor_cnt;
+    it->second->cursor_id_ = scan_cursor_id;
+    return scan_cursor_id;
 }
 
 BucketScanCursor *RedisConnectionContext::FindBucketScanCursor(
