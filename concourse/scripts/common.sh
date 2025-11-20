@@ -299,6 +299,9 @@ function run_eloqkv_tests() {
   local kv_store_type=$2
   local eloqkv_base_path="/home/$current_user/workspace/eloqkv"
 
+  # clean data dir
+  rm -rf /tmp/eloq_data
+
   cd ${eloqkv_base_path}
 
   if [[ $kv_store_type = "CASSANDRA" ]]; then
