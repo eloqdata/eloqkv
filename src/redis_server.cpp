@@ -31,6 +31,7 @@
 #include "glog_error_logging.h"
 #endif
 
+#include "INIReader.h"
 #include "data_substrate.h"
 #include "eloqkv_ascii_logo.h"
 #include "redis_service.h"
@@ -147,7 +148,7 @@ static std::string UpdatePortsInList(const std::string &ip_port_list,
     return result;
 }
 
-void ConvertEloqkvFlagsToTxFlags()
+void ConvertEloqkvFlagsToTxFlags(INIReader *config_reader)
 {
     // Check for eloqkv 'ip' flag and convert to 'tx_ip'
     if (IsEloqkvFlagSet("ip"))
@@ -169,6 +170,17 @@ void ConvertEloqkvFlagsToTxFlags()
                     << "EloqKV flag 'ip' is set but 'tx_ip' is also set. "
                     << "Using 'tx_ip' value and ignoring 'ip'.";
             }
+        }
+    }
+    else if (config_reader != nullptr && config_reader->HasValue("local", "ip"))
+    {
+        std::string eloqkv_ip = config_reader->Get("local", "ip", FLAGS_ip);
+        // Only set tx_ip if it hasn't been explicitly set
+        if (CheckCommandLineFlagIsDefault("tx_ip"))
+        {
+            GFLAGS_NAMESPACE::SetCommandLineOption("tx_ip", eloqkv_ip.c_str());
+            LOG(INFO) << "Converted eloqkv config 'ip' to 'tx_ip': "
+                      << eloqkv_ip;
         }
     }
 
@@ -223,6 +235,31 @@ void ConvertEloqkvFlagsToTxFlags()
             }
         }
     }
+    else if (config_reader != nullptr &&
+             config_reader->HasValue("local", "port"))
+    {
+        int eloqkv_port =
+            config_reader->GetInteger("local", "port", FLAGS_port);
+        int tx_port_value = eloqkv_port + 10000;
+
+        // Only set eloqkv_port if it hasn't been explicitly set
+        if (CheckCommandLineFlagIsDefault("eloqkv_port"))
+        {
+            GFLAGS_NAMESPACE::SetCommandLineOption(
+                "eloqkv_port", std::to_string(eloqkv_port).c_str());
+            LOG(INFO) << "Converted eloqkv config 'port' to 'eloqkv_port': "
+                      << eloqkv_port;
+        }
+
+        // Only set tx_port if it hasn't been explicitly set
+        if (CheckCommandLineFlagIsDefault("tx_port"))
+        {
+            GFLAGS_NAMESPACE::SetCommandLineOption(
+                "tx_port", std::to_string(tx_port_value).c_str());
+            LOG(INFO) << "Set 'tx_port' to: " << tx_port_value
+                      << " (port + 10000)";
+        }
+    }
 
     // Convert eloqkv ip_port_list to tx_ip_port_list (with ports +10000)
     if (IsEloqkvFlagSet("ip_port_list"))
@@ -249,6 +286,29 @@ void ConvertEloqkvFlagsToTxFlags()
                              << "Using 'tx_ip_port_list' value and ignoring "
                                 "'ip_port_list'.";
             }
+        }
+    }
+    else if (config_reader != nullptr &&
+             config_reader->HasValue("cluster", "ip_port_list"))
+    {
+        std::string eloqkv_ip_port_list =
+            config_reader->Get("cluster", "ip_port_list", "");
+        // Only convert if tx_ip_port_list hasn't been explicitly set
+        if (CheckCommandLineFlagIsDefault("tx_ip_port_list"))
+        {
+            std::string updated_list =
+                UpdatePortsInList(eloqkv_ip_port_list, 10000);
+            GFLAGS_NAMESPACE::SetCommandLineOption("tx_ip_port_list",
+                                                   updated_list.c_str());
+            LOG(INFO) << "Converted eloqkv config 'ip_port_list' to "
+                         "'tx_ip_port_list' with ports incremented by 10000";
+        }
+        else
+        {
+            LOG(WARNING) << "EloqKV config 'ip_port_list' is set but "
+                            "'tx_ip_port_list' is also set. "
+                         << "Using 'tx_ip_port_list' value and ignoring "
+                            "'ip_port_list'.";
         }
     }
 
@@ -281,6 +341,31 @@ void ConvertEloqkvFlagsToTxFlags()
             }
         }
     }
+    else if (config_reader != nullptr &&
+             config_reader->HasValue("cluster", "standby_ip_port_list"))
+    {
+        std::string eloqkv_standby_ip_port_list =
+            config_reader->Get("cluster", "standby_ip_port_list", "");
+        // Only convert if tx_standby_ip_port_list hasn't been explicitly set
+        if (CheckCommandLineFlagIsDefault("tx_standby_ip_port_list"))
+        {
+            std::string updated_list =
+                UpdatePortsInList(eloqkv_standby_ip_port_list, 10000);
+            GFLAGS_NAMESPACE::SetCommandLineOption("tx_standby_ip_port_list",
+                                                   updated_list.c_str());
+            LOG(INFO)
+                << "Converted eloqkv config 'standby_ip_port_list' to "
+                   "'tx_standby_ip_port_list' with ports incremented by 10000";
+        }
+        else
+        {
+            LOG(WARNING)
+                << "EloqKV config 'standby_ip_port_list' is set but "
+                   "'tx_standby_ip_port_list' is also set. "
+                << "Using 'tx_standby_ip_port_list' value and ignoring "
+                   "'standby_ip_port_list'.";
+        }
+    }
 
     // Convert eloqkv voter_ip_port_list to tx_voter_ip_port_list (with ports
     // +10000)
@@ -310,6 +395,30 @@ void ConvertEloqkvFlagsToTxFlags()
             }
         }
     }
+    else if (config_reader != nullptr &&
+             config_reader->HasValue("cluster", "voter_ip_port_list"))
+    {
+        std::string eloqkv_voter_ip_port_list =
+            config_reader->Get("cluster", "voter_ip_port_list", "");
+        // Only convert if tx_voter_ip_port_list hasn't been explicitly set
+        if (CheckCommandLineFlagIsDefault("tx_voter_ip_port_list"))
+        {
+            std::string updated_list =
+                UpdatePortsInList(eloqkv_voter_ip_port_list, 10000);
+            GFLAGS_NAMESPACE::SetCommandLineOption("tx_voter_ip_port_list",
+                                                   updated_list.c_str());
+            LOG(INFO)
+                << "Converted eloqkv config 'voter_ip_port_list' to "
+                   "'tx_voter_ip_port_list' with ports incremented by 10000";
+        }
+        else
+        {
+            LOG(WARNING) << "EloqKV config 'voter_ip_port_list' is set but "
+                            "'tx_voter_ip_port_list' is also set. "
+                         << "Using 'tx_voter_ip_port_list' value and ignoring "
+                            "'voter_ip_port_list'.";
+        }
+    }
 }
 
 int main(int argc, char *argv[])
@@ -328,10 +437,18 @@ int main(int argc, char *argv[])
         std::cout << "Starting EloqKV Server..." << std::endl;
     }
 
-    // Convert eloqkv flags to tx flags
-    ConvertEloqkvFlagsToTxFlags();
-
     std::string config_file = FLAGS_config;
+    INIReader config_reader(config_file);
+    if (!config_file.empty() && config_reader.ParseError() != 0)
+    {
+        std::cout << "Failed to parse config file: " << config_file
+                  << std::endl;
+        return -1;
+    }
+
+    // Convert eloqkv flags to tx flags
+    ConvertEloqkvFlagsToTxFlags(&config_reader);
+
     if (!DataSubstrate::InitializeGlobal(config_file))
     {
         LOG(ERROR) << "Failed to initialize DataSubstrate.";
