@@ -6349,8 +6349,6 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
         std::vector<txservice::ScanBatchTuple> scan_batch;
         std::vector<txservice::UnlockTuple> unlock_batch;
 
-        size_t empty_round_cnt = 0;
-
         while (current_index < plan_size)
         {
             scan_batch.clear();
@@ -6386,11 +6384,6 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
                     AbortTx(txm);
                 }
                 return false;
-            }
-
-            if (scan_batch.empty())
-            {
-                empty_round_cnt++;
             }
 
             size_t scan_batch_idx = 0;
