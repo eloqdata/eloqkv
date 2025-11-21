@@ -6284,8 +6284,6 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
 
         uint64_t schema_version = catalog_rec.SchemaTs();
 
-        LOG(INFO) << "== cmd count = " << cmd->count_;
-
         bool filter_pushdown = false;
         if (cmd->count_ == -1)
         {
@@ -6353,7 +6351,6 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
 
         while (current_index < plan_size)
         {
-            // obj_cnt += static_cast<int64_t>(plan.BucketNumber()) * 32;
             scan_batch.clear();
             ScanBatchTxRequest scan_batch_req(
                 scan_alias,
