@@ -6235,6 +6235,7 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
                 break;
             }
 
+            obj_cnt++;
             vct_rst.emplace_back(cmd->scan_cursor_->cache_[cache_idx]);
         }
     }
@@ -6280,6 +6281,8 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
 
         uint64_t schema_version = catalog_rec.SchemaTs();
 
+        // scan command is non blocking command, we disable filter pushdown
+        // only pushdown for keys command
         bool filter_pushdown = false;
         if (cmd->count_ == -1)
         {
@@ -6306,7 +6309,7 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
             nullptr,
             nullptr,
             txm,
-            static_cast<int32_t>(cmd->obj_type_),
+            filter_pushdown ? static_cast<int32_t>(cmd->obj_type_) : -1,
             filter_pushdown ? cmd->pattern_.StringView() : "",
             save_point);
 
@@ -6355,8 +6358,8 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
                 nullptr,
                 nullptr,
                 txm,
-                static_cast<int32_t>(cmd->obj_type_),
-                cmd->pattern_.StringView(),
+                filter_pushdown ? static_cast<int32_t>(cmd->obj_type_) : -1,
+                filter_pushdown ? cmd->pattern_.StringView() : "",
                 &plan);
             success = SendTxRequestAndWaitResult(txm, &scan_batch_req, output);
             if (!success)
@@ -6383,8 +6386,6 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
             }
 
             size_t scan_batch_idx = 0;
-            static size_t scan_batch_size_total = 0;
-            scan_batch_size_total += scan_batch.size();
             for (; scan_batch_idx < scan_batch.size(); ++scan_batch_idx)
             {
                 const ScanBatchTuple &tuple = scan_batch[scan_batch_idx];
@@ -6398,6 +6399,26 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
 
                 if (!filter_pushdown)
                 {
+                    if (static_cast<int32_t>(cmd->obj_type_) != -1 &&
+                        tuple.object_type_ !=
+                            static_cast<int32_t>(cmd->obj_type_))
+                    {
+                        LOG(INFO) << "== obj type = " << tuple.object_type_
+                                  << ", filter type = "
+                                  << static_cast<int32_t>(cmd->obj_type_);
+
+                        obj_cnt++;
+                        if (cmd->count_ > 0 && obj_cnt >= cmd->count_)
+                        {
+                            scan_batch_idx++;
+                            break;
+                        }
+                        else
+                        {
+                            continue;
+                        }
+                    }
+
                     if (cmd->pattern_.Length() > 0 &&
                         stringmatchlen(cmd->pattern_.Data(),
                                        cmd->pattern_.Length(),
@@ -6406,7 +6427,15 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
                                        0) == 0)
                     {
                         obj_cnt++;
-                        continue;
+                        if (cmd->count_ > 0 && obj_cnt >= cmd->count_)
+                        {
+                            scan_batch_idx++;
+                            break;
+                        }
+                        else
+                        {
+                            continue;
+                        }
                     }
                 }
 
@@ -6436,10 +6465,35 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
                     {
                         continue;
                     }
-                    // unlock_batch.emplace_back(
-                    //    tuple.cce_addr_, tuple.version_ts_, tuple.status_);
+
                     const std::string_view sv =
                         tuple.key_.GetKey<EloqKey>()->StringView();
+
+                    if (!filter_pushdown)
+                    {
+                        if (static_cast<int32_t>(cmd->obj_type_) != -1 &&
+                            tuple.object_type_ !=
+                                static_cast<int32_t>(cmd->obj_type_))
+                        {
+                            LOG(INFO) << "== obj type = " << tuple.object_type_
+                                      << ", filter type = "
+                                      << static_cast<int32_t>(cmd->obj_type_);
+                            continue;
+                        }
+
+                        if (cmd->pattern_.Length() > 0 &&
+                            stringmatchlen(cmd->pattern_.Data(),
+                                           cmd->pattern_.Length(),
+                                           sv.data(),
+                                           sv.size(),
+                                           0) == 0)
+                        {
+                            continue;
+                        }
+                    }
+
+                    // unlock_batch.emplace_back(
+                    //    tuple.cce_addr_, tuple.version_ts_, tuple.status_);
                     cmd->scan_cursor_->cache_.emplace_back(sv);
                 }
 
