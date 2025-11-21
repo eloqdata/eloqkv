@@ -151,8 +151,7 @@ function run_build() {
     -DCMAKE_BUILD_TYPE=$build_type \
     -DWITH_DATA_STORE=$kv_store_type \
     -DBUILD_WITH_TESTS=ON \
-    -DWITH_LOG_SERVICE=ON \
-    -DUSE_ONE_ELOQDSS_PARTITION_ENABLED=ON
+    -DWITH_LOG_SERVICE=ON
 
   # Define the output log file
   log_file="/tmp/compile_info.log"
@@ -214,7 +213,6 @@ function run_build_ent() {
     -DWITH_DATA_STORE=$kv_store_type \
     -DBUILD_WITH_TESTS=ON \
     -DWITH_LOG_SERVICE=ON \
-    -DUSE_ONE_ELOQDSS_PARTITION_ENABLED=ON \
     -DOPEN_LOG_SERVICE=OFF \
     -DFORK_HM_PROCESS=ON
 
