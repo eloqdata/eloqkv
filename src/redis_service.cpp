@@ -6136,6 +6136,8 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
     EloqKey prefix_key;
     EloqKey prefix_key_next;
     std::string_view pattern = cmd->pattern_.StringView();
+    bool start_inclusive = false;
+    bool end_inclusive = false;
 
     if (!pattern.empty())
     {
@@ -6146,6 +6148,7 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
             prefix_key = EloqKey(prefix);
 
             start_tx_key = TxKey(&prefix_key);
+            start_inclusive = true;
 
             std::string prefix_next = std::string(prefix);
             bool increased = false;
@@ -6186,8 +6189,6 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
         end_tx_key = TxKey(EloqKey::PositiveInfinity());
     }
 
-    bool start_inclusive = false;
-    bool end_inclusive = false;
     bool is_ckpt = false;
     bool is_for_write = false;
     bool is_for_share = false;
@@ -6348,6 +6349,8 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
         std::vector<txservice::ScanBatchTuple> scan_batch;
         std::vector<txservice::UnlockTuple> unlock_batch;
 
+        size_t empty_round_cnt = 0;
+
         while (current_index < plan_size)
         {
             scan_batch.clear();
@@ -6385,6 +6388,11 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
                 return false;
             }
 
+            if (scan_batch.empty())
+            {
+                empty_round_cnt++;
+            }
+
             size_t scan_batch_idx = 0;
             for (; scan_batch_idx < scan_batch.size(); ++scan_batch_idx)
             {
@@ -6403,10 +6411,6 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
                         tuple.object_type_ !=
                             static_cast<int32_t>(cmd->obj_type_))
                     {
-                        LOG(INFO) << "== obj type = " << tuple.object_type_
-                                  << ", filter type = "
-                                  << static_cast<int32_t>(cmd->obj_type_);
-
                         obj_cnt++;
                         if (cmd->count_ > 0 && obj_cnt >= cmd->count_)
                         {
@@ -6475,9 +6479,6 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
                             tuple.object_type_ !=
                                 static_cast<int32_t>(cmd->obj_type_))
                         {
-                            LOG(INFO) << "== obj type = " << tuple.object_type_
-                                      << ", filter type = "
-                                      << static_cast<int32_t>(cmd->obj_type_);
                             continue;
                         }
 
