@@ -20,6 +20,7 @@ function kernel_version_greater_than_6.5() {
 }
 
 enable_io_uring=$(kernel_version_greater_than_6.5)
+io_uring_write_buffer_pool_size=128
 
 # Function to check if Redis server is ready
 function is_redis_ready() {
@@ -308,6 +309,7 @@ function run_eloqkv_tests() {
       --maxclients=1000000 \
       --checkpoint_interval=36000 \
       --enable_io_uring=${enable_io_uring} \
+      --io_uring_write_buffer_pool_size=${io_uring_write_buffer_pool_size} \
       --logtostderr=true \
       >/tmp/redis_server_single_node_before_replay.log 2>&1 \
       &
@@ -349,6 +351,7 @@ function run_eloqkv_tests() {
       --maxclients=1000000 \
       --checkpoint_interval=36000 \
       --enable_io_uring=${enable_io_uring} \
+      --io_uring_write_buffer_pool_size=${io_uring_write_buffer_pool_size} \
       --logtostderr=true \
       >/tmp/redis_server_single_node_after_replay.log 2>&1 \
       &
@@ -411,6 +414,7 @@ function run_eloqkv_tests() {
         --maxclients=1000000 \
         --checkpoint_interval=10 \
         --enable_io_uring=${enable_io_uring} \
+        --io_uring_write_buffer_pool_size=${io_uring_write_buffer_pool_size} \
         --logtostderr=true \
         >/tmp/redis_server_single_node_no_wal.log 2>&1 \
         &
@@ -443,6 +447,7 @@ function run_eloqkv_tests() {
         --maxclients=1000000 \
         --checkpoint_interval=10 \
         --enable_io_uring=${enable_io_uring} \
+        --io_uring_write_buffer_pool_size=${io_uring_write_buffer_pool_size} \
         --logtostderr=true \
         >/tmp/redis_server_single_node_no_wal_no_data_store.log 2>&1 \
         &
@@ -470,6 +475,7 @@ function run_eloqkv_tests() {
       --enable_wal=true \
       --enable_data_store=true \
       --enable_io_uring=${enable_io_uring} \
+      --io_uring_write_buffer_pool_size=${io_uring_write_buffer_pool_size} \
       --bootstrap=true &
 
     echo "bootstrap is started, pid: $!"
@@ -486,6 +492,7 @@ function run_eloqkv_tests() {
       --maxclients=1000000 \
       --checkpoint_interval=36000 \
       --enable_io_uring=${enable_io_uring} \
+      --io_uring_write_buffer_pool_size=${io_uring_write_buffer_pool_size} \
       --logtostderr=true \
       >/tmp/redis_server_single_node_before_replay.log 2>&1 \
       &
@@ -525,6 +532,7 @@ function run_eloqkv_tests() {
       --maxclients=1000000 \
       --checkpoint_interval=36000 \
       --enable_io_uring=${enable_io_uring} \
+      --io_uring_write_buffer_pool_size=${io_uring_write_buffer_pool_size} \
       --logtostderr=true \
       >/tmp/redis_server_single_node_after_replay.log 2>&1 \
       &
@@ -585,6 +593,7 @@ function run_eloqkv_tests() {
         --maxclients=1000000 \
         --checkpoint_interval=10 \
         --enable_io_uring=${enable_io_uring} \
+        --io_uring_write_buffer_pool_size=${io_uring_write_buffer_pool_size} \
         --logtostderr=true \
         >/tmp/redis_server_single_node_no_wal.log 2>&1 \
         &
@@ -614,6 +623,7 @@ function run_eloqkv_tests() {
         --maxclients=1000000 \
         --checkpoint_interval=10 \
         --enable_io_uring=${enable_io_uring} \
+        --io_uring_write_buffer_pool_size=${io_uring_write_buffer_pool_size} \
         --logtostderr=true \
         >/tmp/redis_server_single_node_no_wal_no_data_store.log 2>&1 \
         &
@@ -661,6 +671,7 @@ function run_eloqkv_tests() {
       --maxclients=1000000 \
       --checkpoint_interval=10 \
       --enable_io_uring=${enable_io_uring} \
+      --io_uring_write_buffer_pool_size=${io_uring_write_buffer_pool_size} \
       --logtostderr=true \
       >/tmp/redis_server_single_node_before_replay.log 2>&1 \
       &
@@ -705,6 +716,7 @@ function run_eloqkv_tests() {
       --maxclients=1000000 \
       --checkpoint_interval=10 \
       --enable_io_uring=${enable_io_uring} \
+      --io_uring_write_buffer_pool_size=${io_uring_write_buffer_pool_size} \
       --logtostderr=true \
       >/tmp/redis_server_single_node_after_replay.log 2>&1 \
       &
@@ -770,6 +782,7 @@ function run_eloqkv_tests() {
         --maxclients=1000000 \
         --checkpoint_interval=10 \
         --enable_io_uring=${enable_io_uring} \
+        --io_uring_write_buffer_pool_size=${io_uring_write_buffer_pool_size} \
         --logtostderr=true \
         >/tmp/redis_server_single_node_no_wal.log 2>&1 \
         &
@@ -801,6 +814,7 @@ function run_eloqkv_tests() {
         --maxclients=1000000 \
         --checkpoint_interval=10 \
         --enable_io_uring=${enable_io_uring} \
+        --io_uring_write_buffer_pool_size=${io_uring_write_buffer_pool_size} \
         --logtostderr=true \
         >/tmp/redis_server_single_node_no_wal_no_data_store.log 2>&1 \
         &
@@ -841,6 +855,7 @@ function run_eloqkv_tests() {
       --rocksdb_cloud_bucket_name=${rocksdb_cloud_bucket_name} \
       --rocksdb_cloud_object_path=${rocksdb_cloud_object_path} \
       --enable_io_uring=${enable_io_uring} \
+      --io_uring_write_buffer_pool_size=${io_uring_write_buffer_pool_size} \
       --bootstrap=true &
 
     echo "bootstrap is started, pid: $!"
@@ -863,6 +878,7 @@ function run_eloqkv_tests() {
       --maxclients=1000000 \
       --checkpoint_interval=36000 \
       --enable_io_uring=${enable_io_uring} \
+      --io_uring_write_buffer_pool_size=${io_uring_write_buffer_pool_size} \
       --logtostderr=true \
       >/tmp/redis_server_single_node_before_replay.log 2>&1 \
       &
@@ -908,6 +924,7 @@ function run_eloqkv_tests() {
       --maxclients=1000000 \
       --checkpoint_interval=36000 \
       --enable_io_uring=${enable_io_uring} \
+      --io_uring_write_buffer_pool_size=${io_uring_write_buffer_pool_size} \
       --logtostderr=true \
       >/tmp/redis_server_single_node_after_replay.log 2>&1 \
       &
@@ -974,6 +991,7 @@ function run_eloqkv_tests() {
         --maxclients=1000000 \
         --checkpoint_interval=10 \
         --enable_io_uring=${enable_io_uring} \
+        --io_uring_write_buffer_pool_size=${io_uring_write_buffer_pool_size} \
         --logtostderr=true \
         >/tmp/redis_server_single_node_no_wal.log 2>&1 \
         &
@@ -1009,6 +1027,7 @@ function run_eloqkv_tests() {
         --maxclients=1000000 \
         --checkpoint_interval=10 \
         --enable_io_uring=${enable_io_uring} \
+        --io_uring_write_buffer_pool_size=${io_uring_write_buffer_pool_size} \
         --logtostderr=true \
         >/tmp/redis_server_single_node_no_wal_no_data_store.log 2>&1 \
         &
@@ -1448,6 +1467,7 @@ function run_eloqkv_cluster_tests() {
         --cass_keyspace_class=SimpleStrategy \
         --cass_keyspace_replication=1 \
         --enable_io_uring=${enable_io_uring} \
+        --io_uring_write_buffer_pool_size=${io_uring_write_buffer_pool_size} \
         --logtostderr=true \
         >/tmp/redis_server_multi_node_$index.log 2>&1 \
         &
@@ -1500,6 +1520,7 @@ function run_eloqkv_cluster_tests() {
       --logtostderr=true \
       --bootstrap \
       --enable_io_uring=${enable_io_uring} \
+      --io_uring_write_buffer_pool_size=${io_uring_write_buffer_pool_size} \
       >/tmp/redis_server_multi_node_bootstrap.log 2>&1 \
       &
 
@@ -1527,6 +1548,7 @@ function run_eloqkv_cluster_tests() {
         --cass_keyspace_class=SimpleStrategy \
         --cass_keyspace_replication=1 \
         --enable_io_uring=${enable_io_uring} \
+        --io_uring_write_buffer_pool_size=${io_uring_write_buffer_pool_size} \
         --maxclients=1000000 \
         --logtostderr=true \
         >/tmp/redis_server_multi_node_$index.log 2>&1 \
@@ -1596,6 +1618,7 @@ function run_eloqkv_cluster_tests() {
       --logtostderr=true \
       --bootstrap \
       --enable_io_uring=${enable_io_uring} \
+      --io_uring_write_buffer_pool_size=${io_uring_write_buffer_pool_size} \
       >/tmp/redis_server_multi_node_bootstrap.log 2>&1 \
       &
 
@@ -1631,6 +1654,7 @@ function run_eloqkv_cluster_tests() {
         --cass_keyspace_class=SimpleStrategy \
         --cass_keyspace_replication=1 \
         --enable_io_uring=${enable_io_uring} \
+        --io_uring_write_buffer_pool_size=${io_uring_write_buffer_pool_size} \
         --logtostderr=true \
         >/tmp/redis_server_multi_node_$index.log 2>&1 \
         &
@@ -1689,6 +1713,7 @@ function run_eloqkv_cluster_tests() {
         --cass_keyspace_class=SimpleStrategy \
         --cass_keyspace_replication=1 \
         --enable_io_uring=${enable_io_uring} \
+        --io_uring_write_buffer_pool_size=${io_uring_write_buffer_pool_size} \
         --logtostderr=true \
         >/tmp/redis_server_multi_node_no_wal_$index.log 2>&1 \
         &
@@ -1783,6 +1808,7 @@ function run_eloqkv_cluster_tests() {
         --txlog_service_list=$log_service_ip_port \
         --txlog_group_replica_num=3 \
         --enable_io_uring=${enable_io_uring} \
+        --io_uring_write_buffer_pool_size=${io_uring_write_buffer_pool_size} \
         --logtostderr=true \
         >/tmp/redis_server_multi_node_$index.log 2>&1 \
         &
@@ -1832,6 +1858,7 @@ function run_eloqkv_cluster_tests() {
         --txlog_service_list=$log_service_ip_port \
         --txlog_group_replica_num=3 \
         --enable_io_uring=${enable_io_uring} \
+        --io_uring_write_buffer_pool_size=${io_uring_write_buffer_pool_size} \
         --logtostderr=true \
         >/tmp/redis_server_multi_node_pure_mem_$index.log 2>&1 \
         &
@@ -1887,6 +1914,7 @@ function run_eloqkv_cluster_tests() {
       --logtostderr=true \
       --bootstrap \
       --enable_io_uring=${enable_io_uring} \
+      --io_uring_write_buffer_pool_size=${io_uring_write_buffer_pool_size} \
       >/tmp/redis_server_multi_node_bootstrap_with_kv.log 2>&1
 
 
@@ -1913,6 +1941,7 @@ function run_eloqkv_cluster_tests() {
         --logtostderr=true \
         --maxclients=1000000 \
         --enable_io_uring=${enable_io_uring} \
+        --io_uring_write_buffer_pool_size=${io_uring_write_buffer_pool_size} \
         --logtostderr=true \
         >/tmp/redis_server_multi_node_with_kv_$index.log 2>&1 \
         &
@@ -1982,6 +2011,7 @@ function run_eloqkv_cluster_tests() {
       --logtostderr=true \
       --bootstrap \
       --enable_io_uring=${enable_io_uring} \
+      --io_uring_write_buffer_pool_size=${io_uring_write_buffer_pool_size} \
       >/tmp/redis_server_multi_node_bootstrap_with_wal.log 2>&1
 
 
@@ -2016,6 +2046,7 @@ function run_eloqkv_cluster_tests() {
         --dynamodb_keyspace=$keyspace_name \
         --logtostderr=true \
         --enable_io_uring=${enable_io_uring} \
+        --io_uring_write_buffer_pool_size=${io_uring_write_buffer_pool_size} \
         >/tmp/redis_server_multi_node_$index.log 2>&1 \
         &
       redis_pids+=($!)
@@ -2072,6 +2103,7 @@ function run_eloqkv_cluster_tests() {
         --dynamodb_keyspace=$keyspace_name \
         --logtostderr=true \
         --enable_io_uring=${enable_io_uring} \
+        --io_uring_write_buffer_pool_size=${io_uring_write_buffer_pool_size} \
         >/tmp/redis_server_multi_node_with_wal_$index.log 2>&1 \
         &
       redis_pids+=($!)
@@ -2146,6 +2178,8 @@ function run_eloqkv_cluster_tests() {
         --txlog_service_list=$log_service_ip_port \
         --txlog_group_replica_num=3 \
         --eloq_dss_peer_node=$dss_server_ip_port \
+        --enable_io_uring=${enable_io_uring} \
+        --io_uring_write_buffer_pool_size=${io_uring_write_buffer_pool_size} \
         --logtostderr=true \
         >/tmp/redis_server_multi_node_$index.log 2>&1 \
         &
@@ -2207,6 +2241,8 @@ function run_eloqkv_cluster_tests() {
         --enable_data_store=true \
         --eloq_data_path="/tmp/redis_server_data_$index" \
         --eloq_dss_peer_node=$dss_server_ip_port \
+        --enable_io_uring=${enable_io_uring} \
+        --io_uring_write_buffer_pool_size=${io_uring_write_buffer_pool_size} \
         --maxclients=1000000 \
         --logtostderr=true \
         >/tmp/redis_server_multi_node_$index.log 2>&1 \
@@ -2299,6 +2335,8 @@ function run_eloqkv_cluster_tests() {
         --txlog_service_list=$log_service_ip_port \
         --txlog_group_replica_num=3 \
         --eloq_dss_peer_node=$dss_server_ip_port \
+        --enable_io_uring=${enable_io_uring} \
+        --io_uring_write_buffer_pool_size=${io_uring_write_buffer_pool_size} \
         --logtostderr=true \
         >/tmp/redis_server_multi_node_$index.log 2>&1 \
         &
@@ -2350,6 +2388,8 @@ function run_eloqkv_cluster_tests() {
         --txlog_service_list=127.0.0.1:9000 \
         --txlog_group_replica_num=3 \
         --eloq_dss_peer_node=$dss_server_ip_port \
+        --enable_io_uring=${enable_io_uring} \
+        --io_uring_write_buffer_pool_size=${io_uring_write_buffer_pool_size} \
         --logtostderr=true \
         >/tmp/redis_server_multi_node_no_wal_$index.log 2>&1 \
         &
