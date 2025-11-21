@@ -6131,10 +6131,60 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
                                       OutputHandler *output,
                                       bool auto_commit)
 {
-    const EloqKey *start_key = EloqKey::NegativeInfinity();
-    TxKey start_tx_key(start_key);
-    const EloqKey *end_key = EloqKey::PositiveInfinity();
-    TxKey end_tx_key(end_key);
+    TxKey start_tx_key;
+    TxKey end_tx_key;
+    EloqKey prefix_key;
+    EloqKey prefix_key_next;
+    std::string_view pattern = cmd->pattern_.StringView();
+
+    if (!pattern.empty())
+    {
+        size_t pos = pattern.find('*');
+        if (pos != std::string_view::npos && pos != 0)
+        {
+            std::string_view prefix = pattern.substr(0, pos);
+            prefix_key = EloqKey(prefix);
+
+            start_tx_key = TxKey(&prefix_key);
+
+            std::string prefix_next = std::string(prefix);
+            bool increased = false;
+            for (int i = static_cast<int>(prefix_next.size()) - 1; i >= 0; --i)
+            {
+                auto c = static_cast<unsigned char>(prefix_next[i]);
+                if (c != 0xFF)
+                {
+                    prefix_next[i] = static_cast<char>(c + 1);
+                    prefix_next.resize(i + 1);
+                    increased = true;
+                    break;
+                }
+            }
+
+            if (increased)
+            {
+                prefix_key_next =
+                    EloqKey(prefix_next.data(), prefix_next.size());
+                end_tx_key = TxKey(&prefix_key_next);
+            }
+            else
+            {
+                end_tx_key = TxKey(EloqKey::PositiveInfinity());
+            }
+
+            // end_tx_key = std::move(TxKey(EloqKey::PositiveInfinity()));
+        }
+        else
+        {
+            start_tx_key = TxKey(EloqKey::NegativeInfinity());
+            end_tx_key = TxKey(EloqKey::PositiveInfinity());
+        }
+    }
+    else
+    {
+        start_tx_key = TxKey(EloqKey::NegativeInfinity());
+        end_tx_key = TxKey(EloqKey::PositiveInfinity());
+    }
 
     bool start_inclusive = false;
     bool end_inclusive = false;
@@ -6186,7 +6236,6 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
             }
 
             vct_rst.emplace_back(cmd->scan_cursor_->cache_[cache_idx]);
-            obj_cnt++;
         }
     }
 
@@ -6231,28 +6280,35 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
 
         uint64_t schema_version = catalog_rec.SchemaTs();
 
-        ScanOpenTxRequest scan_open(redis_table_name,
-                                    schema_version,
-                                    ScanIndexType::Primary,
-                                    &start_tx_key,
-                                    start_inclusive,
-                                    &end_tx_key,
-                                    end_inclusive,
-                                    ScanDirection::Forward,
-                                    is_ckpt,
-                                    is_for_write,
-                                    is_for_share,
-                                    is_covering_keys,
-                                    is_require_keys,
-                                    is_require_recs,
-                                    is_require_sort,
-                                    is_read_local,
-                                    nullptr,
-                                    nullptr,
-                                    txm,
-                                    static_cast<int32_t>(cmd->obj_type_),
-                                    cmd->pattern_.StringView(),
-                                    save_point);
+        bool filter_pushdown = false;
+        if (cmd->count_ == -1)
+        {
+            filter_pushdown = true;
+        }
+
+        ScanOpenTxRequest scan_open(
+            redis_table_name,
+            schema_version,
+            ScanIndexType::Primary,
+            &start_tx_key,
+            start_inclusive,
+            &end_tx_key,
+            end_inclusive,
+            ScanDirection::Forward,
+            is_ckpt,
+            is_for_write,
+            is_for_share,
+            is_covering_keys,
+            is_require_keys,
+            is_require_recs,
+            is_require_sort,
+            is_read_local,
+            nullptr,
+            nullptr,
+            txm,
+            static_cast<int32_t>(cmd->obj_type_),
+            filter_pushdown ? cmd->pattern_.StringView() : "",
+            save_point);
 
         bool success = SendTxRequestAndWaitResult(txm, &scan_open, output);
         if (!success)
@@ -6327,6 +6383,8 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
             }
 
             size_t scan_batch_idx = 0;
+            static size_t scan_batch_size_total = 0;
+            scan_batch_size_total += scan_batch.size();
             for (; scan_batch_idx < scan_batch.size(); ++scan_batch_idx)
             {
                 const ScanBatchTuple &tuple = scan_batch[scan_batch_idx];
@@ -6336,6 +6394,20 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
                 if (tuple.status_ != RecordStatus::Normal)
                 {
                     continue;
+                }
+
+                if (!filter_pushdown)
+                {
+                    if (cmd->pattern_.Length() > 0 &&
+                        stringmatchlen(cmd->pattern_.Data(),
+                                       cmd->pattern_.Length(),
+                                       sv.data(),
+                                       sv.size(),
+                                       0) == 0)
+                    {
+                        obj_cnt++;
+                        continue;
+                    }
                 }
 
                 vct_rst.emplace_back(sv);
@@ -6453,13 +6525,12 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
         {
             scan_cursor_owner->obj_type_ = cmd->obj_type_;
             scan_cursor_owner->cmd_pattern_ = cmd->pattern_.String();
-            cmd->result_.cursor_id_ = ctx->CreateBucketScanCursor(
-                vct_rst.back(), std::move(scan_cursor_owner));
+            cmd->result_.cursor_id_ =
+                ctx->CreateBucketScanCursor(std::move(scan_cursor_owner));
         }
         else
         {
-            cmd->result_.cursor_id_ =
-                ctx->UpdateBucketScanCursor(vct_rst.back());
+            cmd->result_.cursor_id_ = ctx->UpdateBucketScanCursor();
         }
     }
 
