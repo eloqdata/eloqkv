@@ -6147,7 +6147,7 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
         if (pos != std::string_view::npos && pos != 0)
         {
             std::string_view prefix = pattern.substr(0, pos);
-            prefix_key = std::move(EloqKey(prefix));
+            prefix_key = EloqKey(prefix);
 
             start_tx_key = TxKey(&prefix_key);
 
@@ -6167,25 +6167,27 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
 
             if (increased)
             {
-                prefix_key_next = std::move(EloqKey(prefix_next));
+                prefix_key_next =
+                    EloqKey(prefix_next.data(), prefix_next.size());
                 end_tx_key = TxKey(&prefix_key_next);
             }
             else
             {
-                end_tx_key = std::move(TxKey(EloqKey::PositiveInfinity()));
+                end_tx_key = TxKey(EloqKey::PositiveInfinity());
             }
-            end_tx_key = std::move(TxKey(EloqKey::PositiveInfinity()));
+
+            // end_tx_key = std::move(TxKey(EloqKey::PositiveInfinity()));
         }
         else
         {
-            start_tx_key = std::move(TxKey(EloqKey::NegativeInfinity()));
-            end_tx_key = std::move(TxKey(EloqKey::PositiveInfinity()));
+            start_tx_key = TxKey(EloqKey::NegativeInfinity());
+            end_tx_key = TxKey(EloqKey::PositiveInfinity());
         }
     }
     else
     {
-        start_tx_key = std::move(TxKey(EloqKey::NegativeInfinity()));
-        end_tx_key = std::move(TxKey(EloqKey::PositiveInfinity()));
+        start_tx_key = TxKey(EloqKey::NegativeInfinity());
+        end_tx_key = TxKey(EloqKey::PositiveInfinity());
     }
 
     bool start_inclusive = false;
@@ -6282,28 +6284,37 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
 
         uint64_t schema_version = catalog_rec.SchemaTs();
 
-        ScanOpenTxRequest scan_open(redis_table_name,
-                                    schema_version,
-                                    ScanIndexType::Primary,
-                                    &start_tx_key,
-                                    start_inclusive,
-                                    &end_tx_key,
-                                    end_inclusive,
-                                    ScanDirection::Forward,
-                                    is_ckpt,
-                                    is_for_write,
-                                    is_for_share,
-                                    is_covering_keys,
-                                    is_require_keys,
-                                    is_require_recs,
-                                    is_require_sort,
-                                    is_read_local,
-                                    nullptr,
-                                    nullptr,
-                                    txm,
-                                    static_cast<int32_t>(cmd->obj_type_),
-                                    cmd->pattern_.StringView(),
-                                    save_point);
+        LOG(INFO) << "== cmd count = " << cmd->count_;
+
+        bool filter_pushdown = false;
+        if (cmd->count_ == -1)
+        {
+            filter_pushdown = true;
+        }
+
+        ScanOpenTxRequest scan_open(
+            redis_table_name,
+            schema_version,
+            ScanIndexType::Primary,
+            &start_tx_key,
+            start_inclusive,
+            &end_tx_key,
+            end_inclusive,
+            ScanDirection::Forward,
+            is_ckpt,
+            is_for_write,
+            is_for_share,
+            is_covering_keys,
+            is_require_keys,
+            is_require_recs,
+            is_require_sort,
+            is_read_local,
+            nullptr,
+            nullptr,
+            txm,
+            static_cast<int32_t>(cmd->obj_type_),
+            filter_pushdown ? cmd->pattern_.StringView() : "",
+            save_point);
 
         bool success = SendTxRequestAndWaitResult(txm, &scan_open, output);
         if (!success)
@@ -6342,7 +6353,7 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
 
         while (current_index < plan_size)
         {
-            obj_cnt += static_cast<int64_t>(plan.BucketNumber()) * 32;
+            // obj_cnt += static_cast<int64_t>(plan.BucketNumber()) * 32;
             scan_batch.clear();
             ScanBatchTxRequest scan_batch_req(
                 scan_alias,
@@ -6392,7 +6403,22 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
                     continue;
                 }
 
+                if (!filter_pushdown)
+                {
+                    if (cmd->pattern_.Length() > 0 &&
+                        stringmatchlen(cmd->pattern_.Data(),
+                                       cmd->pattern_.Length(),
+                                       sv.data(),
+                                       sv.size(),
+                                       0) == 0)
+                    {
+                        obj_cnt++;
+                        continue;
+                    }
+                }
+
                 vct_rst.emplace_back(sv);
+                obj_cnt++;
 
                 if (cmd->count_ > 0 && obj_cnt >= cmd->count_)
                 {
