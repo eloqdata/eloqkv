@@ -2180,7 +2180,7 @@ function run_eloqkv_cluster_tests() {
       --core_number=2 \
       --enable_wal=false \
       --enable_data_store=true \
-      --eloq_data_path="/tmp/redis_server_data_0" \
+      --eloq_data_path="/tmp/redis_server_data_bootstrap" \
       --event_dispatcher_num=1 \
       --auto_redirect=true \
       --maxclients=1000000 \
@@ -2260,7 +2260,7 @@ function run_eloqkv_cluster_tests() {
       --core_number=2 \
       --enable_wal=true \
       --enable_data_store=true \
-      --eloq_data_path="/tmp/redis_server_data_0" \
+      --eloq_data_path="/tmp/redis_server_data_bootstrap" \
       --event_dispatcher_num=1 \
       --auto_redirect=true \
       --maxclients=1000000 \
