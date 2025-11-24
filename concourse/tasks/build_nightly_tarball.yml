@@ -5,6 +5,7 @@ inputs:
   - name: eloqkv_src
   - name: logservice_src
   - name: raft_host_manager_src
+  - name: eloqstore_src
 outputs:
   - name: the-output
 run:

@@ -5,6 +5,7 @@ inputs:
   - name: eloqkv_src
   - name: logservice_src
   - name: raft_host_manager_src
+  - name: eloq_store_src
 run:
   path: /bin/bash
   args:
