@@ -22,6 +22,7 @@
 #pragma once
 
 #include <algorithm>
+#include <cstddef>
 #include <deque>
 #include <memory>
 #include <string>
@@ -92,6 +93,11 @@ public:
     bool IsMatchType(int32_t obj_type) const
     {
         return obj_type < 0 || static_cast<int32_t>(ObjectType()) == obj_type;
+    }
+
+    int32_t GetObjectType() const
+    {
+        return static_cast<int32_t>(ObjectType());
     }
 
     TxRecord::Uptr DeserializeObject(const char *buf,
