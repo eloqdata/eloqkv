@@ -6282,8 +6282,6 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
             {
                 end_tx_key = TxKey(EloqKey::PositiveInfinity());
             }
-
-            // end_tx_key = std::move(TxKey(EloqKey::PositiveInfinity()));
         }
         else
         {
