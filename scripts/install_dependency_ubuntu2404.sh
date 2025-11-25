@@ -31,7 +31,7 @@ DEBIAN_FRONTEND=noninteractive sudo apt-get install -y --no-install-recommends \
     libleveldb-dev libsnappy-dev openssl lcov libbz2-dev liblz4-dev libzstd-dev \
     libboost-context-dev ca-certificates libc-ares-dev libc-ares2 m4 pkg-config \
     tar gcc redis tcl libreadline-dev ncurses-dev patchelf libprotobuf-dev \
-    protobuf-compiler
+    protobuf-compiler libjsoncpp-dev
 
 # Install lua
 mkdir -p $HOME/Downloads/lua && cd $HOME/Downloads/lua

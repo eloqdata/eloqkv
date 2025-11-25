@@ -14,6 +14,10 @@ pushd tx_service
 ln -s $WORKSPACE/raft_host_manager_src raft_host_manager
 popd
 
+pushd store_handler/eloq_data_store_service
+ln -s $WORKSPACE/eloq_store_src eloqstore
+popd
+
 git config --global user.email "concourse@noreply.com"
 git config --global user.name "concourse-ci"
 
