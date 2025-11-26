@@ -3093,26 +3093,29 @@ function run_eloq_test(){
     local rocksdb_cloud_aws_secret_access_key=${ROCKSDB_CLOUD_AWS_SECRET_ACCESS_KEY}
     local rocksdb_cloud_bucket_name=${ROCKSDB_CLOUD_BUCKET_NAME}
     local rocksdb_cloud_object_path=${ROCKSDB_CLOUD_OBJECT_PATH}
+    local txlog_rocksdb_cloud_object_path=${TXLOG_ROCKSDB_CLOUD_OBJECT_PATH}
 
     echo "rocksdb_cloud_s3_endpoint_url: ${rocksdb_cloud_s3_endpoint_url}"
     sed -i "s/rocksdb_cloud_s3_endpoint_url.*=.\+/rocksdb_cloud_s3_endpoint_url=${rocksdb_cloud_s3_endpoint_url_escape}/g" ./storage.cnf
     sed -i "s/aws_access_key_id.*=.\+/aws_access_key_id=${rocksdb_cloud_aws_access_key_id}/g" ./storage.cnf
     sed -i "s/aws_secret_key.*=.\+/aws_secret_key=${rocksdb_cloud_aws_secret_access_key}/g" ./storage.cnf
     sed -i "s/rocksdb_cloud_bucket_name.*=.\+/rocksdb_cloud_bucket_name=${rocksdb_cloud_bucket_name}/g" ./storage.cnf
-    sed -i "s/rocksdb_cloud_object_path.*=.\+/rocksdb_cloud_objet_path=${rocksdb_cloud_object_path}/g" ./storage.cnf
 
     sed -i "s/rocksdb_cloud_s3_endpoint_url.*=.\+/rocksdb_cloud_s3_endpoint_url=${rocksdb_cloud_s3_endpoint_url_escape}/g"  ./bootstrap_cnf/*_rocksdb_cloud_s3.cnf
+    sed -i "s/txlog_rocksdb_cloud_s3_endpoint_url.*=.\+/txlog_rocksdb_cloud_s3_endpoint_url=${rocksdb_cloud_s3_endpoint_url_escape}/g"  ./bootstrap_cnf/*_rocksdb_cloud_s3.cnf
     sed -i "s/aws_access_key_id.*=.\+/aws_access_key_id=${rocksdb_cloud_aws_access_key_id}/g"  ./bootstrap_cnf/*_rocksdb_cloud_s3.cnf
     sed -i "s/aws_secret_key.*=.\+/aws_secret_key=${rocksdb_cloud_aws_secret_access_key}/g"  ./bootstrap_cnf/*_rocksdb_cloud_s3.cnf
     sed -i "s/rocksdb_cloud_bucket_name.*=.\+/rocksdb_cloud_bucket_name=${rocksdb_cloud_bucket_name}/g"  ./bootstrap_cnf/*_rocksdb_cloud_s3.cnf
+    sed -i "s/txlog_rocksdb_cloud_bucket_name.*=.\+/txlog_rocksdb_cloud_bucket_name=${rocksdb_cloud_bucket_name}/g"  ./bootstrap_cnf/*_rocksdb_cloud_s3.cnf
     sed -i "s/rocksdb_cloud_object_path.*=.\+/rocksdb_cloud_object_path=${rocksdb_cloud_object_path}/g"  ./bootstrap_cnf/*_rocksdb_cloud_s3.cnf
-
+    sed -i "s/txlog_rocksdb_cloud_object_path.*=.\+/txlog_rocksdb_cloud_object_path=${txlog_rocksdb_cloud_object_path}/g"  ./bootstrap_cnf/*_rocksdb_cloud_s3.cnf
 
     sed -i "s/rocksdb_cloud_s3_endpoint_url.*=.\+/rocksdb_cloud_s3_endpoint_url=${rocksdb_cloud_s3_endpoint_url_escape}/g"  ./bootstrap_cnf/eloqdss_server.cnf
+    sed -i "s/txlog_rocksdb_cloud_s3_endpoint_url.*=.\+/txlog_rocksdb_cloud_s3_endpoint_url=${rocksdb_cloud_s3_endpoint_url_escape}/g"  ./bootstrap_cnf/eloqdss_server.cnf
     sed -i "s/aws_access_key_id.*=.\+/aws_access_key_id=${rocksdb_cloud_aws_access_key_id}/g"  ./bootstrap_cnf/eloqdss_server.cnf
     sed -i "s/aws_secret_key.*=.\+/aws_secret_key=${rocksdb_cloud_aws_secret_access_key}/g"  ./bootstrap_cnf/eloqdss_server.cnf
     sed -i "s/rocksdb_cloud_bucket_name.*=.\+/rocksdb_cloud_bucket_name=${rocksdb_cloud_bucket_name}/g"  ./bootstrap_cnf/eloqdss_server.cnf
-    sed -i "s/rocksdb_cloud_object_path.*=.\+/rocksdb_cloud_object_path=${rocksdb_cloud_object_path}/g"  ./bootstrap_cnf/eloqdss_server.cnf
+    sed -i "s/txlog_rocksdb_cloud_bucket_name.*=.\+/txlog_rocksdb_cloud_bucket_name=${rocksdb_cloud_bucket_name}/g"  ./bootstrap_cnf/eloqdss_server.cnf
 
     # run cluster scale tests.
     # python3 redis_test/single_test/cluster_scale_test.py --dbtype redis --storage eloqdss-rocksdb-cloud-s3 --install_path ${eloqkv_install_path}
