@@ -189,8 +189,10 @@ bool RedisServiceImpl::Init(brpc::Server &brpc_server)
         LOG(ERROR) << "Error: TxService is not initialized.";
         return false;
     }
+    bool enable_store =
+        DataSubstrate::GetGlobal()->GetCoreConfig().enable_data_store;
     store_hd_ = DataSubstrate::GetGlobal()->GetStoreHandler();
-    if (store_hd_ == nullptr)
+    if (enable_store && store_hd_ == nullptr)
     {
         LOG(ERROR) << "Error: DataStoreHandler is not initialized.";
         return false;
