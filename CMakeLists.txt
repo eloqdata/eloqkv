@@ -114,7 +114,6 @@ endif()
 
 option(VECTOR_INDEX_ENABLED "Enable vector index" OFF)
 message("VECTOR_INDEX_ENABLED: ${VECTOR_INDEX_ENABLED}")
-add_compile_definitions(ELOQ_MODULE_ELOQKV)
 # Add compile definitions based on options
 if(WITH_DATA_STORE STREQUAL "DYNAMODB")
     set(KV_STORAGE_VAL 1 CACHE STRING "dynamodb" FORCE)
