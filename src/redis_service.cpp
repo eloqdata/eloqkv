@@ -473,7 +473,7 @@ bool RedisServiceImpl::Init(brpc::Server &brpc_server)
     // Initialize vector handler
     EloqVec::CloudConfig vector_cloud_config(config_reader);
     if (!EloqVec::VectorHandler::InitHandlerInstance(
-            tx_service_.get(),
+            tx_service_,
             vector_index_worker_pool_.get(),
             eloq_data_path,
             &vector_cloud_config))
