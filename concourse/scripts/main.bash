@@ -40,7 +40,7 @@ cd eloqkv
 git submodule sync
 git submodule update --init --recursive
 
-cd /home/$current_user/workspace/eloqkv/tx_service
+cd /home/$current_user/workspace/eloqkv/data_substrate/tx_service
 
 git checkout main
 

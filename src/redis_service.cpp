@@ -19,8 +19,6 @@
  *    <http://www.gnu.org/licenses/>.
  *
  */
-#include "redis_service.h"
-
 #include <absl/types/span.h>
 #include <bthread/mutex.h>
 #include <bthread/task_group.h>
@@ -32,37 +30,17 @@
 #include <sys/sysinfo.h>
 #include <sys/types.h>
 
-#include <atomic>
-#include <chrono>
-#include <cstddef>
-#include <functional>
-#include <optional>
-#include <ratio>
-#include <string_view>
-
-#include "data_store_service_util.h"
-#include "eloq_metrics/include/metrics.h"
-#include "error_messages.h"
-#include "kv_store.h"
-#include "redis_errors.h"
-#include "sharder.h"
-#include "tx_key.h"
-
-#if defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB_CLOUD_S3) ||                       \
-    defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB_CLOUD_GCS)
-#include "eloq_data_store_service/rocksdb_cloud_data_store_factory.h"
-#elif defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB)
-#include "eloq_data_store_service/rocksdb_data_store_factory.h"
-#elif defined(DATA_STORE_TYPE_ELOQDSS_ELOQSTORE)
-#include "eloq_data_store_service/eloq_store_data_store_factory.h"
-#endif
-
 #include <algorithm>
+#include <atomic>
 #include <cassert>
 #include <charconv>
+#include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <memory>
+#include <optional>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
@@ -70,62 +48,25 @@
 #include <vector>
 
 #include "INIReader.h"
-#if (WITH_LOG_SERVICE)
-#include "log_service_metrics.h"
-#include "log_utils.h"
-#endif
-
-#if (defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB_CLOUD_S3) ||                      \
-     defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB_CLOUD_GCS) ||                     \
-     defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB) ||                               \
-     defined(DATA_STORE_TYPE_ELOQDSS_ELOQSTORE))
-#define ELOQDS 1
-#endif
-
-#if ELOQDS
-#include <filesystem>
-
-#include "eloq_data_store_service/data_store_service.h"
-#include "eloq_data_store_service/data_store_service_config.h"
-#include "store_handler/data_store_service_client.h"
-#endif
-
-// Log state type
-#if !defined(LOG_STATE_TYPE_RKDB_CLOUD)
-
-// Only if LOG_STATE_TYPE_RKDB_CLOUD undefined
-#if ((defined(LOG_STATE_TYPE_RKDB_S3) || defined(LOG_STATE_TYPE_RKDB_GCS)) &&  \
-     !defined(LOG_STATE_TYPE_RKDB))
-#define LOG_STATE_TYPE_RKDB_CLOUD 1
-#endif
-
-#endif
-
-#if !defined(LOG_STATE_TYPE_RKDB_ALL)
-
-// Only if LOG_STATE_TYPE_RKDB_ALL undefined
-#if (defined(LOG_STATE_TYPE_RKDB_S3) || defined(LOG_STATE_TYPE_RKDB_GCS) ||    \
-     defined(LOG_STATE_TYPE_RKDB))
-#define LOG_STATE_TYPE_RKDB_ALL 1
-#endif
-
-#endif
-
-#if defined(LOG_STATE_TYPE_RKDB_CLOUD)
-#include "rocksdb_cloud_config.h"
-#endif
-
-#include "eloq_key.h"
-#include "eloq_log_wrapper.h"
+#include "catalog_factory.h"
+#include "data_substrate.h"
+#include "eloq_metrics/include/metrics.h"
+#include "eloqkv_key.h"
+#include "error_messages.h"
+#include "kv_store.h"
 #include "lua_interpreter.h"
 #include "metrics_registry_impl.h"
 #include "redis_command.h"
 #include "redis_connection_context.h"
 #include "redis_handler.h"
 #include "redis_metrics.h"
+#include "redis_service.h"
 #include "redis_stats.h"
 #include "redis_string_match.h"
+#include "sharder.h"
+#include "tx_key.h"
 // #include "store_handler/rocksdb_config.h"
+#include "eloqkv_catalog_factory.h"
 #include "tx_execution.h"
 #include "tx_request.h"
 #include "tx_service.h"
@@ -147,122 +88,25 @@ namespace brpc
 DECLARE_int32(event_dispatcher_num);
 }
 
+EloqKV::RedisCatalogFactory catalog_factory;
+txservice::CatalogFactory *eloqkv_catalog_factory = &catalog_factory;
 // DEFINE all gflags here
-DECLARE_int32(core_number);
 
-#if defined(DATA_STORE_TYPE_DYNAMODB)
-DEFINE_string(dynamodb_endpoint, "", "Endpoint of KvStore Dynamodb");
-DEFINE_string(dynamodb_keyspace, "eloq_kv", "KeySpace of Dynamodb KvStore");
-DEFINE_string(dynamodb_region,
-              "ap-northeast-1",
-              "Region of the used trable in DynamoDB");
-#endif
-
-#if defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB_CLOUD_S3)
-DECLARE_string(aws_access_key_id);
-DECLARE_string(aws_secret_key);
-#elif (defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB_CLOUD_S3) ||                    \
-       defined(DATA_STORE_TYPE_DYNAMODB) || defined(LOG_STATE_TYPE_RKDB_S3))
-DEFINE_string(aws_access_key_id, "", "AWS SDK access key id");
-DEFINE_string(aws_secret_key, "", "AWS SDK secret key");
-#endif
-
-DEFINE_bool(enable_wal, false, "Enable wal");
-DEFINE_bool(enable_data_store, false, "Enable data storage");
-DEFINE_bool(enable_cache_replacement, true, "Enable cache replacement");
-DEFINE_bool(auto_redirect,
-            true,
-            "Auto redirect request to remote node if key not on local");
+DECLARE_int32(node_memory_limit_mb);
 DEFINE_bool(cc_notify,
             true,
             "Notify the txrequest sender when cc request finishes");
 DECLARE_bool(cmd_read_catalog);
-DEFINE_bool(enable_io_uring, false, "Enable io_uring as the IO engine");
-DEFINE_bool(raft_log_async_fsync,
-            false,
-            "Whether raft log fsync is performed asynchronously (blocking the "
-            "bthread) instead of blocking the worker thread");
-DEFINE_int32(core_number, 4, "Number of TxProcessors");
+DEFINE_int32(eloqkv_port, 6379, "EloqKv Port");
 #ifdef VECTOR_INDEX_ENABLED
 DEFINE_int32(vector_index_worker_num,
              1,
              "Number of Vector Index worker threads");
 #endif
-DEFINE_bool(
-    bind_all,
-    false,
-    "Listen on all interfaces if enabled, otherwise listen on local.ip");
-DEFINE_string(ip, "127.0.0.1", "Redis IP");
-DEFINE_int32(port, 6379, "Redis Port");
-DEFINE_string(ip_port_list, "", "redis server cluster ip port list");
-DEFINE_int32(tx_nodegroup_replica_num,
-             3,
-             "Replica number of one txservice node group");
-DEFINE_string(standby_ip_port_list,
-              "",
-              "Standby nodes ip:port list of servers."
-              "Different standby nodes in the same group is separated by '|'."
-              "If there is no standby nodes of the server, just leave empty "
-              "text on the position."
-              "eg:'xx|xx,xx,,xx|xx|xx' ");
-DEFINE_string(voter_ip_port_list,
-              "",
-              "Voter nodes ip:port list of servers."
-              "Different nodes in the same group is separated by '|'."
-              "If there is no voter nodes of the group, just leave empty "
-              "text on the position."
-              "eg:'xx|xx,xx,,xx|xx|xx' ");
-DEFINE_string(txlog_service_list, "", "Log group servers configuration");
-DEFINE_int32(txlog_group_replica_num, 3, "Replica number of one log group");
-DEFINE_uint32(checkpoint_interval, 10, "Interval time(seconds) of checkpoint");
-DEFINE_uint32(node_memory_limit_mb, 8192, "txservice node_memory_limit_mb");
-DEFINE_uint32(node_log_limit_mb, 8192, "txservice node_log_limit_mb");
-DEFINE_uint32(max_standby_lag,
-              400000,
-              "txservice max msg lag between primary and standby");
 DEFINE_bool(cluster_mode,
             false,
             "enable cluster mode even if there is only one node group, "
             "compatible with redis cluster protocol");
-DEFINE_bool(bootstrap, false, "init system tables and exit");
-DEFINE_uint32(maxclients, 10000, "maxclients");
-DEFINE_string(hm_ip, "", "host manager ip address");
-DEFINE_uint32(hm_port, 0, "host manager port");
-DEFINE_string(hm_bin,
-              "",
-              "host manager binary path if forking host manager process from "
-              "main process");
-DEFINE_string(eloq_data_path, "eloq_data", "path for cc_ng and tx_log");
-DEFINE_string(tx_service_data_path, "", "path for tx_service data");
-DEFINE_string(log_service_data_path, "", "path for log_service data");
-DEFINE_string(cluster_config_file, "", "path for cluster config file");
-
-DEFINE_string(txlog_rocksdb_storage_path,
-              "",
-              "Storage path for txlog rocksdb state");
-DEFINE_bool(kickout_data_for_test, false, "clean data for test");
-
-DEFINE_string(txlog_rocksdb_sst_files_size_limit,
-              "500MB",
-              "The total RocksDB sst files size before purge");
-DEFINE_uint32(txlog_rocksdb_scan_threads,
-              1,
-              "The number of rocksdb scan threads");
-
-DEFINE_uint32(txlog_rocksdb_max_write_buffer_number,
-              8,
-              "Max write buffer number");
-DEFINE_uint32(txlog_rocksdb_max_background_jobs, 12, "Max background jobs");
-DEFINE_string(txlog_rocksdb_target_file_size_base,
-              "64MB",
-              "Target file size base for rocksdb");
-
-DEFINE_uint32(logserver_snapshot_interval, 600, "logserver_snapshot interval");
-
-DEFINE_bool(enable_txlog_request_checkpoint,
-            true,
-            "Enable txlog server sending checkpoint requests when the criteria "
-            "are met.");
 
 DEFINE_int32(slow_log_threshold,
              10000,
@@ -272,72 +116,8 @@ DEFINE_uint32(slow_log_max_length,
               128,
               "Max number of logs kept in slow query log.");
 
-#if defined(LOG_STATE_TYPE_RKDB_CLOUD)
-DEFINE_string(txlog_rocksdb_cloud_region,
-              "ap-northeast-1",
-              "Cloud service regin");
-DEFINE_string(txlog_rocksdb_cloud_bucket_name,
-              "rocksdb-cloud-test",
-              "Cloud storage bucket name");
-DEFINE_string(txlog_rocksdb_cloud_bucket_prefix,
-              "txlog-",
-              "Cloud storage bucket prefix");
-DEFINE_string(txlog_rocksdb_cloud_object_path,
-              "eloqkv_txlog",
-              "Cloud storage object path, if not set, will use bucket name and "
-              "prefix");
-DEFINE_uint32(
-    txlog_rocksdb_cloud_ready_timeout,
-    10,
-    "Timeout before rocksdb cloud becoming ready on new log group leader");
-DEFINE_uint32(txlog_rocksdb_cloud_file_deletion_delay,
-              3600,
-              "The file deletion delay for rocksdb cloud file");
-DEFINE_uint32(txlog_rocksdb_cloud_log_retention_days,
-              90,
-              "The number of days for which logs should be retained");
-DEFINE_string(txlog_rocksdb_cloud_log_purger_schedule,
-              "00:00:01",
-              "Time (in regular format: HH:MM:SS) to run log purger daily, "
-              "deleting logs older than log_retention_days.");
-DEFINE_uint32(txlog_in_mem_data_log_queue_size_high_watermark,
-              50 * 10000,
-              "In memory data log queue max size");
-DEFINE_string(txlog_rocksdb_cloud_endpoint_url,
-              "",
-              "Endpoint url of cloud storage service");
-DEFINE_string(txlog_rocksdb_cloud_sst_file_cache_size,
-              "1GB",
-              "Local sst cache size for txlog");
-#endif
-#ifdef WITH_CLOUD_AZ_INFO
-DEFINE_string(txlog_rocksdb_cloud_prefer_zone,
-              "",
-              "user preferred deployed availability zone");
-DEFINE_string(txlog_rocksdb_cloud_current_zone,
-              "",
-              "the log service server node deployed on currently");
-#endif
-
-DEFINE_uint32(check_replay_log_size_interval_sec,
-              10,
-              "The interval for checking replay log size.");
-
-DEFINE_string(notify_checkpointer_threshold_size,
-              "1GB",
-              "When the replay log size reaches this threshold the txlog "
-              "server sends a checkpoint request to tx_service.");
-
-DEFINE_string(log_file_name_prefix,
-              "eloqkv.log",
-              "Sets the prefix for log files. Default is 'eloqkv.log'");
-
-DEFINE_bool(enable_heap_defragment, false, "Enable heap defragmentation");
 DEFINE_bool(enable_redis_stats, true, "Enable to collect redis statistics.");
 DEFINE_bool(enable_cmd_sort, false, "Enable to sort command in Multi-Exec.");
-DEFINE_bool(enable_brpc_builtin_services,
-            true,
-            "Enable to show brpc builtin services through http.");
 DEFINE_string(isolation_level,
               "ReadCommitted",
               "Isolation level of simple commands.");
@@ -351,30 +131,18 @@ DEFINE_string(
     txn_protocol,
     "OCC",
     "Concurrency control protocol of MULTI/EXEC and Lua transactions.");
-DEFINE_uint32(snapshot_sync_worker_num, 0, "Snpashot sync worker num");
 
 DEFINE_bool(retry_on_occ_error, true, "Retry transaction on OCC caused error.");
 
-DEFINE_bool(fork_host_manager, true, "fork host manager process");
-
-#if ELOQDS
-DEFINE_string(eloq_dss_peer_node,
-              "",
-              "EloqDataStoreService peer node address. Used to fetch eloq-dss "
-              "topology from a working eloq-dss server.");
-DEFINE_string(eloq_dss_branch_name,
-              "development",
-              "Branch name of EloqDataStore");
-DEFINE_uint32(dss_file_cache_sync_interval_sec,
-              30,
-              "File cache sync interval in seconds for standby warm-up");
-#endif
-
 namespace EloqKV
 {
-constexpr char SEC_LOCAL[] = "local";
 const auto NUM_VCPU = std::thread::hardware_concurrency();
 
+// Global pub sub manager and publish function for eloqkv
+PubSubManager eloqkv_pub_sub_mgr;
+std::function<void(std::string_view, std::string_view)> eloqkv_publish_func =
+    [](std::string_view chan, std::string_view msg)
+{ eloqkv_pub_sub_mgr.Publish(chan, msg); };
 int databases;
 std::string requirepass;
 std::string redis_ip_port;
@@ -398,20 +166,6 @@ std::vector<uint32_t> next_slow_log_idx_;
 std::vector<uint32_t> slow_log_len_;
 std::vector<uint32_t> next_slow_log_unique_id_;
 
-bool CheckCommandLineFlagIsDefault(const char *name)
-{
-    gflags::CommandLineFlagInfo flag_info;
-
-    bool flag_found = gflags::GetCommandLineFlagInfo(name, &flag_info);
-    // Make sure the flag is declared.
-    assert(flag_found);
-    (void) flag_found;
-
-    // Return `true` if the flag has the default value and has not been set
-    // explicitly from the cmdline or via SetCommandLineOption
-    return flag_info.is_default;
-}
-
 RedisServiceImpl::RedisServiceImpl(const std::string &config_file,
                                    const char *version)
 {
@@ -422,8 +176,6 @@ RedisServiceImpl::RedisServiceImpl(const std::string &config_file,
 bool RedisServiceImpl::Init(brpc::Server &brpc_server)
 {
     INIReader config_reader(config_file_);
-    std::unordered_map<txservice::TableName, std::string> prebuilt_tables;
-    CatalogFactory *catalog_factory[3]{nullptr, &catalog_factory_, nullptr};
 
     if (!config_file_.empty() && config_reader.ParseError() != 0)
     {
@@ -431,61 +183,27 @@ bool RedisServiceImpl::Init(brpc::Server &brpc_server)
         return false;
     }
 
+    tx_service_ = DataSubstrate::GetGlobal()->GetTxService();
+    if (tx_service_ == nullptr)
+    {
+        LOG(ERROR) << "Error: TxService is not initialized.";
+        return false;
+    }
+    store_hd_ = DataSubstrate::GetGlobal()->GetStoreHandler();
+    if (store_hd_ == nullptr)
+    {
+        LOG(ERROR) << "Error: DataStoreHandler is not initialized.";
+        return false;
+    }
+    core_num_ = DataSubstrate::GetGlobal()->GetCoreConfig().core_num;
+    if (core_num_ == 0)
+    {
+        LOG(ERROR) << "Error: core_num is 0.";
+        return false;
+    }
+    node_memory_limit_mb_ = FLAGS_node_memory_limit_mb;
+
     databases = config_reader.GetInteger("local", "databases", 16);
-    requirepass = config_reader.GetString("local", "requirepass", "");
-
-    FLAGS_maxclients =
-        !CheckCommandLineFlagIsDefault("maxclients")
-            ? FLAGS_maxclients
-            : config_reader.GetInteger("local", "maxclients", FLAGS_maxclients);
-
-    DLOG(INFO) << "Set maxclients: " << FLAGS_maxclients;
-    struct rlimit ulimit;
-    ulimit.rlim_cur = FLAGS_maxclients;
-    ulimit.rlim_max = FLAGS_maxclients;
-    if (setrlimit(RLIMIT_NOFILE, &ulimit) == -1)
-    {
-        LOG(ERROR) << "Failed to set maxclients.";
-        return false;
-    }
-
-    FLAGS_fork_host_manager =
-        !CheckCommandLineFlagIsDefault("fork_host_manager")
-            ? FLAGS_fork_host_manager
-            : config_reader.GetBoolean("local", "fork_host_manager", true);
-
-    FLAGS_enable_data_store =
-        !CheckCommandLineFlagIsDefault("enable_data_store")
-            ? FLAGS_enable_data_store
-            : config_reader.GetBoolean(
-                  "local", "enable_data_store", FLAGS_enable_data_store);
-    FLAGS_enable_wal =
-        !CheckCommandLineFlagIsDefault("enable_wal")
-            ? FLAGS_enable_wal
-            : config_reader.GetBoolean("local", "enable_wal", FLAGS_enable_wal);
-    if (FLAGS_enable_wal && !FLAGS_enable_data_store)
-    {
-        LOG(ERROR) << "When set enable_wal, should also set enable_data_store";
-        return false;
-    }
-
-    skip_kv_ = !FLAGS_enable_data_store;
-    skip_wal_ = !FLAGS_enable_wal;
-
-    enable_cache_replacement_ =
-        !CheckCommandLineFlagIsDefault("enable_cache_replacement")
-            ? FLAGS_enable_cache_replacement
-            : config_reader.GetBoolean("local",
-                                       "enable_cache_replacement",
-                                       FLAGS_enable_cache_replacement);
-
-    if (skip_kv_ && enable_cache_replacement_)
-    {
-        LOG(WARNING) << "When set enable_cache_replacement, should also set "
-                        "enable_data_store, reset to false";
-        enable_cache_replacement_ = false;
-    }
-
     for (int i = 0; i < databases; i++)
     {
         std::string table_name("data_table_");
@@ -503,126 +221,23 @@ bool RedisServiceImpl::Init(brpc::Server &brpc_server)
         // TODO(lokax):
 #endif
         redis_table_names_.push_back(redis_table_name);
-        prebuilt_tables.try_emplace(redis_table_name, image);
     }
 
-#if VECTOR_INDEX_ENABLED
-    // vector index meta table
-    prebuilt_tables.try_emplace(EloqVec::vector_index_meta_table,
-                                EloqVec::vector_index_meta_table.String());
-#endif
+    requirepass = config_reader.GetString("local", "requirepass", "");
 
-    std::string txlog_service =
-        !CheckCommandLineFlagIsDefault("txlog_service_list")
-            ? FLAGS_txlog_service_list
-            : config_reader.GetString(
-                  "cluster", "txlog_service_list", FLAGS_txlog_service_list);
-
-    bool bind_all =
-        !CheckCommandLineFlagIsDefault("bind_all")
-            ? FLAGS_bind_all
-            : config_reader.GetBoolean("local", "bind_all", FLAGS_bind_all);
+    skip_kv_ = !DataSubstrate::GetGlobal()->GetCoreConfig().enable_data_store;
+    skip_wal_ = !DataSubstrate::GetGlobal()->GetCoreConfig().enable_wal;
 
     std::string local_ip =
-        !CheckCommandLineFlagIsDefault("ip")
-            ? FLAGS_ip
-            : config_reader.GetString("local", "ip", FLAGS_ip);
-    redis_port_ = !CheckCommandLineFlagIsDefault("port")
-                      ? FLAGS_port
-                      : config_reader.GetInteger("local", "port", FLAGS_port);
-
-    const char *field_core = "core_number";
-    core_num_ = FLAGS_core_number;
-    if (CheckCommandLineFlagIsDefault(field_core))
-    {
-        if (config_reader.HasValue(SEC_LOCAL, field_core))
-        {
-            core_num_ = config_reader.GetInteger(SEC_LOCAL, field_core, 0);
-            assert(core_num_);
-        }
-        else
-        {
-            if (!NUM_VCPU)
-            {
-                LOG(ERROR) << "config is missing: " << field_core;
-                return false;
-            }
-            const uint min = 1;
-            if (!skip_kv_)
-            {
-                core_num_ = std::max(min, (NUM_VCPU * 3) / 5);
-                LOG(INFO) << "give cpus to checkpointer " << core_num_;
-            }
-            else
-            {
-                core_num_ = std::max(min, (NUM_VCPU * 7) / 10);
-            }
-            if (!skip_wal_ && core_num_ > 4 &&
-                txlog_service.find(local_ip) != std::string::npos)
-            {
-                core_num_ -= 2;
-                LOG(INFO) << "give cpus to log-server process on the same "
-                             "machine "
-                          << core_num_;
-            }
-            LOG(INFO) << "config is automatically set: " << field_core << "="
-                      << core_num_ << ", vcpu=" << NUM_VCPU;
-        }
-    }
-    GFLAGS_NAMESPACE::SetCommandLineOption("graceful_quit_on_sigterm", "true");
-    GFLAGS_NAMESPACE::SetCommandLineOption("bthread_concurrency",
-                                           std::to_string(core_num_).c_str());
-
-    if (CheckCommandLineFlagIsDefault("snapshot_sync_worker_num") &&
-        !config_reader.HasValue("store", "snapshot_sync_worker_num"))
-    {
-        FLAGS_snapshot_sync_worker_num =
-            std::max(core_num_ / 4, static_cast<uint32_t>(1));
-    }
-
-    const char *field_ed = "event_dispatcher_num";
-    uint num_iothreads = brpc::FLAGS_event_dispatcher_num;
-    if (CheckCommandLineFlagIsDefault(field_ed))
-    {
-        if (config_reader.HasValue(SEC_LOCAL, field_ed))
-        {
-            num_iothreads = config_reader.GetInteger(SEC_LOCAL, field_ed, 0);
-            assert(num_iothreads);
-        }
-        else
-        {
-            if (!NUM_VCPU)
-            {
-                LOG(ERROR) << "config is missing: " << field_ed;
-                return false;
-            }
-            num_iothreads = std::max(uint(1), (core_num_ + 5) / 6);
-            LOG(INFO) << "config is automatically set: " << field_ed << "="
-                      << num_iothreads << ", vcpu=" << NUM_VCPU;
-        }
-    }
-    GFLAGS_NAMESPACE::SetCommandLineOption(
-        field_ed, std::to_string(num_iothreads).c_str());
-    event_dispatcher_num_ = num_iothreads;
-
-    GFLAGS_NAMESPACE::SetCommandLineOption("worker_polling_time_us", "1000");
-    GFLAGS_NAMESPACE::SetCommandLineOption("brpc_worker_as_ext_processor",
-                                           "true");
-    GFLAGS_NAMESPACE::SetCommandLineOption("use_pthread_event_dispatcher",
-                                           "true");
-    GFLAGS_NAMESPACE::SetCommandLineOption("max_body_size", "536870912");
-
-    FLAGS_auto_redirect =
-        !CheckCommandLineFlagIsDefault("auto_redirect")
-            ? FLAGS_auto_redirect
-            : config_reader.GetBoolean(
-                  "local", "auto_redirect", FLAGS_auto_redirect);
-
+        DataSubstrate::GetGlobal()->GetNetworkConfig().local_ip;
+    redis_port_ = !CheckCommandLineFlagIsDefault("eloqkv_port")
+                      ? FLAGS_eloqkv_port
+                      : config_reader.GetInteger(
+                            "local", "eloqkv_port", FLAGS_eloqkv_port);
     FLAGS_cluster_mode = !CheckCommandLineFlagIsDefault("cluster_mode")
                              ? FLAGS_cluster_mode
                              : config_reader.GetBoolean(
                                    "local", "cluster_mode", FLAGS_cluster_mode);
-
     FLAGS_cc_notify =
         !CheckCommandLineFlagIsDefault("cc_notify")
             ? FLAGS_cc_notify
@@ -633,35 +248,6 @@ bool RedisServiceImpl::Init(brpc::Server &brpc_server)
             ? FLAGS_cmd_read_catalog
             : config_reader.GetBoolean(
                   "local", "cmd_read_catalog", FLAGS_cmd_read_catalog);
-
-    bool enable_io_uring =
-        !CheckCommandLineFlagIsDefault("enable_io_uring")
-            ? FLAGS_enable_io_uring
-            : config_reader.GetBoolean(
-                  "local", "enable_io_uring", FLAGS_enable_io_uring);
-
-    bool raft_log_async_fsync =
-        !CheckCommandLineFlagIsDefault("raft_log_async_fsync")
-            ? FLAGS_raft_log_async_fsync
-            : config_reader.GetBoolean(
-                  "local", "raft_log_async_fsync", FLAGS_raft_log_async_fsync);
-
-    if (raft_log_async_fsync && !enable_io_uring)
-    {
-        LOG(ERROR) << "Invalid config: when set `enable_io_uring`, "
-                      "should also set `enable_io_uring`.";
-        return false;
-    }
-
-    GFLAGS_NAMESPACE::SetCommandLineOption("use_io_uring",
-                                           enable_io_uring ? "true" : "false");
-    GFLAGS_NAMESPACE::SetCommandLineOption(
-        "raft_use_bthread_fsync", raft_log_async_fsync ? "true" : "false");
-
-    std::string eloq_data_path =
-        !CheckCommandLineFlagIsDefault("eloq_data_path")
-            ? FLAGS_eloq_data_path
-            : config_reader.GetString("local", "eloq_data_path", "eloq_data");
 
     slow_log_threshold_ =
         !CheckCommandLineFlagIsDefault("slow_log_threshold")
@@ -712,7 +298,7 @@ bool RedisServiceImpl::Init(brpc::Server &brpc_server)
     // Change(lzx): change the "local.port" and "cluster.ip_port_list" to the
     // address of local redis and cluster instead of txservice. The port of
     // txservice is set as redis port add "10000". eg.6379->16379
-    if (bind_all)
+    if (DataSubstrate::GetGlobal()->GetNetworkConfig().bind_all)
     {
         redis_ip_port = "0.0.0.0:" + std::to_string(redis_port_);
     }
@@ -721,637 +307,12 @@ bool RedisServiceImpl::Init(brpc::Server &brpc_server)
         redis_ip_port = local_ip + ":" + std::to_string(redis_port_);
     }
 
-    uint32_t tx_ng_replica_num =
-        !CheckCommandLineFlagIsDefault("tx_nodegroup_replica_num")
-            ? FLAGS_tx_nodegroup_replica_num
-            : config_reader.GetInteger("cluster",
-                                       "tx_nodegroup_replica_num",
-                                       FLAGS_tx_nodegroup_replica_num);
-    std::string ip_port_list =
-        !CheckCommandLineFlagIsDefault("ip_port_list")
-            ? FLAGS_ip_port_list
-            : config_reader.GetString("cluster", "ip_port_list", redis_ip_port);
+    DLOG(INFO) << "Local EloqKv server ip port: " << redis_ip_port;
 
-    std::string standby_ip_port_list =
-        !CheckCommandLineFlagIsDefault("standby_ip_port_list")
-            ? FLAGS_standby_ip_port_list
-            : config_reader.GetString("cluster", "standby_ip_port_list", "");
-
-    std::string voter_ip_port_list =
-        !CheckCommandLineFlagIsDefault("voter_ip_port_list")
-            ? FLAGS_voter_ip_port_list
-            : config_reader.GetString("cluster", "voter_ip_port_list", "");
-
-    uint16_t local_tx_port = RedisPortToTxPort(redis_port_);
-
-    DLOG(INFO) << "Local server ip port: " << redis_ip_port;
-
-    node_log_limit_mb_ =
-        !CheckCommandLineFlagIsDefault("node_log_limit_mb")
-            ? FLAGS_node_log_limit_mb
-            : config_reader.GetInteger(
-                  "local", "node_log_limit_mb", FLAGS_node_log_limit_mb);
-    uint32_t max_standby_lag =
-        !CheckCommandLineFlagIsDefault("max_standby_lag")
-            ? FLAGS_max_standby_lag
-            : config_reader.GetInteger(
-                  "cluster", "max_standby_lag", FLAGS_max_standby_lag);
-
-    std::string hm_ip = !CheckCommandLineFlagIsDefault("hm_ip")
-                            ? FLAGS_hm_ip
-                            : config_reader.GetString("local", "hm_ip", "");
-    uint16_t hm_port = !CheckCommandLineFlagIsDefault("hm_port")
-                           ? FLAGS_hm_port
-                           : config_reader.GetInteger("local", "hm_port", 0);
-    std::string hm_bin_path =
-        !CheckCommandLineFlagIsDefault("hm_bin")
-            ? FLAGS_hm_bin
-            : config_reader.GetString("local", "hm_bin", "");
-
-    std::string tx_service_data_path =
-        !CheckCommandLineFlagIsDefault("tx_service_data_path")
-            ? FLAGS_tx_service_data_path
-            : config_reader.GetString("local", "tx_service_data_path", "");
-
-    bool enable_brpc_builtin_services =
-        !CheckCommandLineFlagIsDefault("enable_brpc_builtin_services")
-            ? FLAGS_enable_brpc_builtin_services
-            : config_reader.GetBoolean("local",
-                                       "enable_brpc_builtin_services",
-                                       FLAGS_enable_brpc_builtin_services);
-
-    int txlog_group_replica_num =
-        !CheckCommandLineFlagIsDefault("txlog_group_replica_num")
-            ? FLAGS_txlog_group_replica_num
-            : config_reader.GetInteger("cluster",
-                                       "txlog_group_replica_num",
-                                       FLAGS_txlog_group_replica_num);
-
-    std::string log_service_data_path =
-        !CheckCommandLineFlagIsDefault("log_service_data_path")
-            ? FLAGS_log_service_data_path
-            : config_reader.GetString("local", "log_service_data_path", "");
-
-    std::string tx_path("local://");
-    if (tx_service_data_path.empty())
-    {
-        tx_path.append(eloq_data_path);
-    }
-    else
-    {
-        tx_path.append(tx_service_data_path);
-    }
-
-    std::string log_path("local://");
-    if (log_service_data_path.empty())
-    {
-        log_path.append(eloq_data_path);
-    }
-    else
-    {
-        log_path.append(log_service_data_path);
-    }
-    log_path.append("/log_service");
-
-#if defined(DATA_STORE_TYPE_DYNAMODB) ||                                       \
-    defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB_CLOUD_S3) ||                       \
-    defined(LOG_STATE_TYPE_RKDB_S3)
-    aws_options_.loggingOptions.logLevel = Aws::Utils::Logging::LogLevel::Info;
-    Aws::InitAPI(aws_options_);
-#endif
-
-    // init cluster config
-    std::unordered_map<uint32_t, std::vector<NodeConfig>> ng_configs;
-
-    uint64_t cluster_config_version = 2;
-    // Try to read cluster config from file. Cluster config file is written by
-    // host manager when cluster config updates.
-    std::string cluster_config_file_path = config_reader.GetString(
-        "cluster", "cluster_config_file", FLAGS_cluster_config_file);
-    if (cluster_config_file_path.empty())
-    {
-        cluster_config_file_path = tx_path + "/tx_service/cluster_config";
-        assert(cluster_config_file_path.find("local://") == 0);
-        if (cluster_config_file_path.find("local://") == 0)
-        {
-            cluster_config_file_path.erase(0, 8);
-        }
-    }
-
-    if (FLAGS_bootstrap)
-    {
-        // For bootstrap, only use current node to start txservie and
-        // logservice.
-        std::vector<txservice::NodeConfig> soloConfig;
-        soloConfig.emplace_back(0, local_ip, local_tx_port, true);
-        ng_configs.try_emplace(0, std::move(soloConfig));
-    }
-    else
-    {
-        if (!txservice::ReadClusterConfigFile(
-                cluster_config_file_path, ng_configs, cluster_config_version))
-        {
-            // Read cluster topology from general config file in this case
-            auto parse_res = txservice::ParseNgConfig(ip_port_list,
-                                                      standby_ip_port_list,
-                                                      voter_ip_port_list,
-                                                      ng_configs,
-                                                      tx_ng_replica_num,
-                                                      10000);
-            if (!parse_res)
-            {
-                LOG(ERROR)
-                    << "Failed to extract cluster configs from ip_port_list.";
-                return false;
-            }
-        }
-    }
-
-    // print out ng_configs
-    for (auto &pair : ng_configs)
-    {
-        DLOG(INFO) << "ng_id: " << pair.first;
-        for (auto &node : pair.second)
-        {
-            DLOG(INFO) << "node_id: " << node.node_id_
-                       << ", host_name: " << node.host_name_
-                       << ", port: " << node.port_;
-        }
-    }
-
-    uint32_t node_id = 0;
-    uint32_t native_ng_id = 0;
-    // check whether this node is in cluster.
-    bool found = false;
-    for (auto &pair : ng_configs)
-    {
-        auto &ng_nodes = pair.second;
-        for (size_t i = 0; i < ng_nodes.size(); i++)
-        {
-            if (ng_nodes[i].host_name_ == local_ip &&
-                ng_nodes[i].port_ == local_tx_port)
-            {
-                node_id = ng_nodes[i].node_id_;
-                found = true;
-                if (ng_nodes[i].is_candidate_)
-                {
-                    // found native_ng_id.
-                    native_ng_id = pair.first;
-                    break;
-                }
-            }
-        }
-    }
-
-    if (!found)
-    {
-        LOG(ERROR) << "!!!!!!!! Current node does not belong to the "
-                      "cluster, startup is terminated !!!!!!!!";
-        return false;
-    }
-
-    // parse standalone txlog_service_list
-    bool is_standalone_txlog_service = false;
-    std::vector<std::string> txlog_ips;
-    std::vector<uint16_t> txlog_ports;
-    if (!txlog_service.empty())
-    {
-        is_standalone_txlog_service = true;
-        std::string token;
-        std::istringstream txlog_ip_port_list_stream(txlog_service);
-        while (std::getline(txlog_ip_port_list_stream, token, ','))
-        {
-            size_t c_idx = token.find_first_of(':');
-            if (c_idx != std::string::npos)
-            {
-                txlog_ips.emplace_back(token.substr(0, c_idx));
-                uint16_t pt = std::stoi(token.substr(c_idx + 1));
-                txlog_ports.emplace_back(pt);
-            }
-        }
-    }
-#if defined(WITH_LOG_SERVICE)
-    else
-    {
-        uint32_t txlog_node_id = 0;
-        uint32_t next_txlog_node_id = 0;
-        uint16_t log_server_port = local_tx_port + 2;
-        std::unordered_set<uint32_t> tx_node_ids;
-        for (uint32_t ng = 0; ng < ng_configs.size(); ng++)
-        {
-            for (uint32_t nidx = 0; nidx < ng_configs[ng].size(); nidx++)
-            {
-                if (tx_node_ids.count(ng_configs[ng][nidx].node_id_) == 0)
-                {
-                    tx_node_ids.insert(ng_configs[ng][nidx].node_id_);
-                    if (ng_configs[ng][nidx].port_ == local_tx_port &&
-                        ng_configs[ng][nidx].host_name_ == local_ip)
-                    {
-                        // is local node, set txlog_node_id
-                        txlog_node_id = next_txlog_node_id;
-                    }
-                    next_txlog_node_id++;
-                    txlog_ports.emplace_back(ng_configs[ng][nidx].port_ + 2);
-                    txlog_ips.emplace_back(ng_configs[ng][nidx].host_name_);
-                }
-            }
-        }
-
-        // Init local txlog service if it is not standalone txlog service
-        // Init before store handler so they can init in parallel
-        if (!is_standalone_txlog_service)
-        {
-            bool txlog_init_res = InitTxLogService(txlog_node_id,
-                                                   txlog_group_replica_num,
-                                                   log_path,
-                                                   local_ip,
-                                                   log_server_port,
-                                                   enable_brpc_builtin_services,
-                                                   config_reader,
-                                                   ng_configs,
-                                                   txlog_ips,
-                                                   txlog_ports);
-
-            if (!txlog_init_res || txlog_ips.empty() || txlog_ports.empty())
-            {
-                LOG(ERROR)
-                    << "WAL is enabled but `txlog_service_list` is empty and "
-                       "built-in log server initialization failed, "
-                       "unable to proceed.";
-                return false;
-            }
-        }
-    }
-#endif
-
-    if (!skip_kv_)
-    {
-#if defined(DATA_STORE_TYPE_DYNAMODB)
-        std::string dynamodb_endpoint =
-            !CheckCommandLineFlagIsDefault("dynamodb_endpoint")
-                ? FLAGS_dynamodb_endpoint
-                : config_reader.GetString(
-                      "store", "dynamodb_endpoint", FLAGS_dynamodb_endpoint);
-        std::string dynamodb_keyspace =
-            !CheckCommandLineFlagIsDefault("dynamodb_keyspace")
-                ? FLAGS_dynamodb_keyspace
-                : config_reader.GetString(
-                      "store", "dynamodb_keyspace", FLAGS_dynamodb_keyspace);
-        std::string dynamodb_region =
-            !CheckCommandLineFlagIsDefault("dynamodb_region")
-                ? FLAGS_dynamodb_region
-                : config_reader.GetString(
-                      "store", "dynamodb_region", FLAGS_dynamodb_region);
-        std::string aws_access_key_id =
-            !CheckCommandLineFlagIsDefault("aws_access_key_id")
-                ? FLAGS_aws_access_key_id
-                : config_reader.GetString(
-                      "store", "aws_access_key_id", FLAGS_aws_access_key_id);
-        std::string aws_secret_key =
-            !CheckCommandLineFlagIsDefault("aws_secret_key")
-                ? FLAGS_aws_secret_key
-                : config_reader.GetString(
-                      "store", "aws_secret_key", FLAGS_aws_secret_key);
-        bool is_bootstrap = FLAGS_bootstrap;
-        bool ddl_skip_kv = false;
-        uint16_t worker_pool_size = core_num_ * 2;
-
-        store_hd_ = std::make_unique<EloqDS::DynamoHandler>(dynamodb_keyspace,
-                                                            dynamodb_endpoint,
-                                                            dynamodb_region,
-                                                            aws_access_key_id,
-                                                            aws_secret_key,
-                                                            is_bootstrap,
-                                                            ddl_skip_kv,
-                                                            worker_pool_size,
-                                                            false);
-
-#elif defined(DATA_STORE_TYPE_ROCKSDB)
-        bool is_single_node =
-            (standby_ip_port_list.empty() && voter_ip_port_list.empty() &&
-             ip_port_list.find(',') == ip_port_list.npos);
-
-        EloqShare::RocksDBConfig rocksdb_config(config_reader, eloq_data_path);
-
-        store_hd_ = std::make_unique<EloqKV::RocksDBHandlerImpl>(
-            rocksdb_config,
-            true,  // for non shared storage, always pass
-                   // create_if_missing=true, since no confilcts will happen
-                   // under
-            enable_cache_replacement_);
-
-#elif ELOQDS
-        bool is_single_node =
-            (standby_ip_port_list.empty() && voter_ip_port_list.empty() &&
-             ip_port_list.find(',') == ip_port_list.npos);
-
-        std::string eloq_dss_peer_node =
-            !CheckCommandLineFlagIsDefault("eloq_dss_peer_node")
-                ? FLAGS_eloq_dss_peer_node
-                : config_reader.GetString(
-                      "store", "eloq_dss_peer_node", FLAGS_eloq_dss_peer_node);
-
-        uint32_t dss_file_cache_sync_interval_sec =
-            !CheckCommandLineFlagIsDefault("dss_file_cache_sync_interval_sec")
-                ? FLAGS_dss_file_cache_sync_interval_sec
-                : config_reader.GetInteger(
-                      "store",
-                      "dss_file_cache_sync_interval_sec",
-                      FLAGS_dss_file_cache_sync_interval_sec);
-
-        std::string eloq_dss_data_path = eloq_data_path + "/eloq_dss";
-        if (!std::filesystem::exists(eloq_dss_data_path))
-        {
-            std::filesystem::create_directories(eloq_dss_data_path);
-        }
-
-        std::string dss_config_file_path = "";
-        EloqDS::DataStoreServiceClusterManager ds_config;
-
-        if (!eloq_dss_peer_node.empty())
-        {
-            // Fetch ds topology from peer node
-            if (!EloqDS::DataStoreService::FetchConfigFromPeer(
-                    eloq_dss_peer_node, ds_config))
-            {
-                LOG(ERROR) << "Failed to fetch config from peer node: "
-                           << eloq_dss_peer_node;
-                return false;
-            }
-            ds_config.SetThisNode(
-                local_ip,
-                EloqDS::DataStoreServiceClient::TxPort2DssPort(local_tx_port));
-        }
-        else
-        {
-            if (FLAGS_bootstrap)
-            {
-                // For bootstrap mode, we need to fetch all node groups to init
-                // data store shards.
-                std::unordered_map<uint32_t, std::vector<NodeConfig>>
-                    tmp_ng_configs;
-                uint64_t tmp_cluster_version = 2;
-                if (!txservice::ReadClusterConfigFile(cluster_config_file_path,
-                                                      tmp_ng_configs,
-                                                      tmp_cluster_version))
-                {
-                    auto parse_res =
-                        txservice::ParseNgConfig(ip_port_list,
-                                                 standby_ip_port_list,
-                                                 voter_ip_port_list,
-                                                 tmp_ng_configs,
-                                                 tx_ng_replica_num,
-                                                 10000);
-                    if (!parse_res)
-                    {
-                        LOG(ERROR) << "Failed to extract cluster configs from "
-                                      "ip_port_list.";
-                        return false;
-                    }
-                }
-
-                bool found = false;
-                uint32_t tmp_node_id = 0;
-                for (auto &pair : tmp_ng_configs)
-                {
-                    auto &ng_nodes = pair.second;
-                    for (size_t i = 0; i < ng_nodes.size(); i++)
-                    {
-                        if (ng_nodes[i].host_name_ == local_ip &&
-                            ng_nodes[i].port_ == local_tx_port)
-                        {
-                            tmp_node_id = ng_nodes[i].node_id_;
-                            found = true;
-                            break;
-                        }
-                    }
-                    if (found)
-                    {
-                        break;
-                    }
-                }
-                if (!found)
-                {
-                    LOG(ERROR) << "Failed to find this node in cluster config.";
-                    return false;
-                }
-
-                std::unordered_map<uint32_t, uint32_t> ng_leaders;
-                for (const auto &[ng_id, ng_config] : tmp_ng_configs)
-                {
-                    ng_leaders.emplace(ng_id, tmp_node_id);
-                }
-                EloqDS::DataStoreServiceClient::TxConfigsToDssClusterConfig(
-                    tmp_node_id, tmp_ng_configs, ng_leaders, ds_config);
-            }
-            else
-            {
-                std::unordered_map<uint32_t, uint32_t> ng_leaders;
-                if (is_single_node)
-                {
-                    for (const auto &[ng_id, ng_config] : ng_configs)
-                    {
-                        ng_leaders.emplace(ng_id, node_id);
-                    }
-                }
-                EloqDS::DataStoreServiceClient::TxConfigsToDssClusterConfig(
-                    node_id, ng_configs, ng_leaders, ds_config);
-            }
-        }
-
-        // Set file cache sync interval
-        ds_config.SetFileCacheSyncIntervalSec(dss_file_cache_sync_interval_sec);
-
-#if defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB_CLOUD_S3) ||                       \
-    defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB_CLOUD_GCS)
-        EloqDS::RocksDBConfig rocksdb_config(config_reader, eloq_dss_data_path);
-        EloqDS::RocksDBCloudConfig rocksdb_cloud_config(config_reader);
-        rocksdb_cloud_config.branch_name_ = FLAGS_eloq_dss_branch_name;
-        auto ds_factory =
-            std::make_unique<EloqDS::RocksDBCloudDataStoreFactory>(
-                rocksdb_config,
-                rocksdb_cloud_config,
-                enable_cache_replacement_);
-
-#elif defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB)
-        EloqDS::RocksDBConfig rocksdb_config(config_reader, eloq_dss_data_path);
-        auto ds_factory = std::make_unique<EloqDS::RocksDBDataStoreFactory>(
-            rocksdb_config, enable_cache_replacement_);
-
-#elif defined(DATA_STORE_TYPE_ELOQDSS_ELOQSTORE)
-        EloqDS::EloqStoreConfig eloq_store_config(config_reader,
-                                                  eloq_dss_data_path);
-        auto ds_factory = std::make_unique<EloqDS::EloqStoreDataStoreFactory>(
-            std::move(eloq_store_config));
-#endif
-
-        data_store_service_ = std::make_unique<EloqDS::DataStoreService>(
-            ds_config,
-            dss_config_file_path,
-            eloq_dss_data_path + "/DSMigrateLog",
-            std::move(ds_factory));
-
-        // Start data store service. (Also create datastore in StartService() if
-        // needed)
-        bool ret = true;
-#if defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB)
-        // For non shared storage like rocksdb,
-        // we always set create_if_missing to true
-        // since non conflicts will happen under
-        // multi-node deployment.
-        ret = data_store_service_->StartService(true);
-#else
-        ret = data_store_service_->StartService(FLAGS_bootstrap ||
-                                                is_single_node);
-#endif
-
-        if (!ret)
-        {
-            LOG(ERROR) << "Failed to start data store service";
-            return false;
-        }
-        // setup data store service client
-        store_hd_ = std::make_unique<EloqDS::DataStoreServiceClient>(
-#if defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB)
-            true,
-#else
-            FLAGS_bootstrap || is_single_node,
-#endif
-            catalog_factory,
-            ds_config,
-            eloq_dss_peer_node.empty(),
-            data_store_service_.get());
-
-#endif
-
-        for (const auto &table_name : redis_table_names_)
-        {
-            store_hd_->AppendPreBuiltTable(table_name);
-        }
-#if VECTOR_INDEX_ENABLED
-        store_hd_->AppendPreBuiltTable(EloqVec::vector_index_meta_table);
-#endif
-
-        // do connect only when this is bootstrap or single node
-        // otherwise, connect when become leader or follower
-        if ((FLAGS_bootstrap || is_single_node) && !store_hd_->Connect())
-        {
-            LOG(ERROR) << "!!!!!!!! Failed to connect to kvstore, startup is "
-                          "terminated !!!!!!!!";
-            return false;
-        }
-    }
-
-    /* Parse metrics config */
-    metrics::enable_metrics =
-        config_reader.GetBoolean("metrics", "enable_metrics", false);
-    DLOG(INFO) << "enable_metrics: "
-               << (metrics::enable_metrics ? "ON" : "OFF");
-    if (metrics::enable_metrics)
-    {
-        metrics_port_ = std::to_string(config_reader.GetInteger(
-            "metrics", "metrics_port", std::stoi(metrics_port_)));
-
-        LOG(INFO) << "metrics_port: " << metrics_port_;
-
-        // global metrics
-        metrics::enable_memory_usage =
-            config_reader.GetBoolean("metrics", "enable_memory_usage", true);
-        LOG(INFO) << "enable_memory_usage: "
-                  << (metrics::enable_memory_usage ? "ON" : "OFF");
-        if (metrics::enable_memory_usage)
-        {
-            metrics::collect_memory_usage_round = config_reader.GetInteger(
-                "metrics", "collect_memory_usage_round", 10000);
-            LOG(INFO) << "collect memory usage every "
-                      << metrics::collect_memory_usage_round << " round(s)";
-        }
-
-        metrics::enable_cache_hit_rate =
-            config_reader.GetBoolean("metrics", "enable_cache_hit_rate", true);
-        LOG(INFO) << "enable_cache_hit_rate: "
-                  << (metrics::enable_cache_hit_rate ? "ON" : "OFF");
-
-        /* redis metrics */
-        // TODO(lzx): rename "redis".
-        metrics::collect_redis_command_duration_round =
-            config_reader.GetInteger(
-                "metrics", "collect_redis_command_duration_round", 100);
-        LOG(INFO) << "collect redis command duration every "
-                  << metrics::collect_redis_command_duration_round
-                  << " round(s)";
-
-        // tx metrics
-        metrics::enable_tx_metrics =
-            config_reader.GetBoolean("metrics", "enable_tx_metrics", true);
-        LOG(INFO) << "enable_tx_metrics: "
-                  << (metrics::enable_tx_metrics ? "ON" : "OFF");
-        if (metrics::enable_tx_metrics)
-        {
-            metrics::collect_tx_duration_round = config_reader.GetInteger(
-                "metrics",
-                "collect_tx_duration_round",
-                metrics::collect_redis_command_duration_round);
-            LOG(INFO) << "collect tx duration every "
-                      << metrics::collect_tx_duration_round << " round(s)";
-        }
-
-        // busy round metrics
-        metrics::enable_busy_round_metrics = config_reader.GetBoolean(
-            "metrics", "enable_busy_round_metrics", true);
-        LOG(INFO) << "enable_busy_round_metrics: "
-                  << (metrics::enable_busy_round_metrics ? "ON" : "OFF");
-        if (metrics::enable_busy_round_metrics)
-        {
-            metrics::busy_round_threshold =
-                config_reader.GetInteger("metrics", "busy_round_threshold", 10);
-            LOG(INFO) << "collect busy round metrics when reaching the "
-                         "busy round "
-                         "threshold "
-                      << metrics::busy_round_threshold;
-        }
-
-        // remote request metrics
-        metrics::enable_remote_request_metrics = config_reader.GetBoolean(
-            "metrics", "enable_busy_round_metrics", metrics::enable_tx_metrics);
-        LOG(INFO) << "enable_remote_request_metrics: "
-                  << (metrics::enable_remote_request_metrics ? "ON" : "OFF");
-        if (!skip_kv_)
-        {
-            metrics::enable_kv_metrics =
-                config_reader.GetBoolean("metrics", "enable_kv_metrics", true);
-            LOG(INFO) << "enable_kv_metrics: "
-                      << (metrics::enable_kv_metrics ? "ON" : "OFF");
-        }
-
-#if (WITH_LOG_SERVICE)
-        if (!skip_wal_)
-        {
-            // log_service metrics
-            metrics::enable_log_service_metrics = config_reader.GetBoolean(
-                "metrics", "enable_log_service_metrics", true);
-            LOG(INFO) << "enable_log_service_metrics: "
-                      << (metrics::enable_log_service_metrics ? "ON" : "OFF");
-        }
-#endif
-
-        // failed forward msgs metrics
-        metrics::enable_standby_metrics =
-            config_reader.GetBoolean("metrics", "enable_standby_metrics", true);
-        LOG(INFO) << "enable standby metrics: "
-                  << (metrics::enable_standby_metrics ? "ON" : "OFF");
-        if (metrics::enable_standby_metrics)
-        {
-            metrics::collect_standby_metrics_round = config_reader.GetInteger(
-                "metrics", "collect_standby_metrics_round", 10000);
-            LOG(INFO) << "collect standby metrics every "
-                      << metrics::collect_standby_metrics_round << " round(s)";
-        }
-    }
-
-    if (FLAGS_bootstrap)
+    if (DataSubstrate::GetGlobal()->GetCoreConfig().bootstrap)
     {
         Stop();
+        DataSubstrate::GetGlobal()->Shutdown();
 
         LOG(INFO) << "bootstrap done !!!";
 
@@ -1369,109 +330,6 @@ bool RedisServiceImpl::Init(brpc::Server &brpc_server)
 
     /* Initialize metrics registery and register metrics */
     stopping_indicator_.store(false, std::memory_order_release);
-    metrics::CommonLabels tx_service_common_labels{};
-    if (metrics::enable_metrics)
-    {
-        if (!InitMetricsRegistry())
-        {
-            LOG(ERROR)
-                << "!!!!!!!! Failed to initialize MetricsRegristry !!!!!!!!";
-            return false;
-        }
-
-        // TODO: metrics::CommonLabels log_service_common_labels{};
-
-        // redis_common_labels_
-        // NOTE: We use `local_tx_port` for aggregating metrics across different
-        // components.
-        redis_common_labels_["node_ip"] = local_ip;
-        redis_common_labels_["node_port"] = std::to_string(local_tx_port);
-        redis_common_labels_["node_id"] = std::to_string(node_id);
-
-        // tx_service_common_labels
-        tx_service_common_labels["node_ip"] = local_ip;
-        tx_service_common_labels["node_port"] = std::to_string(local_tx_port);
-        tx_service_common_labels["node_id"] = std::to_string(node_id);
-
-        // TODO: log_service_common_labels
-        // ...
-        //
-
-        RegisterRedisMetrics();
-    }
-
-    uint32_t ckpt_interval =
-        !CheckCommandLineFlagIsDefault("checkpoint_interval")
-            ? FLAGS_checkpoint_interval
-            : config_reader.GetInteger(
-                  "local", "checkpoint_interval", FLAGS_checkpoint_interval);
-
-    const char *field_mem = "node_memory_limit_mb";
-    node_memory_limit_mb_ = FLAGS_node_memory_limit_mb;
-    if (CheckCommandLineFlagIsDefault(field_mem))
-    {
-        if (config_reader.HasValue(SEC_LOCAL, field_mem))
-        {
-            node_memory_limit_mb_ =
-                config_reader.GetInteger(SEC_LOCAL, field_mem, 0);
-            assert(node_memory_limit_mb_);
-        }
-        else
-        {
-            struct sysinfo meminfo;
-            if (sysinfo(&meminfo))
-            {
-                LOG(ERROR) << "config is missing: " << field_mem;
-            }
-            uint32_t mem_mib =
-                ((uint64_t) meminfo.totalram * meminfo.mem_unit) /
-                (1024 * 1024);
-            node_memory_limit_mb_ = std::max(uint32_t(512), (mem_mib * 4) / 5);
-            LOG(INFO) << "config is automatically set: " << field_mem << "="
-                      << node_memory_limit_mb_
-                      << "(MiB), total memory=" << mem_mib;
-        }
-    }
-
-#ifdef FORK_HM_PROCESS
-    if (hm_ip.empty())
-    {
-        hm_ip = local_ip;
-    }
-    if (hm_port == 0)
-    {
-        hm_port = local_tx_port + 4;
-    }
-    if (hm_bin_path.empty())
-    {
-        char path_buf[PATH_MAX];
-        ssize_t len = ::readlink("/proc/self/exe", path_buf, sizeof(path_buf));
-        len -= strlen("eloqkv");
-        path_buf[len] = '\0';
-        hm_bin_path = std::string(path_buf, len);
-        hm_bin_path.append("host_manager");
-    }
-#endif
-
-    FLAGS_kickout_data_for_test =
-        !CheckCommandLineFlagIsDefault("kickout_data_for_test")
-            ? FLAGS_kickout_data_for_test
-            : config_reader.GetBoolean("local",
-                                       "kickout_data_for_test",
-                                       FLAGS_kickout_data_for_test);
-
-    auto log_agent = std::make_unique<EloqKV::EloqLogAgent>(
-        static_cast<uint32_t>(txlog_group_replica_num));
-
-    // publish func for cluster global publish in tx service
-    std::function<void(std::string_view, std::string_view)> publish_func =
-        [this](std::string_view chan, std::string_view msg)
-    { pub_sub_mgr_.Publish(chan, msg); };
-
-    std::vector<std::tuple<metrics::Name,
-                           metrics::Type,
-                           std::vector<metrics::LabelGroup>>>
-        external_metrics = {};
 
     if (metrics::enable_metrics)
     {
@@ -1480,110 +338,10 @@ bool RedisServiceImpl::Init(brpc::Server &brpc_server)
         {
             vec.resize(command_types.size() + 10, 1);
         }
-        for (const auto &[cmd, _] : EloqKV::command_types)
-        {
-            std::vector<metrics::LabelGroup> label_groups = {{"type", {cmd}}};
-
-            external_metrics.push_back(
-                std::make_tuple(metrics::NAME_REDIS_COMMAND_DURATION,
-                                metrics::Type::Histogram,
-                                label_groups));
-            external_metrics.push_back(
-                std::make_tuple(metrics::NAME_REDIS_COMMAND_TOTAL,
-                                metrics::Type::Counter,
-                                label_groups));
-        }
-        for (const auto &access_type : {"read", "write"})
-        {
-            external_metrics.push_back(
-                std::make_tuple(metrics::NAME_REDIS_COMMAND_AGGREGATED_TOTAL,
-                                metrics::Type::Counter,
-                                std::vector<metrics::LabelGroup>{
-                                    {"access_type", {access_type}}}));
-            external_metrics.push_back(
-                std::make_tuple(metrics::NAME_REDIS_COMMAND_AGGREGATED_DURATION,
-                                metrics::Type::Histogram,
-                                std::vector<metrics::LabelGroup>{
-                                    {"access_type", {access_type}}}));
-        }
     }
-
-    std::map<std::string, uint32_t> tx_service_conf{
-        {"core_num", core_num_},
-        {"checkpointer_interval", ckpt_interval},
-        {"node_memory_limit_mb", node_memory_limit_mb_},
-        {"node_log_limit_mb", node_log_limit_mb_},
-        {"checkpointer_delay_seconds", 0},
-        {"collect_active_tx_ts_interval_seconds", 0},
-        {"realtime_sampling", 0},
-        {"rep_group_cnt", tx_ng_replica_num},
-        {"range_split_worker_num", 0},
-        {"enable_shard_heap_defragment", FLAGS_enable_heap_defragment ? 1 : 0},
-        {"enable_key_cache", 0},
-        {"max_standby_lag", max_standby_lag},
-        {"kickout_data_for_test", FLAGS_kickout_data_for_test ? 1 : 0}};
-
-    tx_service_ = std::make_unique<TxService>(
-        catalog_factory,
-        nullptr,  // "SystemHandler" is only used for mysql
-        tx_service_conf,
-        node_id,
-        native_ng_id,
-        &ng_configs,
-        cluster_config_version,
-        skip_kv_ ? nullptr : store_hd_.get(),
-        log_agent.get(),
-        false,                      // enable_mvcc
-        skip_wal_,                  // skip_wal
-        skip_kv_,                   // skip_kv
-        enable_cache_replacement_,  // enable_cache_replacement
-        FLAGS_auto_redirect,        // auto_redirect
-        metrics_registry_.get(),    // metrics_registry
-        tx_service_common_labels,   // common_labels
-        &prebuilt_tables,
-        publish_func,
-        external_metrics);
-
-    if (!skip_kv_)
-    {
-        if (metrics::enable_kv_metrics)
-        {
-            metrics::CommonLabels kv_common_common_labels{};
-            kv_common_common_labels["node_ip"] = local_ip;
-            kv_common_common_labels["node_port"] =
-                std::to_string(local_tx_port);
-            store_hd_->RegisterKvMetrics(metrics_registry_.get(),
-                                         kv_common_common_labels);
-        }
-        store_hd_->SetTxService(tx_service_.get());
-    }
-
-    if (tx_service_->Start(node_id,
-                           native_ng_id,
-                           &ng_configs,
-                           cluster_config_version,
-                           &txlog_ips,
-                           &txlog_ports,
-                           &hm_ip,
-                           &hm_port,
-                           &hm_bin_path,
-                           tx_service_conf,
-                           std::move(log_agent),
-                           tx_path,
-                           cluster_config_file_path,
-                           enable_brpc_builtin_services,
-                           FLAGS_fork_host_manager) != 0)
-    {
-        LOG(ERROR) << "Failed to start tx service!!!!!";
-        return false;
-    }
-
-    tx_service_->WaitClusterReady();
 
     if (metrics::enable_metrics)
     {
-        redis_meter_->Collect(metrics::NAME_MAX_CONNECTION, FLAGS_maxclients);
-
         metrics_collector_thd_ =
             std::thread(&RedisServiceImpl::CollectConnectionsMetrics,
                         this,
@@ -1730,7 +488,7 @@ bool RedisServiceImpl::Init(brpc::Server &brpc_server)
     // Initialize vector handler
     EloqVec::CloudConfig vector_cloud_config(config_reader);
     if (!EloqVec::VectorHandler::InitHandlerInstance(
-            tx_service_.get(),
+            tx_service_,
             vector_index_worker_pool_.get(),
             eloq_data_path,
             &vector_cloud_config))
@@ -1739,330 +497,6 @@ bool RedisServiceImpl::Init(brpc::Server &brpc_server)
         return false;
     }
 #endif
-
-    return true;
-}
-
-bool RedisServiceImpl::InitTxLogService(
-    uint32_t txlog_node_id,
-    int txlog_group_replica_num,
-    const std::string &log_path,
-    const std::string &local_ip,
-    uint16_t log_server_port,
-    bool enable_brpc_builtin_services,
-    const INIReader &config_reader,
-    std::unordered_map<uint32_t, std::vector<NodeConfig>> &ng_configs,
-    std::vector<std::string> &txlog_ips,
-    std::vector<uint16_t> &txlog_ports)
-{
-    [[maybe_unused]] size_t txlog_rocksdb_scan_threads =
-        !CheckCommandLineFlagIsDefault("txlog_rocksdb_scan_threads")
-            ? FLAGS_txlog_rocksdb_scan_threads
-            : config_reader.GetInteger("local",
-                                       "txlog_rocksdb_scan_threads",
-                                       FLAGS_txlog_rocksdb_scan_threads);
-
-    size_t txlog_rocksdb_max_write_buffer_number =
-        !CheckCommandLineFlagIsDefault("txlog_rocksdb_max_write_buffer_number")
-            ? FLAGS_txlog_rocksdb_max_write_buffer_number
-            : config_reader.GetInteger(
-                  "local",
-                  "txlog_rocksdb_max_write_buffer_number",
-                  FLAGS_txlog_rocksdb_max_write_buffer_number);
-
-    size_t txlog_rocksdb_max_background_jobs =
-        !CheckCommandLineFlagIsDefault("txlog_rocksdb_max_background_jobs")
-            ? FLAGS_txlog_rocksdb_max_background_jobs
-            : config_reader.GetInteger("local",
-                                       "txlog_rocksdb_max_background_jobs",
-                                       FLAGS_txlog_rocksdb_max_background_jobs);
-
-    size_t txlog_rocksdb_target_file_size_base_val =
-        !CheckCommandLineFlagIsDefault("txlog_rocksdb_target_file_size_base")
-            ? txlog::parse_size(FLAGS_txlog_rocksdb_target_file_size_base)
-            : txlog::parse_size(config_reader.GetString(
-                  "local",
-                  "txlog_rocksdb_target_file_size_base",
-                  FLAGS_txlog_rocksdb_target_file_size_base));
-
-    [[maybe_unused]] size_t logserver_snapshot_interval =
-        !CheckCommandLineFlagIsDefault("logserver_snapshot_interval")
-            ? FLAGS_logserver_snapshot_interval
-            : config_reader.GetInteger("local",
-                                       "logserver_snapshot_interval",
-                                       FLAGS_logserver_snapshot_interval);
-
-    [[maybe_unused]] bool enable_txlog_request_checkpoint =
-        !CheckCommandLineFlagIsDefault("enable_txlog_request_checkpoint")
-            ? FLAGS_enable_txlog_request_checkpoint
-            : config_reader.GetBoolean("local",
-                                       "enable_txlog_request_checkpoint",
-                                       FLAGS_enable_txlog_request_checkpoint);
-
-    [[maybe_unused]] size_t check_replay_log_size_interval_sec =
-        !CheckCommandLineFlagIsDefault("check_replay_log_size_interval_sec")
-            ? FLAGS_check_replay_log_size_interval_sec
-            : config_reader.GetInteger(
-                  "local",
-                  "check_replay_log_size_interval_sec",
-                  FLAGS_check_replay_log_size_interval_sec);
-
-    [[maybe_unused]] size_t notify_checkpointer_threshold_size_val =
-        !CheckCommandLineFlagIsDefault("notify_checkpointer_threshold_size")
-            ? txlog::parse_size(FLAGS_notify_checkpointer_threshold_size)
-            : txlog::parse_size(config_reader.GetString(
-                  "local",
-                  "notify_checkpointer_threshold_size",
-                  FLAGS_notify_checkpointer_threshold_size));
-
-#if defined(LOG_STATE_TYPE_RKDB_ALL)
-    std::string txlog_rocksdb_storage_path =
-        !CheckCommandLineFlagIsDefault("txlog_rocksdb_storage_path")
-            ? FLAGS_txlog_rocksdb_storage_path
-            : config_reader.GetString(
-                  "local", "txlog_rocksdb_storage_path", "");
-    if (txlog_rocksdb_storage_path.empty())
-    {
-        // remove "local://" prefix from log_path
-        txlog_rocksdb_storage_path = log_path.substr(8) + "/rocksdb";
-    }
-
-#if defined(LOG_STATE_TYPE_RKDB_CLOUD)
-    txlog::RocksDBCloudConfig txlog_rocksdb_cloud_config;
-#if defined(LOG_STATE_TYPE_RKDB_S3)
-    txlog_rocksdb_cloud_config.aws_access_key_id_ =
-        !CheckCommandLineFlagIsDefault("aws_access_key_id")
-            ? FLAGS_aws_access_key_id
-            : config_reader.GetString("store", "aws_access_key_id", "");
-    txlog_rocksdb_cloud_config.aws_secret_key_ =
-        !CheckCommandLineFlagIsDefault("aws_secret_key")
-            ? FLAGS_aws_secret_key
-            : config_reader.GetString("store", "aws_secret_key", "");
-#endif /* LOG_STATE_TYPE_RKDB_S3 */
-    txlog_rocksdb_cloud_config.endpoint_url_ =
-        !CheckCommandLineFlagIsDefault("txlog_rocksdb_cloud_endpoint_url")
-            ? FLAGS_txlog_rocksdb_cloud_endpoint_url
-            : config_reader.GetString("local",
-                                      "txlog_rocksdb_cloud_endpoint_url",
-                                      FLAGS_txlog_rocksdb_cloud_endpoint_url);
-    txlog_rocksdb_cloud_config.bucket_name_ =
-        !CheckCommandLineFlagIsDefault("txlog_rocksdb_cloud_bucket_name")
-            ? FLAGS_txlog_rocksdb_cloud_bucket_name
-            : config_reader.GetString("local",
-                                      "txlog_rocksdb_cloud_bucket_name",
-                                      FLAGS_txlog_rocksdb_cloud_bucket_name);
-    txlog_rocksdb_cloud_config.bucket_prefix_ =
-        !CheckCommandLineFlagIsDefault("txlog_rocksdb_cloud_bucket_prefix")
-            ? FLAGS_txlog_rocksdb_cloud_bucket_prefix
-            : config_reader.GetString("local",
-                                      "txlog_rocksdb_cloud_bucket_prefix",
-                                      FLAGS_txlog_rocksdb_cloud_bucket_prefix);
-    txlog_rocksdb_cloud_config.object_path_ =
-        !CheckCommandLineFlagIsDefault("txlog_rocksdb_cloud_object_path")
-            ? FLAGS_txlog_rocksdb_cloud_object_path
-            : config_reader.GetString("local",
-                                      "txlog_rocksdb_cloud_object_path",
-                                      FLAGS_txlog_rocksdb_cloud_object_path);
-    txlog_rocksdb_cloud_config.region_ =
-        !CheckCommandLineFlagIsDefault("txlog_rocksdb_cloud_region")
-            ? FLAGS_txlog_rocksdb_cloud_region
-            : config_reader.GetString("local",
-                                      "txlog_rocksdb_cloud_region",
-                                      FLAGS_txlog_rocksdb_cloud_region);
-    uint32_t db_ready_timeout_us =
-        !CheckCommandLineFlagIsDefault("txlog_rocksdb_cloud_ready_timeout")
-            ? FLAGS_txlog_rocksdb_cloud_ready_timeout
-            : config_reader.GetInteger("local",
-                                       "txlog_rocksdb_cloud_ready_timeout",
-                                       FLAGS_txlog_rocksdb_cloud_ready_timeout);
-    txlog_rocksdb_cloud_config.db_ready_timeout_us_ =
-        db_ready_timeout_us * 1000 * 1000;
-    txlog_rocksdb_cloud_config.db_file_deletion_delay_ =
-        !CheckCommandLineFlagIsDefault(
-            "txlog_rocksdb_cloud_file_deletion_delay")
-            ? FLAGS_txlog_rocksdb_cloud_file_deletion_delay
-            : config_reader.GetInteger(
-                  "local",
-                  "txlog_rocksdb_cloud_file_deletion_delay",
-                  FLAGS_txlog_rocksdb_cloud_file_deletion_delay);
-    txlog_rocksdb_cloud_config.log_retention_days_ =
-        !CheckCommandLineFlagIsDefault("txlog_rocksdb_cloud_log_retention_days")
-            ? FLAGS_txlog_rocksdb_cloud_log_retention_days
-            : config_reader.GetInteger(
-                  "local",
-                  "txlog_rocksdb_cloud_log_retention_days",
-                  FLAGS_txlog_rocksdb_cloud_log_retention_days);
-    txlog_rocksdb_cloud_config.sst_file_cache_size_ =
-        !CheckCommandLineFlagIsDefault(
-            "txlog_rocksdb_cloud_sst_file_cache_size")
-            ? txlog::parse_size(FLAGS_txlog_rocksdb_cloud_sst_file_cache_size)
-            : txlog::parse_size(config_reader.GetString(
-                  "local",
-                  "txlog_rocksdb_cloud_sst_file_cache_size",
-                  FLAGS_txlog_rocksdb_cloud_sst_file_cache_size));
-    std::tm log_purger_tm{};
-    std::string log_purger_schedule =
-        !CheckCommandLineFlagIsDefault(
-            "txlog_rocksdb_cloud_log_purger_schedule")
-            ? FLAGS_txlog_rocksdb_cloud_log_purger_schedule
-            : config_reader.GetString(
-                  "local",
-                  "txlog_rocksdb_cloud_log_purger_schedule",
-                  FLAGS_txlog_rocksdb_cloud_log_purger_schedule);
-    std::istringstream iss(log_purger_schedule);
-    iss >> std::get_time(&log_purger_tm, "%H:%M:%S");
-
-    if (iss.fail())
-    {
-        LOG(ERROR) << "Invalid time format." << std::endl;
-    }
-    else
-    {
-        txlog_rocksdb_cloud_config.log_purger_starting_hour_ =
-            log_purger_tm.tm_hour;
-        txlog_rocksdb_cloud_config.log_purger_starting_minute_ =
-            log_purger_tm.tm_min;
-        txlog_rocksdb_cloud_config.log_purger_starting_second_ =
-            log_purger_tm.tm_sec;
-    }
-    if (FLAGS_bootstrap)
-    {
-        log_server_ = std::make_unique<::txlog::LogServer>(
-            txlog_node_id,
-            log_server_port,
-            txlog_ips,
-            txlog_ports,
-            log_path,
-            0,
-            txlog_group_replica_num,
-#ifdef WITH_CLOUD_AZ_INFO
-            FLAGS_txlog_rocksdb_cloud_prefer_zone,
-            FLAGS_txlog_rocksdb_cloud_current_zone,
-#endif
-            txlog_rocksdb_storage_path,
-            txlog_rocksdb_scan_threads,
-            txlog_rocksdb_cloud_config,
-            FLAGS_txlog_in_mem_data_log_queue_size_high_watermark,
-            txlog_rocksdb_max_write_buffer_number,
-            txlog_rocksdb_max_background_jobs,
-            txlog_rocksdb_target_file_size_base_val,
-            logserver_snapshot_interval);
-    }
-    else
-    {
-        log_server_ = std::make_unique<::txlog::LogServer>(
-            txlog_node_id,
-            log_server_port,
-            txlog_ips,
-            txlog_ports,
-            log_path,
-            0,
-            txlog_group_replica_num,
-#ifdef WITH_CLOUD_AZ_INFO
-            FLAGS_txlog_rocksdb_cloud_prefer_zone,
-            FLAGS_txlog_rocksdb_cloud_current_zone,
-#endif
-            txlog_rocksdb_storage_path,
-            txlog_rocksdb_scan_threads,
-            txlog_rocksdb_cloud_config,
-            FLAGS_txlog_in_mem_data_log_queue_size_high_watermark,
-            txlog_rocksdb_max_write_buffer_number,
-            txlog_rocksdb_max_background_jobs,
-            txlog_rocksdb_target_file_size_base_val,
-            logserver_snapshot_interval,
-            enable_txlog_request_checkpoint,
-            check_replay_log_size_interval_sec,
-            notify_checkpointer_threshold_size_val);
-    }
-#else
-    size_t txlog_rocksdb_sst_files_size_limit_val =
-        !CheckCommandLineFlagIsDefault("txlog_rocksdb_sst_files_size_limit")
-            ? txlog::parse_size(FLAGS_txlog_rocksdb_sst_files_size_limit)
-            : txlog::parse_size(config_reader.GetString(
-                  "local",
-                  "txlog_rocksdb_sst_files_size_limit",
-                  FLAGS_txlog_rocksdb_sst_files_size_limit));
-
-    // Start internal logserver.
-#if defined(OPEN_LOG_SERVICE)
-    if (FLAGS_bootstrap)
-    {
-        log_server_ = std::make_unique<::txlog::LogServer>(
-            txlog_node_id,
-            log_server_port,
-            log_path,
-            1,
-            txlog_rocksdb_sst_files_size_limit_val,
-            txlog_rocksdb_max_write_buffer_number,
-            txlog_rocksdb_max_background_jobs,
-            txlog_rocksdb_target_file_size_base_val);
-    }
-    else
-    {
-        log_server_ = std::make_unique<::txlog::LogServer>(
-            txlog_node_id,
-            log_server_port,
-            log_path,
-            1,
-            txlog_rocksdb_sst_files_size_limit_val,
-            txlog_rocksdb_max_write_buffer_number,
-            txlog_rocksdb_max_background_jobs,
-            txlog_rocksdb_target_file_size_base_val);
-    }
-#else
-    if (FLAGS_bootstrap)
-    {
-        log_server_ = std::make_unique<::txlog::LogServer>(
-            txlog_node_id,
-            log_server_port,
-            txlog_ips,
-            txlog_ports,
-            log_path,
-            0,
-            txlog_group_replica_num,
-            txlog_rocksdb_storage_path,
-            txlog_rocksdb_scan_threads,
-            txlog_rocksdb_sst_files_size_limit_val,
-            txlog_rocksdb_max_write_buffer_number,
-            txlog_rocksdb_max_background_jobs,
-            txlog_rocksdb_target_file_size_base_val,
-            logserver_snapshot_interval);
-    }
-    else
-    {
-        log_server_ = std::make_unique<::txlog::LogServer>(
-            txlog_node_id,
-            log_server_port,
-            txlog_ips,
-            txlog_ports,
-            log_path,
-            0,
-            txlog_group_replica_num,
-            txlog_rocksdb_storage_path,
-            txlog_rocksdb_scan_threads,
-            txlog_rocksdb_sst_files_size_limit_val,
-            txlog_rocksdb_max_write_buffer_number,
-            txlog_rocksdb_max_background_jobs,
-            txlog_rocksdb_target_file_size_base_val,
-            logserver_snapshot_interval,
-            enable_txlog_request_checkpoint,
-            check_replay_log_size_interval_sec,
-            notify_checkpointer_threshold_size_val);
-    }
-#endif
-#endif
-#endif
-    DLOG(INFO) << "Log server started, node_id: " << txlog_node_id
-               << ", log_server_port: " << log_server_port
-               << ", txlog_group_replica_num: " << txlog_group_replica_num
-               << ", log_path: " << log_path;
-    int err = log_server_->Start(enable_brpc_builtin_services);
-
-    if (err != 0)
-    {
-        LOG(ERROR) << "Failed to start the log service.";
-        return false;
-    }
 
     return true;
 }
@@ -2079,44 +513,6 @@ void RedisServiceImpl::Stop()
         LOG(INFO) << "Vector index worker pool shut down.";
     }
 #endif
-
-    if (tx_service_ != nullptr)
-    {
-        LOG(INFO) << "Shutting down the tx service.";
-        tx_service_->Shutdown();
-        LOG(INFO) << "Tx service shut down.";
-    }
-
-    if (store_hd_ != nullptr)
-    {
-        LOG(INFO) << "Shutting down the storage handler.";
-        store_hd_ = nullptr;  // Wait for all in-fight requests complete.
-#if ELOQDS
-        if (data_store_service_ != nullptr)
-        {
-            data_store_service_ = nullptr;
-        }
-#endif
-        LOG(INFO) << "Storage handler shut down.";
-    }
-
-#if (WITH_LOG_SERVICE)
-    if (log_server_ != nullptr)
-    {
-        LOG(INFO) << "Shutting down the internal logservice.";
-        log_server_ = nullptr;
-        LOG(INFO) << "Internal logservice shut down.";
-    }
-#endif
-
-#if defined(DATA_STORE_TYPE_DYNAMODB) ||                                       \
-    defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB_CLOUD_S3) ||                       \
-    defined(LOG_STATE_TYPE_RKDB_S3)
-    Aws::ShutdownAPI(aws_options_);
-#endif
-
-    tx_service_ = nullptr;
-
     // stopping other service like metrics collector
     stopping_indicator_.store(true, std::memory_order_release);
     if (metrics_collector_thd_.has_value() &&
@@ -2129,12 +525,6 @@ void RedisServiceImpl::Stop()
     {
         RedisStats::HideBVar();
     }
-}
-
-RedisServiceImpl::~RedisServiceImpl()
-{
-    tx_service_ = nullptr;
-    redis_meter_ = nullptr;
 }
 
 // The number of master nodes serving at least one hash slot in the cluster.
@@ -2509,7 +899,7 @@ void RedisServiceImpl::RedisClusterSlots(std::vector<SlotInfo> &info)
                 }
             }
         }  // end-if
-    }  // end-for
+    }      // end-for
 
     if (info.size() > 1)
     {
@@ -7065,7 +5455,7 @@ std::unique_ptr<brpc::ConnectionContext> RedisServiceImpl::NewConnectionContext(
     brpc::Socket *socket) const
 {
     return std::make_unique<RedisConnectionContext>(
-        socket, const_cast<PubSubManager *>(&pub_sub_mgr_));
+        socket, const_cast<PubSubManager *>(&eloqkv_pub_sub_mgr));
 }
 
 brpc::RedisCommandHandlerResult RedisServiceImpl::DispatchCommand(
@@ -7502,57 +5892,22 @@ struct ThreadLocal
     std::vector<IntOpCommand> incr_pool_;
 };
 
-bool RedisServiceImpl::InitMetricsRegistry()
-{
-    setenv("ELOQ_METRICS_PORT", metrics_port_.c_str(), false);
-    MetricsRegistryImpl::MetricsRegistryResult metrics_registry_result =
-        MetricsRegistryImpl::GetRegistry();
-
-    if (metrics_registry_result.not_ok_ != nullptr)
-    {
-        return false;
-    }
-
-    metrics_registry_ = std::move(metrics_registry_result.metrics_registry_);
-    return true;
-}
-
-void RedisServiceImpl::RegisterRedisMetrics()
-{
-    redis_meter_ = std::make_unique<metrics::Meter>(metrics_registry_.get(),
-                                                    redis_common_labels_);
-    redis_meter_->Register(metrics::NAME_CONNECTION_COUNT,
-                           metrics::Type::Gauge);
-    redis_meter_->Register(metrics::NAME_MAX_CONNECTION, metrics::Type::Gauge);
-
-    std::vector<metrics::LabelGroup> labels;
-    labels.emplace_back("core_id", std::vector<std::string>());
-    for (size_t idx = 0; idx < core_num_; ++idx)
-    {
-        labels[0].second.push_back(std::to_string(idx));
-    }
-
-    redis_meter_->Register(metrics::NAME_REDIS_SLOW_LOG_LEN,
-                           metrics::Type::Gauge,
-                           std::move(labels));
-}
-
 void RedisServiceImpl::CollectConnectionsMetrics(brpc::Server &server)
 {
     while (!stopping_indicator_.load(std::memory_order_acquire))
     {
         brpc::ServerStatistics srv_status;
         server.GetStat(&srv_status);
-        redis_meter_->Collect(metrics::NAME_CONNECTION_COUNT,
-                              srv_status.connection_count);
+        metrics::redis_meter->Collect(metrics::NAME_REDIS_CONNECTION_COUNT,
+                                      srv_status.connection_count);
 
         for (size_t core_idx = 0; core_idx < core_num_; ++core_idx)
         {
             std::lock_guard<bthread::Mutex> slow_log_lk(
                 *slow_log_mutexes_[core_idx]);
-            redis_meter_->Collect(metrics::NAME_REDIS_SLOW_LOG_LEN,
-                                  slow_log_len_[core_idx],
-                                  std::to_string(core_idx));
+            metrics::redis_meter->Collect(metrics::NAME_REDIS_SLOW_LOG_LEN,
+                                          slow_log_len_[core_idx],
+                                          std::to_string(core_idx));
         }
 
         std::this_thread::sleep_for(std::chrono::seconds(1));
@@ -7585,26 +5940,26 @@ std::string_view RedisServiceImpl::GetCommandAccessType(
 void RedisServiceImpl::Subscribe(const std::vector<std::string_view> &chans,
                                  EloqKV::RedisConnectionContext *client)
 {
-    pub_sub_mgr_.Subscribe(chans, client);
+    eloqkv_pub_sub_mgr.Subscribe(chans, client);
 }
 
 void RedisServiceImpl::Unsubscribe(const std::vector<std::string_view> &chans,
                                    EloqKV::RedisConnectionContext *client)
 {
-    pub_sub_mgr_.Unsubscribe(chans, client);
+    eloqkv_pub_sub_mgr.Unsubscribe(chans, client);
 }
 
 void RedisServiceImpl::PSubscribe(const std::vector<std::string_view> &patterns,
                                   EloqKV::RedisConnectionContext *client)
 {
-    pub_sub_mgr_.PSubscribe(patterns, client);
+    eloqkv_pub_sub_mgr.PSubscribe(patterns, client);
 }
 
 void RedisServiceImpl::PUnsubscribe(
     const std::vector<std::string_view> &patterns,
     EloqKV::RedisConnectionContext *client)
 {
-    pub_sub_mgr_.PUnsubscribe(patterns, client);
+    eloqkv_pub_sub_mgr.PUnsubscribe(patterns, client);
 }
 
 int RedisServiceImpl::Publish(std::string_view chan, std::string_view msg)
@@ -7617,17 +5972,17 @@ int RedisServiceImpl::Publish(std::string_view chan, std::string_view msg)
 
     // publish to local clients. only clients that are connected to the same
     // node as the publishing client are included in the count
-    return pub_sub_mgr_.Publish(chan, msg);
+    return eloqkv_pub_sub_mgr.Publish(chan, msg);
 }
 
 metrics::Meter *RedisServiceImpl::GetMeter(std::size_t core_id) const
 {
-    return tx_service_.get()->CcShards().GetCcShard(core_id)->GetMeter();
+    return tx_service_->CcShards().GetCcShard(core_id)->GetMeter();
 };
 
 size_t RedisServiceImpl::MaxConnectionCount() const
 {
-    return FLAGS_maxclients;
+    return DataSubstrate::GetGlobal()->GetCoreConfig().maxclients;
 }
 
 }  // namespace EloqKV
