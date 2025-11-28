@@ -184,8 +184,23 @@ bool RedisServiceImpl::Init(brpc::Server &brpc_server)
     }
 
     tx_service_ = DataSubstrate::GetGlobal()->GetTxService();
+    if (tx_service_ == nullptr)
+    {
+        LOG(ERROR) << "Error: TxService is not initialized.";
+        return false;
+    }
     store_hd_ = DataSubstrate::GetGlobal()->GetStoreHandler();
+    if (store_hd_ == nullptr)
+    {
+        LOG(ERROR) << "Error: DataStoreHandler is not initialized.";
+        return false;
+    }
     core_num_ = DataSubstrate::GetGlobal()->GetCoreConfig().core_num;
+    if (core_num_ == 0)
+    {
+        LOG(ERROR) << "Error: core_num is 0.";
+        return false;
+    }
     node_memory_limit_mb_ = FLAGS_node_memory_limit_mb;
 
     databases = config_reader.GetInteger("local", "databases", 16);

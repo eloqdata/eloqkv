@@ -514,9 +514,9 @@ private:
     typedef std::unordered_map<std::string, RedisCommandHandler *> CommandMap;
     CommandMap command_map_;
 
-    TxService *tx_service_;
+    TxService *tx_service_{nullptr};
 
-    store::DataStoreHandler *store_hd_;
+    store::DataStoreHandler *store_hd_{nullptr};
 
     std::vector<TableName> redis_table_names_;
 
