@@ -116,6 +116,11 @@ kv_store_types=("ELOQDSS_ROCKSDB_CLOUD_S3" "ROCKSDB")
 for bt in "${build_types[@]}"; do
   for kst in "${kv_store_types[@]}"; do
     rm -rf /home/$current_user/workspace/eloqkv/eloq_data
+    if [ "$kst" == "ELOQDSS_ROCKSDB_CLOUD_S3" ]; then
+      txlog_log_state="ROCKSDB_CLOUD_S3"
+    elif [ "$kst" == "ROCKSDB" ]; then
+      txlog_log_state="ROCKSDB"
+    fi
     run_build_ent $bt $kst
 
     source my_env/bin/activate
