@@ -19,6 +19,8 @@
  *    <http://www.gnu.org/licenses/>.
  *
  */
+#include "redis_service.h"
+
 #include <absl/types/span.h>
 #include <bthread/mutex.h>
 #include <bthread/task_group.h>
@@ -60,7 +62,6 @@
 #include "redis_connection_context.h"
 #include "redis_handler.h"
 #include "redis_metrics.h"
-#include "redis_service.h"
 #include "redis_stats.h"
 #include "redis_string_match.h"
 #include "sharder.h"
@@ -901,7 +902,7 @@ void RedisServiceImpl::RedisClusterSlots(std::vector<SlotInfo> &info)
                 }
             }
         }  // end-if
-    }      // end-for
+    }  // end-for
 
     if (info.size() > 1)
     {
