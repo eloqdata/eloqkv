@@ -1,0 +1,21 @@
+# See https://pre-commit.com/hooks.html for more hooks
+
+repos:
+- repo: https://github.com/pre-commit/pre-commit-hooks
+  rev: v2.3.0
+  hooks:
+   - id: trailing-whitespace
+     files: \.(cpp|cxx|cc|c|h|hpp|hxx|hh)$
+     exclude: (^include/redis|^src/redis|^include/vector|^src/vector|^data_substrate/|^tests/|^lua|^fpconv)
+   - id: end-of-file-fixer
+     files: \.(cpp|cxx|cc|c|h|hpp|hxx|hh)$
+     exclude: (^include/redis|^src/redis|^include/vector|^src/vector|^data_substrate/|^tests/|^lua|^fpconv)
+   - id: check-added-large-files
+
+- repo: https://github.com/pre-commit/mirrors-clang-format
+  rev: v18.1.8
+  hooks:
+   - id: clang-format
+     files: \.(cpp|cxx|cc|c|h|hpp|hxx|hh)$
+     exclude: (^include/redis/|^src/redis/|^include/vector/|^src/vector/|^data_substrate/|^tests/|^lua/|^fpconv/)
+     args: [--style=file, --fallback-style=none, --verbose]

@@ -1231,7 +1231,7 @@ struct PublishCommand : public DirectCommand
 {
     PublishCommand() = default;
     PublishCommand(std::string_view chan, std::string_view msg)
-        : chan_(chan), message_(msg){};
+        : chan_(chan), message_(msg) {};
     void Execute(RedisServiceImpl *redis_impl,
                  RedisConnectionContext *ctx) override;
 
@@ -7647,12 +7647,12 @@ struct TTLCommand : public RedisCommand
 {
 public:
     TTLCommand()
-        : is_pttl_(false), is_expire_time_(false), is_pexpire_time_(false){};
+        : is_pttl_(false), is_expire_time_(false), is_pexpire_time_(false) {};
 
     explicit TTLCommand(bool is_pttl, bool is_expire_time, bool is_pexpire_time)
         : is_pttl_(is_pttl),
           is_expire_time_(is_expire_time),
-          is_pexpire_time_(is_pexpire_time){};
+          is_pexpire_time_(is_pexpire_time) {};
 
     std::unique_ptr<TxCommand> Clone() override;
 
