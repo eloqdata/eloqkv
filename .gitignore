@@ -45,9 +45,6 @@
 aws
 abseil-cpp
 
-# pre-commit
-.pre-commit-config.yaml
-
 # Swap files
 *.swp
 *.swo
