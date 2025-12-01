@@ -46,6 +46,7 @@ sudo chmod 777 /var/crash
 sudo chown -R $current_user /home/$current_user/workspace
 cd /home/$current_user/workspace
 ln -s $WORKSPACE/redis_pr eloqkv
+ln -s $WORKSPACE/redis_src eloqkv
 ln -s $WORKSPACE/eloq_test_src eloq_test
 
 cd eloqkv
