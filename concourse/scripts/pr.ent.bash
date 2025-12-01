@@ -24,10 +24,10 @@ export ROCKSDB_CLOUD_S3_ENDPOINT_ESCAPE=${MINIO_ENDPOINT_ESCAPE}
 export ROCKSDB_CLOUD_AWS_ACCESS_KEY_ID=${MINIO_ACCESS_KEY}
 export ROCKSDB_CLOUD_AWS_SECRET_ACCESS_KEY=${MINIO_SECRET_KEY}
 timestamp=$(($(date +%s%N) / 1000000))
-ROCKSDB_CLOUD_BUCKET_NAME="test-${timestamp}"
-ROCKSDB_CLOUD_OBJECT_PATH="test-db"
-export ROCKSDB_CLOUD_BUCKET_NAME=${ROCKSDB_CLOUD_BUCKET_NAME}
-export ROCKSDB_CLOUD_OBJECT_PATH=${ROCKSDB_CLOUD_OBJECT_PATH}
+export ROCKSDB_CLOUD_BUCKET_PREFIX="eloqkv-pr-"
+export ROCKSDB_CLOUD_BUCKET_NAME="test-${timestamp}"
+export ROCKSDB_CLOUD_OBJECT_PATH="dss"
+export TXLOG_ROCKSDB_CLOUD_OBJECT_PATH="txlog"
 
 
 cd $WORKSPACE
@@ -121,6 +121,7 @@ for bt in "${build_types[@]}"; do
     elif [ "$kst" == "ROCKSDB" ]; then
       txlog_log_state="ROCKSDB"
     fi
+    # change for pipe test
     run_build_ent $bt $kst $txlog_log_state
 
     source my_env/bin/activate
