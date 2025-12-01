@@ -121,6 +121,7 @@ for bt in "${build_types[@]}"; do
     elif [ "$kst" == "ROCKSDB" ]; then
       txlog_log_state="ROCKSDB"
     fi
+    # change for pipe test
     run_build_ent $bt $kst $txlog_log_state
 
     source my_env/bin/activate
