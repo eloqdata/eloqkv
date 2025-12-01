@@ -77,7 +77,7 @@ txservice::TxRecord::Uptr RedisListObject::AddTTL(uint64_t ttl)
     return std::make_unique<RedisListTTLObject>(std::move(*this), ttl);
 }
 
-bool RedisListObject::Execute(RPushCommand &cmd) const
+CommandExecuteState RedisListObject::Execute(RPushCommand &cmd) const
 {
     RedisListResult &result = cmd.result_;
     uint64_t len_increased = 0;
@@ -88,15 +88,15 @@ bool RedisListObject::Execute(RPushCommand &cmd) const
     if (serialized_length_ + len_increased > MAX_OBJECT_SIZE)
     {
         result.err_code_ = RD_ERR_OBJECT_TOO_BIG;
-        return false;
+        return CommandExecuteState::NoChange;
     }
 
     result.ret_ = list_object_.size() + cmd.elements_.size();
     result.err_code_ = RD_OK;
-    return true;
+    return CommandExecuteState::Modified;
 }
 
-bool RedisListObject::Execute(LPushCommand &cmd) const
+CommandExecuteState RedisListObject::Execute(LPushCommand &cmd) const
 {
     RedisListResult &result = cmd.result_;
     uint64_t len_increased = 0;
@@ -107,12 +107,12 @@ bool RedisListObject::Execute(LPushCommand &cmd) const
     if (serialized_length_ + len_increased > MAX_OBJECT_SIZE)
     {
         result.err_code_ = RD_ERR_OBJECT_TOO_BIG;
-        return false;
+        return CommandExecuteState::NoChange;
     }
 
     result.ret_ = list_object_.size() + cmd.elements_.size();
     result.err_code_ = RD_OK;
-    return true;
+    return CommandExecuteState::Modified;
 }
 
 void RedisListObject::Execute(LRangeCommand &cmd) const
@@ -150,13 +150,15 @@ void RedisListObject::Execute(LRangeCommand &cmd) const
     result.err_code_ = RD_OK;
 }
 
-void RedisListObject::Execute(LPopCommand &cmd) const
+CommandExecuteState RedisListObject::Execute(LPopCommand &cmd) const
 {
     RedisListResult &result = cmd.result_;
     size_t idx = 0;
     int64_t count = cmd.count_ == -1 ? 1 : cmd.count_;
     assert(count >= 0);
-    size_t num = std::min(static_cast<size_t>(count), list_object_.size());
+    size_t sz_count = static_cast<size_t>(count);
+    size_t list_size = list_object_.size();
+    size_t num = std::min(sz_count, list_size);
     std::vector<std::string> elements;
     for (auto it = list_object_.begin(); it != list_object_.end() && idx < num;
          ++it, idx++)
@@ -168,15 +170,24 @@ void RedisListObject::Execute(LPopCommand &cmd) const
 
     result.ret_ = num;
     result.err_code_ = RD_OK;
+    if (num == 0)
+    {
+        return CommandExecuteState::NoChange;
+    }
+
+    bool empty_after_removal = num >= list_size;
+    return empty_after_removal ? CommandExecuteState::ModifiedToEmpty
+                               : CommandExecuteState::Modified;
 }
 
-void RedisListObject::Execute(RPopCommand &cmd) const
+CommandExecuteState RedisListObject::Execute(RPopCommand &cmd) const
 {
     RedisListResult &result = cmd.result_;
     size_t idx = 0;
     int64_t count = cmd.count_ == -1 ? 1 : cmd.count_;
     assert(count >= 0);
-    size_t num = std::min(static_cast<size_t>(count), list_object_.size());
+    size_t list_size = list_object_.size();
+    size_t num = std::min(static_cast<size_t>(count), list_size);
     std::vector<std::string> elements;
     for (auto it = list_object_.rbegin();
          it != list_object_.rend() && idx < num;
@@ -189,16 +200,24 @@ void RedisListObject::Execute(RPopCommand &cmd) const
 
     result.ret_ = num;
     result.err_code_ = RD_OK;
+    if (num == 0)
+    {
+        return CommandExecuteState::NoChange;
+    }
+    bool empty_after_removal = num >= list_size;
+    return empty_after_removal ? CommandExecuteState::ModifiedToEmpty
+                               : CommandExecuteState::Modified;
 }
 
-bool RedisListObject::Execute(LMovePopCommand &cmd) const
+CommandExecuteState RedisListObject::Execute(LMovePopCommand &cmd) const
 {
     RedisListResult &list_result = cmd.result_;
 
     if (list_object_.empty())
     {
         list_result.ret_ = 0;
-        return false;
+        list_result.err_code_ = RD_NIL;
+        return CommandExecuteState::NoChange;
     }
 
     if (cmd.is_left_)
@@ -212,23 +231,25 @@ bool RedisListObject::Execute(LMovePopCommand &cmd) const
 
     list_result.ret_ = 1;
     list_result.err_code_ = RD_OK;
-    return true;
+    bool empty_after_removal = (list_object_.size() == 1);
+    return empty_after_removal ? CommandExecuteState::ModifiedToEmpty
+                               : CommandExecuteState::Modified;
 }
 
-bool RedisListObject::Execute(LMovePushCommand &cmd) const
+CommandExecuteState RedisListObject::Execute(LMovePushCommand &cmd) const
 {
     RedisListResult &list_result = cmd.result_;
 
     if (serialized_length_ + cmd.element_.Length() > MAX_OBJECT_SIZE)
     {
         list_result.err_code_ = RD_ERR_OBJECT_TOO_BIG;
-        return false;
+        return CommandExecuteState::NoChange;
     }
 
     list_result.result_ = cmd.element_.Clone();
     list_result.ret_ = 1;
     list_result.err_code_ = RD_OK;
-    return true;
+    return CommandExecuteState::Modified;
 }
 
 void RedisListObject::Execute(LLenCommand &cmd) const
@@ -237,7 +258,7 @@ void RedisListObject::Execute(LLenCommand &cmd) const
     result.ret_ = list_object_.size();
 }
 
-void RedisListObject::Execute(LTrimCommand &cmd) const
+CommandExecuteState RedisListObject::Execute(LTrimCommand &cmd) const
 {
     // start and end can also be negative numbers indicating offsets from the
     // end of the list, where -1 is the last element of the list, -2 the
@@ -245,28 +266,31 @@ void RedisListObject::Execute(LTrimCommand &cmd) const
     // Here will convert the negative number to positive number and will change
     // them to suitable value if they exceed the list range.
     RedisListResult &result = cmd.result_;
+    size_t list_size = list_object_.size();
+    assert(list_size > 0);
+
     // If the start < 0, it will convert to positive value follow the rule
     // above. If the result of start still exceed the range of 0, it will set to
     // 0.
     if (cmd.start_ < 0)
     {
-        cmd.start_ = list_object_.size() + cmd.start_;
+        cmd.start_ = list_size + cmd.start_;
         if (cmd.start_ < 0)
         {
             cmd.start_ = 0;
         }
     }
     // If start > list size, it will set to list size.
-    else if (cmd.start_ > static_cast<int64_t>(list_object_.size()))
+    else if (cmd.start_ > static_cast<int64_t>(list_size))
     {
-        cmd.start_ = list_object_.size();
+        cmd.start_ = list_size;
     }
     // If the end is less than 0, it will convert the positive value following
     // the above rule. If the result of end is still less than 0, set end to 0
     // and set start to 1 to remove all elements in the list.
     if (cmd.end_ < 0)
     {
-        cmd.end_ = list_object_.size() + cmd.end_;
+        cmd.end_ = list_size + cmd.end_;
         if (cmd.end_ < 0)
         {
             cmd.start_ = 1;
@@ -274,14 +298,30 @@ void RedisListObject::Execute(LTrimCommand &cmd) const
         }
     }
     // If end > list size, it will set to list size - 1, because the end element
-    // is include in the result, so it is the last element's position.
-    else if (cmd.end_ >= static_cast<int64_t>(list_object_.size()))
+    // is included in the result, so it is the last element's position.
+    else if (cmd.end_ >= static_cast<int64_t>(list_size))
     {
-        cmd.end_ = list_object_.size() - 1;
+        cmd.end_ = list_size - 1;
     }
     // Here to calc the number of surplus elements. Because the range include
     // start and end elements, so it will add 1.
-    result.ret_ = cmd.end_ - cmd.start_ + 1;
+    int64_t remaining = cmd.end_ - cmd.start_ + 1;
+    if (remaining <= 0)
+    {
+        result.ret_ = 0;
+        return CommandExecuteState::ModifiedToEmpty;
+    }
+
+    if (remaining >= static_cast<int64_t>(list_size))
+    {
+        assert(cmd.start_ == 0 &&
+               cmd.end_ == static_cast<int64_t>(list_size) - 1);
+        result.ret_ = list_size;
+        return CommandExecuteState::NoChange;
+    }
+
+    result.ret_ = remaining;
+    return CommandExecuteState::Modified;
 }
 
 void RedisListObject::Execute(LIndexCommand &cmd) const
@@ -309,7 +349,7 @@ void RedisListObject::Execute(LIndexCommand &cmd) const
     result.err_code_ = RD_OK;
 }
 
-bool RedisListObject::Execute(LInsertCommand &cmd) const
+CommandExecuteState RedisListObject::Execute(LInsertCommand &cmd) const
 {
     RedisListResult &result = cmd.result_;
 
@@ -323,18 +363,18 @@ bool RedisListObject::Execute(LInsertCommand &cmd) const
             {
                 result.ret_ = -1;
                 result.err_code_ = RD_ERR_OBJECT_TOO_BIG;
-                return false;
+                return CommandExecuteState::NoChange;
             }
             result.ret_ = list_object_.size() + 1;
             result.err_code_ = RD_OK;
-            return true;
+            return CommandExecuteState::Modified;
         }
     }
 
     // pivot not found
     result.ret_ = -1;
     result.err_code_ = RD_NIL;
-    return false;
+    return CommandExecuteState::NoChange;
 }
 
 void RedisListObject::Execute(LPosCommand &cmd) const
@@ -412,7 +452,7 @@ void RedisListObject::Execute(LPosCommand &cmd) const
     }
 }
 
-bool RedisListObject::Execute(LSetCommand &cmd) const
+CommandExecuteState RedisListObject::Execute(LSetCommand &cmd) const
 {
     RedisListResult &result = cmd.result_;
 
@@ -431,25 +471,26 @@ bool RedisListObject::Execute(LSetCommand &cmd) const
         {
             result.ret_ = 0;
             result.err_code_ = RD_ERR_OBJECT_TOO_BIG;
-            return false;
+            return CommandExecuteState::NoChange;
         }
         result.ret_ = 1;
         result.err_code_ = RD_OK;
-        return true;
+        return CommandExecuteState::Modified;
     }
     else
     {
         result.ret_ = 0;
         result.err_code_ = RD_ERR_INDEX_OUT_OF_RANGE;
-        return false;
+        return CommandExecuteState::NoChange;
     }
 }
 
-bool RedisListObject::Execute(LRemCommand &cmd) const
+CommandExecuteState RedisListObject::Execute(LRemCommand &cmd) const
 {
     RedisListResult &list_result = cmd.result_;
 
     list_result.ret_ = 0;
+    size_t list_size = list_object_.size();
     int to_be_removed_cnt = std::abs(cmd.count_);
     int removed_cnt = 0;
 
@@ -492,10 +533,18 @@ bool RedisListObject::Execute(LRemCommand &cmd) const
             }
         }
     }
-    return list_result.ret_ > 0;
+    if (list_result.ret_ == 0)
+    {
+        return CommandExecuteState::NoChange;
+    }
+
+    bool empty_after_removal =
+        list_result.ret_ >= static_cast<int64_t>(list_size);
+    return empty_after_removal ? CommandExecuteState::ModifiedToEmpty
+                               : CommandExecuteState::Modified;
 }
 
-bool RedisListObject::Execute(LPushXCommand &cmd) const
+CommandExecuteState RedisListObject::Execute(LPushXCommand &cmd) const
 {
     RedisListResult &result = cmd.result_;
     uint64_t len_increased = 0;
@@ -506,14 +555,15 @@ bool RedisListObject::Execute(LPushXCommand &cmd) const
     if (serialized_length_ + len_increased > MAX_OBJECT_SIZE)
     {
         result.err_code_ = RD_ERR_OBJECT_TOO_BIG;
-        return false;
+        return CommandExecuteState::NoChange;
     }
 
     result.ret_ = list_object_.size() + cmd.elements_.size();
-    return true;
+    result.err_code_ = RD_OK;
+    return CommandExecuteState::Modified;
 }
 
-bool RedisListObject::Execute(RPushXCommand &cmd) const
+CommandExecuteState RedisListObject::Execute(RPushXCommand &cmd) const
 {
     RedisListResult &result = cmd.result_;
     uint64_t len_increased = 0;
@@ -524,11 +574,12 @@ bool RedisListObject::Execute(RPushXCommand &cmd) const
     if (serialized_length_ + len_increased > MAX_OBJECT_SIZE)
     {
         result.err_code_ = RD_ERR_OBJECT_TOO_BIG;
-        return false;
+        return CommandExecuteState::NoChange;
     }
 
     result.ret_ = list_object_.size() + cmd.elements_.size();
-    return true;
+    result.err_code_ = RD_OK;
+    return CommandExecuteState::Modified;
 }
 
 void RedisListObject::Execute(SortableLoadCommand &cmd) const
@@ -543,43 +594,47 @@ void RedisListObject::Execute(SortableLoadCommand &cmd) const
     cmd.result_.elems_ = std::move(elements);
 }
 
-bool RedisListObject::Execute(BlockLPopCommand &cmd) const
+CommandExecuteState RedisListObject::Execute(BlockLPopCommand &cmd) const
 {
     RedisListResult &result = cmd.result_;
-    if (list_object_.size() > 0)
+    if (list_object_.empty())
     {
-        std::vector<std::string> elements;
-        elements.reserve(cmd.count_);
-        uint32_t cnt = static_cast<uint32_t>(list_object_.size());
-        if (cnt > cmd.count_)
-        {
-            cnt = cmd.count_;
-        }
+        result.ret_ = 0;
+        return CommandExecuteState::NoChange;
+    }
 
-        uint32_t i = 0;
-        if (cmd.is_left_)
-        {
-            for (auto iter = list_object_.begin(); i < cnt; iter++, i++)
-            {
-                elements.push_back(iter->String());
-            }
-        }
-        else
-        {
-            for (auto iter = list_object_.rbegin(); i < cnt; iter++, i++)
-            {
-                elements.push_back(iter->String());
-            }
-        }
+    std::vector<std::string> elements;
+    elements.reserve(cmd.count_);
+    size_t list_size = list_object_.size();
+    size_t cnt = std::min(static_cast<size_t>(cmd.count_), list_size);
 
-        result.ret_ = elements.size();
-        result.result_ = std::move(elements);
-        return true;
+    size_t i = 0;
+    if (cmd.is_left_)
+    {
+        for (auto iter = list_object_.begin(); i < cnt; ++iter, ++i)
+        {
+            elements.push_back(iter->String());
+        }
     }
     else
     {
-        return false;
+        for (auto iter = list_object_.rbegin(); i < cnt; ++iter, ++i)
+        {
+            elements.push_back(iter->String());
+        }
     }
+
+    result.ret_ = elements.size();
+    result.result_ = std::move(elements);
+
+    if (cnt == 0)
+    {
+        return CommandExecuteState::NoChange;
+    }
+
+    bool empty_after_removal = cnt >= list_size;
+    return empty_after_removal ? CommandExecuteState::ModifiedToEmpty
+                               : CommandExecuteState::Modified;
 }
 
 void RedisListObject::CommitLInsert(bool is_before,
@@ -784,6 +839,10 @@ bool RedisListObject::CommitLTrim(int64_t start, int64_t end)
         list_object_.erase(list_object_.begin(), erase_end);
     }
     assert(serialized_length_ <= MAX_OBJECT_SIZE);
+    if (end - start + 1 <= 0)
+    {
+        assert(list_object_.empty());
+    }
     return list_object_.empty();
 }
 

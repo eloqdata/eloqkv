@@ -34,6 +34,13 @@
 
 namespace EloqKV
 {
+enum class CommandExecuteState
+{
+    NoChange,
+    Modified,
+    ModifiedToEmpty,
+};
+
 // Don't change the RedisObjectTypes order, because object serialization used
 // its int vlaue.
 enum struct RedisObjectType

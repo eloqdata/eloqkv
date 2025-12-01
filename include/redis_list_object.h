@@ -175,28 +175,28 @@ public:
 
     txservice::TxRecord::Uptr AddTTL(uint64_t ttl) override;
 
-    bool Execute(RPushCommand &cmd) const;
-    bool Execute(LPushCommand &cmd) const;
+    CommandExecuteState Execute(RPushCommand &cmd) const;
+    CommandExecuteState Execute(LPushCommand &cmd) const;
     void Execute(LRangeCommand &cmd) const;
-    void Execute(LPopCommand &cmd) const;
-    void Execute(RPopCommand &cmd) const;
+    CommandExecuteState Execute(LPopCommand &cmd) const;
+    CommandExecuteState Execute(RPopCommand &cmd) const;
     void Execute(LLenCommand &cmd) const;
-    void Execute(LTrimCommand &cmd) const;
+    CommandExecuteState Execute(LTrimCommand &cmd) const;
     void Execute(LIndexCommand &cmd) const;
-    bool Execute(LInsertCommand &cmd) const;
+    CommandExecuteState Execute(LInsertCommand &cmd) const;
     void Execute(LPosCommand &cmd) const;
-    bool Execute(LSetCommand &cmd) const;
-    bool Execute(LRemCommand &cmd) const;
-    bool Execute(LPushXCommand &cmd) const;
-    bool Execute(RPushXCommand &cmd) const;
-    bool Execute(LMovePopCommand &cmd) const;
-    bool Execute(LMovePushCommand &cmd) const;
+    CommandExecuteState Execute(LSetCommand &cmd) const;
+    CommandExecuteState Execute(LRemCommand &cmd) const;
+    CommandExecuteState Execute(LPushXCommand &cmd) const;
+    CommandExecuteState Execute(RPushXCommand &cmd) const;
+    CommandExecuteState Execute(LMovePopCommand &cmd) const;
+    CommandExecuteState Execute(LMovePushCommand &cmd) const;
     void Execute(SortableLoadCommand &cmd) const;
     /**
-     * @brief Pop an element into result and return true if exist, or return
-     * false
+     * @brief Populate the command result and indicate whether elements would
+     * be removed (and if the list becomes empty).
      */
-    bool Execute(BlockLPopCommand &cmd) const;
+    CommandExecuteState Execute(BlockLPopCommand &cmd) const;
 
     void CommitLInsert(bool is_before, EloqString &pivot, EloqString &element);
     void CommitLSet(int64_t index, EloqString &element);

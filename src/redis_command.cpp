@@ -3112,14 +3112,9 @@ txservice::TxObject *SetRangeCommand::CommitOn(txservice::TxObject *obj_ptr)
     auto *str_obj_ptr = static_cast<RedisStringObject *>(obj_ptr);
     // the object is string type
     str_obj_ptr->CommitSetRange(offset_, value_);
-    if (str_obj_ptr->Length() == 0)
-    {
-        return nullptr;
-    }
-    else
-    {
-        return obj_ptr;
-    }
+
+    assert(str_obj_ptr->Length() > 0);
+    return obj_ptr;
 }
 
 void SetRangeCommand::Serialize(std::string &str) const
@@ -3308,14 +3303,8 @@ txservice::TxObject *BitFieldCommand::CommitOn(txservice::TxObject *obj_ptr)
     // the object is string type
     str_obj_ptr->CommitBitField(vct_sub_cmd_);
 
-    if (str_obj_ptr->Length() == 0)
-    {
-        return nullptr;
-    }
-    else
-    {
-        return obj_ptr;
-    }
+    assert(str_obj_ptr->Length() > 0);
+    return obj_ptr;
 }
 
 void BitFieldCommand::Serialize(std::string &str) const
@@ -3467,8 +3456,9 @@ txservice::ExecResult LPushCommand::ExecuteOn(const txservice::TxObject &object)
     }
 
     const auto &list_obj = static_cast<const RedisListObject &>(object);
-    bool success = list_obj.Execute(*this);
-    return success ? txservice::ExecResult::Write : txservice::ExecResult::Fail;
+    CommandExecuteState state = list_obj.Execute(*this);
+    return state == CommandExecuteState::Modified ? txservice::ExecResult::Write
+                                                  : txservice::ExecResult::Fail;
 }
 
 txservice::TxObject *LPushCommand::CommitOn(txservice::TxObject *obj_ptr)
@@ -3533,8 +3523,19 @@ txservice::ExecResult LPopCommand::ExecuteOn(const txservice::TxObject &object)
     }
 
     const auto &list_obj = static_cast<const RedisListObject &>(object);
-    list_obj.Execute(*this);
-    return txservice::ExecResult::Write;
+    CommandExecuteState state = list_obj.Execute(*this);
+
+    switch (state)
+    {
+    case CommandExecuteState::NoChange:
+        return txservice::ExecResult::Read;
+    case CommandExecuteState::Modified:
+        return txservice::ExecResult::Write;
+    case CommandExecuteState::ModifiedToEmpty:
+        return txservice::ExecResult::Delete;
+    }
+    assert(false);
+    return txservice::ExecResult::Fail;
 }
 
 txservice::TxObject *LPopCommand::CommitOn(txservice::TxObject *obj_ptr)
@@ -3613,8 +3614,9 @@ txservice::ExecResult RPushCommand::ExecuteOn(const txservice::TxObject &object)
     }
 
     const auto &list_obj = static_cast<const RedisListObject &>(object);
-    bool success = list_obj.Execute(*this);
-    return success ? txservice::ExecResult::Write : txservice::ExecResult::Fail;
+    CommandExecuteState state = list_obj.Execute(*this);
+    return state == CommandExecuteState::Modified ? txservice::ExecResult::Write
+                                                  : txservice::ExecResult::Fail;
 }
 
 txservice::TxObject *RPushCommand::CommitOn(txservice::TxObject *obj_ptr)
@@ -3679,8 +3681,19 @@ txservice::ExecResult RPopCommand::ExecuteOn(const txservice::TxObject &object)
     }
 
     const auto &list_obj = static_cast<const RedisListObject &>(object);
-    list_obj.Execute(*this);
-    return txservice::ExecResult::Write;
+    CommandExecuteState state = list_obj.Execute(*this);
+
+    switch (state)
+    {
+    case CommandExecuteState::NoChange:
+        return txservice::ExecResult::Read;
+    case CommandExecuteState::Modified:
+        return txservice::ExecResult::Write;
+    case CommandExecuteState::ModifiedToEmpty:
+        return txservice::ExecResult::Delete;
+    }
+    assert(false);
+    return txservice::ExecResult::Fail;
 }
 
 txservice::TxObject *RPopCommand::CommitOn(txservice::TxObject *obj_ptr)
@@ -3818,9 +3831,19 @@ txservice::ExecResult LMovePopCommand::ExecuteOn(
 
     const RedisListObject &list_obj =
         static_cast<const RedisListObject &>(object);
-    // Do not write log and proeed if source list is empty.
-    bool succeed = list_obj.Execute(*this);
-    return succeed ? ExecResult::Write : ExecResult::Read;
+    // Do not write log and proceed if source list is empty.
+    CommandExecuteState state = list_obj.Execute(*this);
+    switch (state)
+    {
+    case CommandExecuteState::NoChange:
+        return ExecResult::Read;
+    case CommandExecuteState::Modified:
+        return ExecResult::Write;
+    case CommandExecuteState::ModifiedToEmpty:
+        return ExecResult::Delete;
+    }
+    assert(false);
+    return ExecResult::Fail;
 }
 
 txservice::TxObject *LMovePopCommand::CommitOn(txservice::TxObject *obj_ptr)
@@ -3881,8 +3904,9 @@ txservice::ExecResult LMovePushCommand::ExecuteOn(
 
     const RedisListObject &list_obj =
         static_cast<const RedisListObject &>(object);
-    bool success = list_obj.Execute(*this);
-    return success ? txservice::ExecResult::Write : txservice::ExecResult::Fail;
+    CommandExecuteState state = list_obj.Execute(*this);
+    return state == CommandExecuteState::Modified ? txservice::ExecResult::Write
+                                                  : txservice::ExecResult::Fail;
 }
 
 txservice::TxObject *LMovePushCommand::CommitOn(txservice::TxObject *obj_ptr)
@@ -4046,8 +4070,19 @@ txservice::ExecResult LTrimCommand::ExecuteOn(const txservice::TxObject &object)
     list_result.err_code_ = RD_OK;
     const RedisListObject &list_obj =
         static_cast<const RedisListObject &>(object);
-    list_obj.Execute(*this);
-    return txservice::ExecResult::Write;
+    CommandExecuteState state = list_obj.Execute(*this);
+
+    switch (state)
+    {
+    case CommandExecuteState::NoChange:
+        return txservice::ExecResult::Read;
+    case CommandExecuteState::Modified:
+        return txservice::ExecResult::Write;
+    case CommandExecuteState::ModifiedToEmpty:
+        return txservice::ExecResult::Delete;
+    }
+    assert(false);
+    return txservice::ExecResult::Fail;
 }
 
 txservice::TxObject *LTrimCommand::CommitOn(txservice::TxObject *obj_ptr)
@@ -4157,9 +4192,9 @@ txservice::ExecResult LInsertCommand::ExecuteOn(
     list_result.err_code_ = RD_OK;
     const RedisListObject &list_obj =
         static_cast<const RedisListObject &>(object);
-    bool cmd_success = list_obj.Execute(*this);
-    return cmd_success ? txservice::ExecResult::Write
-                       : txservice::ExecResult::Fail;
+    CommandExecuteState state = list_obj.Execute(*this);
+    return state == CommandExecuteState::Modified ? txservice::ExecResult::Write
+                                                  : txservice::ExecResult::Fail;
 }
 
 txservice::TxObject *LInsertCommand::CommitOn(txservice::TxObject *obj_ptr)
@@ -4324,9 +4359,9 @@ txservice::ExecResult LSetCommand::ExecuteOn(const txservice::TxObject &object)
     list_result.err_code_ = RD_OK;
     const RedisListObject &list_obj =
         static_cast<const RedisListObject &>(object);
-    bool cmd_success = list_obj.Execute(*this);
-    return cmd_success ? txservice::ExecResult::Write
-                       : txservice::ExecResult::Fail;
+    CommandExecuteState state = list_obj.Execute(*this);
+    return state == CommandExecuteState::Modified ? txservice::ExecResult::Write
+                                                  : txservice::ExecResult::Fail;
 }
 
 txservice::TxObject *LSetCommand::CommitOn(txservice::TxObject *obj_ptr)
@@ -4397,9 +4432,19 @@ txservice::ExecResult LRemCommand::ExecuteOn(const txservice::TxObject &object)
     list_result.err_code_ = RD_OK;
     const RedisListObject &list_obj =
         static_cast<const RedisListObject &>(object);
-    bool cmd_success = list_obj.Execute(*this);
-    return cmd_success ? txservice::ExecResult::Write
-                       : txservice::ExecResult::Fail;
+    CommandExecuteState state = list_obj.Execute(*this);
+
+    switch (state)
+    {
+    case CommandExecuteState::NoChange:
+        return txservice::ExecResult::Read;
+    case CommandExecuteState::Modified:
+        return txservice::ExecResult::Write;
+    case CommandExecuteState::ModifiedToEmpty:
+        return txservice::ExecResult::Delete;
+    }
+    assert(false);
+    return txservice::ExecResult::Fail;
 }
 
 txservice::TxObject *LRemCommand::CommitOn(txservice::TxObject *obj_ptr)
@@ -4473,8 +4518,21 @@ txservice::ExecResult LPushXCommand::ExecuteOn(
     list_result.err_code_ = RD_OK;
     const RedisListObject &list_obj =
         static_cast<const RedisListObject &>(object);
-    bool success = list_obj.Execute(*this);
-    return success ? txservice::ExecResult::Write : txservice::ExecResult::Fail;
+    CommandExecuteState state = list_obj.Execute(*this);
+    if (list_result.err_code_ != RD_OK && list_result.err_code_ != RD_NIL)
+    {
+        return txservice::ExecResult::Fail;
+    }
+
+    switch (state)
+    {
+    case CommandExecuteState::NoChange:
+        return txservice::ExecResult::Read;
+    case CommandExecuteState::Modified:
+    case CommandExecuteState::ModifiedToEmpty:
+        return txservice::ExecResult::Write;
+    }
+    return txservice::ExecResult::Fail;
 }
 
 txservice::TxObject *LPushXCommand::CommitOn(txservice::TxObject *obj_ptr)
@@ -4555,8 +4613,21 @@ txservice::ExecResult RPushXCommand::ExecuteOn(
     list_result.err_code_ = RD_OK;
     const RedisListObject &list_obj =
         static_cast<const RedisListObject &>(object);
-    bool success = list_obj.Execute(*this);
-    return success ? txservice::ExecResult::Write : txservice::ExecResult::Fail;
+    CommandExecuteState state = list_obj.Execute(*this);
+    if (list_result.err_code_ != RD_OK && list_result.err_code_ != RD_NIL)
+    {
+        return txservice::ExecResult::Fail;
+    }
+
+    switch (state)
+    {
+    case CommandExecuteState::NoChange:
+        return txservice::ExecResult::Read;
+    case CommandExecuteState::Modified:
+    case CommandExecuteState::ModifiedToEmpty:
+        return txservice::ExecResult::Write;
+    }
+    return txservice::ExecResult::Fail;
 }
 
 txservice::TxObject *RPushXCommand::CommitOn(txservice::TxObject *obj_ptr)
@@ -4628,30 +4699,47 @@ txservice::ExecResult BlockLPopCommand::ExecuteOn(
     list_result.err_code_ = RD_OK;
     const RedisListObject &list_obj =
         static_cast<const RedisListObject &>(object);
-    bool b = false;
+    bool has_elements = false;
+    bool empty_after_pop = false;
     if (op_type_ == txservice::BlockOperation::BlockLock)
     {
         list_result.ret_ = list_obj.Size();
-        b = list_result.ret_ > 0;
+        has_elements = list_result.ret_ > 0;
     }
     else
     {
-        b = list_obj.Execute(*this);
+        CommandExecuteState state = list_obj.Execute(*this);
+        if (list_result.err_code_ != RD_OK && list_result.err_code_ != RD_NIL)
+        {
+            return txservice::ExecResult::Fail;
+        }
+        has_elements = state != CommandExecuteState::NoChange;
+        empty_after_pop = state == CommandExecuteState::ModifiedToEmpty;
     }
+
+    auto exec_result_for_pop = [empty_after_pop]()
+    {
+        return empty_after_pop ? txservice::ExecResult::Delete
+                               : txservice::ExecResult::Write;
+    };
 
     switch (op_type_)
     {
     case txservice::BlockOperation::NoBlock:
-        return b ? txservice::ExecResult::Write : txservice::ExecResult::Read;
+        return has_elements ? exec_result_for_pop()
+                            : txservice::ExecResult::Read;
     case txservice::BlockOperation::PopBlock:
-        return b ? txservice::ExecResult::Write : txservice::ExecResult::Block;
+        return has_elements ? exec_result_for_pop()
+                            : txservice::ExecResult::Block;
     case txservice::BlockOperation::PopNoBlock:
-        return b ? txservice::ExecResult::Write : txservice::ExecResult::Unlock;
+        return has_elements ? exec_result_for_pop()
+                            : txservice::ExecResult::Unlock;
     case txservice::BlockOperation::BlockLock:
-        return b ? txservice::ExecResult::Read : txservice::ExecResult::Block;
+        return has_elements ? txservice::ExecResult::Read
+                            : txservice::ExecResult::Block;
     case txservice::BlockOperation::PopElement:
-        assert(b);
-        return txservice::ExecResult::Write;
+        assert(has_elements);
+        return exec_result_for_pop();
     default:
         assert(false);
         return txservice::ExecResult::Fail;
@@ -17073,7 +17161,8 @@ txservice::ExecResult StoreListCommand::ExecuteOn(
     // STORE command in SORT always overwrite the object with one exception:
     // nothing to store and the object was empty, in which case the STORE
     // command won't proceed to ExecuteOn.
-    return txservice::ExecResult::Write;
+    return elements_.empty() ? txservice::ExecResult::Delete
+                             : txservice::ExecResult::Write;
 }
 
 txservice::TxObject *StoreListCommand::CommitOn(txservice::TxObject *obj_ptr)
@@ -17277,14 +17366,16 @@ SortCommand::LessFunc() const
     }
     else if (!desc_ && alpha_)
     {
-        return [](const SortObject &a, const SortObject &b) {
+        return [](const SortObject &a, const SortObject &b)
+        {
             return a.cmpkey_ != b.cmpkey_ ? a.cmpkey_ < b.cmpkey_
                                           : a.id_ < b.id_;
         };
     }
     else
     {
-        return [](const SortObject &a, const SortObject &b) {
+        return [](const SortObject &a, const SortObject &b)
+        {
             return a.cmpkey_ != b.cmpkey_ ? a.cmpkey_ > b.cmpkey_
                                           : a.id_ > b.id_;
         };
