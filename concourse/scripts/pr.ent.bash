@@ -121,7 +121,7 @@ for bt in "${build_types[@]}"; do
     elif [ "$kst" == "ROCKSDB" ]; then
       txlog_log_state="ROCKSDB"
     fi
-    run_build_ent $bt $kst
+    run_build_ent $bt $kst $txlog_log_state
 
     source my_env/bin/activate
     run_eloq_test $bt $kst
