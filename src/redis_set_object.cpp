@@ -54,7 +54,7 @@ txservice::TxRecord::Uptr RedisHashSetObject::AddTTL(uint64_t ttl)
     return std::make_unique<RedisHashSetTTLObject>(std::move(*this), ttl);
 }
 
-bool RedisHashSetObject::Execute(SAddCommand &cmd) const
+CommandExecuteState RedisHashSetObject::Execute(SAddCommand &cmd) const
 {
     RedisHashSetResult &result = cmd.result_;
     result.err_code_ = RD_OK;
@@ -71,10 +71,11 @@ bool RedisHashSetObject::Execute(SAddCommand &cmd) const
     if (serialized_length_ + len > MAX_OBJECT_SIZE)
     {
         result.err_code_ = RD_ERR_OBJECT_TOO_BIG;
-        return false;
+        return CommandExecuteState::NoChange;
     }
 
-    return result.ret_ > 0;
+    return result.ret_ > 0 ? CommandExecuteState::Modified
+                            : CommandExecuteState::NoChange;
 }
 
 void RedisHashSetObject::Execute(SMembersCommand &cmd) const
@@ -90,7 +91,7 @@ void RedisHashSetObject::Execute(SMembersCommand &cmd) const
     }
 }
 
-bool RedisHashSetObject::Execute(SRemCommand &cmd) const
+CommandExecuteState RedisHashSetObject::Execute(SRemCommand &cmd) const
 {
     RedisHashSetResult &result = cmd.result_;
     result.err_code_ = RD_OK;
@@ -100,7 +101,15 @@ bool RedisHashSetObject::Execute(SRemCommand &cmd) const
     {
         result.ret_ += hash_set_.find(str) == hash_set_.end() ? 0 : 1;
     }
-    return result.ret_ > 0;
+    if (result.ret_ == 0)
+    {
+        return CommandExecuteState::NoChange;
+    }
+
+    bool empty_after_removal =
+        result.ret_ >= static_cast<int64_t>(hash_set_.size());
+    return empty_after_removal ? CommandExecuteState::ModifiedToEmpty
+                               : CommandExecuteState::Modified;
 }
 
 void RedisHashSetObject::Execute(SCardCommand &cmd) const
@@ -208,7 +217,7 @@ void RedisHashSetObject::Execute(SRandMemberCommand &cmd) const
     }
 }
 
-bool RedisHashSetObject::Execute(SPopCommand &cmd) const
+CommandExecuteState RedisHashSetObject::Execute(SPopCommand &cmd) const
 {
     RedisHashSetResult &result = cmd.result_;
     result.err_code_ = RD_OK;
@@ -284,7 +293,15 @@ bool RedisHashSetObject::Execute(SPopCommand &cmd) const
             result.string_list_[miter->second] = hiter->Clone();
         }
     }
-    return !result.string_list_.empty();
+    if (result.string_list_.empty())
+    {
+        return CommandExecuteState::NoChange;
+    }
+
+    bool empty_after_removal =
+        result.string_list_.size() >= hash_set_.size();
+    return empty_after_removal ? CommandExecuteState::ModifiedToEmpty
+                               : CommandExecuteState::Modified;
 }
 
 // TODO(lzx): Support Cursor and Count.(Batch Scanning)

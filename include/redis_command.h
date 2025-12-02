@@ -3206,8 +3206,6 @@ struct ExistsCommand : public RedisCommand
 
     txservice::ExecResult ExecuteOn(const txservice::TxObject &object) override;
 
-    txservice::TxObject *CommitOn(txservice::TxObject *obj_ptr) override;
-
     void Serialize(std::string &str) const override;
 
     void Deserialize(std::string_view cmd_image) override;

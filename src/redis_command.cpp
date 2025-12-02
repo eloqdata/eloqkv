@@ -5663,11 +5663,6 @@ txservice::ExecResult ExistsCommand::ExecuteOn(
     return txservice::ExecResult::Read;
 }
 
-txservice::TxObject *ExistsCommand::CommitOn(txservice::TxObject *obj_ptr)
-{
-    return nullptr;
-}
-
 void ExistsCommand::Serialize(std::string &str) const
 {
     uint8_t cmd_type = static_cast<uint8_t>(RedisCommandType::EXISTS);
@@ -5741,13 +5736,15 @@ txservice::ExecResult SAddCommand::ExecuteOn(const txservice::TxObject &object)
 
         set_result.err_code_ = RD_OK;
         set_result.ret_ = vct_paras_.size();
-        return txservice::ExecResult::Write;
+        return vct_paras_.empty() ? txservice::ExecResult::Delete
+                                  : txservice::ExecResult::Write;
     }
 
     const RedisHashSetObject *set_obj =
         static_cast<const RedisHashSetObject *>(&object);
-    return set_obj->Execute(*this) ? txservice::ExecResult::Write
-                                   : txservice::ExecResult::Fail;
+    CommandExecuteState state = set_obj->Execute(*this);
+    return state == CommandExecuteState::Modified ? txservice::ExecResult::Write
+                                                  : txservice::ExecResult::Fail;
 }
 
 txservice::TxObject *SAddCommand::CommitOn(txservice::TxObject *obj_ptr)
@@ -5894,8 +5891,19 @@ txservice::ExecResult SRemCommand::ExecuteOn(const txservice::TxObject &object)
 
     const RedisHashSetObject &set_obj =
         static_cast<const RedisHashSetObject &>(object);
-    return set_obj.Execute(*this) ? txservice::ExecResult::Write
-                                  : txservice::ExecResult::Fail;
+    CommandExecuteState state = set_obj.Execute(*this);
+
+    switch (state)
+    {
+    case CommandExecuteState::NoChange:
+        return txservice::ExecResult::Fail;
+    case CommandExecuteState::Modified:
+        return txservice::ExecResult::Write;
+    case CommandExecuteState::ModifiedToEmpty:
+        return txservice::ExecResult::Delete;
+    }
+    assert(false);
+    return txservice::ExecResult::Fail;
 }
 
 txservice::TxObject *SRemCommand::CommitOn(txservice::TxObject *obj_ptr)
@@ -6757,9 +6765,19 @@ txservice::ExecResult SPopCommand::ExecuteOn(const txservice::TxObject &object)
 
     const RedisHashSetObject *set_obj =
         static_cast<const RedisHashSetObject *>(&object);
+    CommandExecuteState state = set_obj->Execute(*this);
 
-    return set_obj->Execute(*this) ? txservice::ExecResult::Write
-                                   : txservice::ExecResult::Fail;
+    switch (state)
+    {
+    case CommandExecuteState::NoChange:
+        return txservice::ExecResult::Fail;
+    case CommandExecuteState::Modified:
+        return txservice::ExecResult::Write;
+    case CommandExecuteState::ModifiedToEmpty:
+        return txservice::ExecResult::Delete;
+    }
+    assert(false);
+    return txservice::ExecResult::Fail;
 }
 
 txservice::TxObject *SPopCommand::CommitOn(txservice::TxObject *obj_ptr)
