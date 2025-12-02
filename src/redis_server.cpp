@@ -449,12 +449,16 @@ int main(int argc, char *argv[])
     // Convert eloqkv flags to tx flags
     ConvertEloqkvFlagsToTxFlags(&config_reader);
 
-    if (!DataSubstrate::InitializeGlobal(config_file))
+    // Step 1: Initialize DataSubstrate
+    if (!DataSubstrate::Instance().Init(config_file))
     {
         LOG(ERROR) << "Failed to initialize DataSubstrate.";
         return -1;
     }
+
+    // Step 2: Initialize and register EloqKv engine
     LOG(INFO) << "Starting EloqKV Server ...";
+    DataSubstrate::Instance().EnableEngine(txservice::TableEngine::EloqKv);
     brpc::Server server;
     brpc::ServerOptions server_options;
     auto redis_service_impl =
@@ -463,13 +467,37 @@ int main(int argc, char *argv[])
     {
         LOG(ERROR) << "Failed to start EloqKV server.";
         redis_service_impl->Stop();
-        DataSubstrate::GetGlobal()->Shutdown();
+        DataSubstrate::Instance().Shutdown();
 #if BRPC_WITH_GLOG
         google::ShutdownGoogleLogging();
 #endif
         return -1;
     }
+
+    // Step 3: Start DataSubstrate
+    if (!DataSubstrate::Instance().Start())
+    {
+        LOG(ERROR) << "Failed to start DataSubstrate.";
+        redis_service_impl->Stop();
+        DataSubstrate::Instance().Shutdown();
+#if BRPC_WITH_GLOG
+        google::ShutdownGoogleLogging();
+#endif
+        return -1;
+    }
+
+    // Step 4: Start Redis service
     EloqKV::RedisServiceImpl *redis_service_ptr = redis_service_impl.get();
+    if (!redis_service_ptr->Start(server))
+    {
+        LOG(ERROR) << "Failed to start Redis service.";
+        redis_service_ptr->Stop();
+        DataSubstrate::Instance().Shutdown();
+#if BRPC_WITH_GLOG
+        google::ShutdownGoogleLogging();
+#endif
+        return -1;
+    }
     std::string n_bthreads;
     GFLAGS_NAMESPACE::GetCommandLineOption("bthread_concurrency", &n_bthreads);
     server_options.num_threads = std::stoi(n_bthreads);
@@ -480,7 +508,7 @@ int main(int argc, char *argv[])
     {
         LOG(ERROR) << "Failed to start EloqKV server.";
         redis_service_ptr->Stop();
-        DataSubstrate::GetGlobal()->Shutdown();
+        DataSubstrate::Instance().Shutdown();
 #if BRPC_WITH_GLOG
         google::ShutdownGoogleLogging();
 #endif
@@ -503,7 +531,7 @@ int main(int argc, char *argv[])
     {
         std::cout << "\nEloqKV Server Stopping..." << std::endl;
     }
-    DataSubstrate::GetGlobal()->Shutdown();
+    DataSubstrate::Instance().Shutdown();
     redis_service_ptr->Stop();
 
     if (!FLAGS_alsologtostderr)

@@ -165,6 +165,9 @@ public:
 
     bool Init(brpc::Server &brpc_server);
 
+    // Second phase of initialization, to be called after DataSubstrate::Start()
+    bool Start(brpc::Server &brpc_server);
+
     void Stop();
 
     // The number of master nodes serving at least one hash slot in the cluster.

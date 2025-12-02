@@ -90,7 +90,6 @@ DECLARE_int32(event_dispatcher_num);
 }
 
 EloqKV::RedisCatalogFactory catalog_factory;
-txservice::CatalogFactory *eloqkv_catalog_factory = &catalog_factory;
 // DEFINE all gflags here
 
 DECLARE_int32(node_memory_limit_mb);
@@ -184,29 +183,15 @@ bool RedisServiceImpl::Init(brpc::Server &brpc_server)
         return false;
     }
 
-    tx_service_ = DataSubstrate::GetGlobal()->GetTxService();
-    if (tx_service_ == nullptr)
-    {
-        LOG(ERROR) << "Error: TxService is not initialized.";
-        return false;
-    }
-    bool enable_store =
-        DataSubstrate::GetGlobal()->GetCoreConfig().enable_data_store;
-    store_hd_ = DataSubstrate::GetGlobal()->GetStoreHandler();
-    if (enable_store && store_hd_ == nullptr)
-    {
-        LOG(ERROR) << "Error: DataStoreHandler is not initialized.";
-        return false;
-    }
-    core_num_ = DataSubstrate::GetGlobal()->GetCoreConfig().core_num;
-    if (core_num_ == 0)
-    {
-        LOG(ERROR) << "Error: core_num is 0.";
-        return false;
-    }
-    node_memory_limit_mb_ = FLAGS_node_memory_limit_mb;
+    // Engine registration: EloqKv
+    auto &ds = DataSubstrate::Instance();
 
     databases = config_reader.GetInteger("local", "databases", 16);
+
+    // Prebuilt Redis tables (same names as today: data_table_0 .. data_table_15)
+    std::vector<std::pair<txservice::TableName, std::string>> prebuilt_tables;
+    prebuilt_tables.reserve(databases);
+
     for (int i = 0; i < databases; i++)
     {
         std::string table_name("data_table_");
@@ -223,16 +208,56 @@ bool RedisServiceImpl::Init(brpc::Server &brpc_server)
 #elif defined(DATA_STORE_TYPE_ROCKSDB)
         // TODO(lokax):
 #endif
+        prebuilt_tables.emplace_back(redis_table_name, image);
         redis_table_names_.push_back(redis_table_name);
+    }
+
+    // EloqKV-specific metrics (follow commented metrics_init.cpp patterns)
+    std::vector<std::tuple<metrics::Name,
+                           metrics::Type,
+                           std::vector<metrics::LabelGroup>>>
+        engine_metrics;
+
+    for (const auto &[cmd, _] : EloqKV::command_types)
+    {
+        std::vector<metrics::LabelGroup> label_groups = {{"type", {cmd}}};
+
+        engine_metrics.push_back(std::make_tuple(
+            metrics::NAME_REDIS_COMMAND_DURATION,
+            metrics::Type::Histogram,
+            label_groups));
+        engine_metrics.push_back(std::make_tuple(
+            metrics::NAME_REDIS_COMMAND_TOTAL,
+            metrics::Type::Counter,
+            label_groups));
+    }
+
+    for (const auto &access_type : {"read", "write"})
+    {
+        engine_metrics.push_back(
+            std::make_tuple(metrics::NAME_REDIS_COMMAND_AGGREGATED_TOTAL,
+                            metrics::Type::Counter,
+                            std::vector<metrics::LabelGroup>{
+                                {"access_type", {access_type}}}));
+        engine_metrics.push_back(
+            std::make_tuple(metrics::NAME_REDIS_COMMAND_AGGREGATED_DURATION,
+                            metrics::Type::Histogram,
+                            std::vector<metrics::LabelGroup>{
+                                {"access_type", {access_type}}}));
+    }
+
+    if (!ds.RegisterEngine(txservice::TableEngine::EloqKv,
+                           &catalog_factory,
+                           /*system_handler=*/nullptr,
+                           std::move(prebuilt_tables),
+                           std::move(engine_metrics)))
+    {
+        LOG(ERROR) << "Failed to register EloqKV engine with DataSubstrate";
+        return false;
     }
 
     requirepass = config_reader.GetString("local", "requirepass", "");
 
-    skip_kv_ = !DataSubstrate::GetGlobal()->GetCoreConfig().enable_data_store;
-    skip_wal_ = !DataSubstrate::GetGlobal()->GetCoreConfig().enable_wal;
-
-    std::string local_ip =
-        DataSubstrate::GetGlobal()->GetNetworkConfig().local_ip;
     redis_port_ = !CheckCommandLineFlagIsDefault("eloqkv_port")
                       ? FLAGS_eloqkv_port
                       : config_reader.GetInteger(
@@ -262,32 +287,10 @@ bool RedisServiceImpl::Init(brpc::Server &brpc_server)
             ? FLAGS_slow_log_max_length
             : config_reader.GetInteger("local", "slow_log_max_length", 128);
 
-    for (size_t core_idx = 0; core_idx < core_num_; ++core_idx)
-    {
-        slow_log_mutexes_.emplace_back(std::make_unique<bthread::Mutex>());
-    }
-
-    slow_log_.resize(core_num_);
-    next_slow_log_idx_.resize(core_num_, 0);
-    for (size_t core_idx = 0; core_idx < core_num_; ++core_idx)
-    {
-        // high 16 bits: core_id
-        // low 48 bits: counter
-        next_slow_log_unique_id_.push_back(core_idx << 48);
-    }
-
-    slow_log_len_.resize(core_num_, 0);
     if (slow_log_threshold_ < -1)
     {
         // slowlog threshold master >= -1
         slow_log_threshold_ = -1;
-    }
-
-    // Each task group will maintain its own slow log to avoid race
-    // condition.
-    for (uint32_t i = 0; i < core_num_; ++i)
-    {
-        slow_log_[i].resize(slow_log_max_length_);
     }
 
     config_.try_emplace("slowlog-log-slower-than",
@@ -297,59 +300,6 @@ bool RedisServiceImpl::Init(brpc::Server &brpc_server)
 
     std::srand(std::time(nullptr));
     crc64speed_init_big();
-
-    // Change(lzx): change the "local.port" and "cluster.ip_port_list" to the
-    // address of local redis and cluster instead of txservice. The port of
-    // txservice is set as redis port add "10000". eg.6379->16379
-    if (DataSubstrate::GetGlobal()->GetNetworkConfig().bind_all)
-    {
-        redis_ip_port = "0.0.0.0:" + std::to_string(redis_port_);
-    }
-    else
-    {
-        redis_ip_port = local_ip + ":" + std::to_string(redis_port_);
-    }
-
-    DLOG(INFO) << "Local EloqKv server ip port: " << redis_ip_port;
-
-    if (DataSubstrate::GetGlobal()->GetCoreConfig().bootstrap)
-    {
-        Stop();
-        DataSubstrate::GetGlobal()->Shutdown();
-
-        LOG(INFO) << "bootstrap done !!!";
-
-        if (!FLAGS_alsologtostderr)
-        {
-            std::cout << "bootstrap done !!!" << std::endl;
-        }
-
-#if BRPC_WITH_GLOG
-        google::ShutdownGoogleLogging();
-#endif
-
-        exit(0);
-    }
-
-    /* Initialize metrics registery and register metrics */
-    stopping_indicator_.store(false, std::memory_order_release);
-
-    if (metrics::enable_metrics)
-    {
-        redis_cmd_current_rounds_.resize(core_num_);
-        for (auto &vec : redis_cmd_current_rounds_)
-        {
-            vec.resize(command_types.size() + 10, 1);
-        }
-    }
-
-    if (metrics::enable_metrics)
-    {
-        metrics_collector_thd_ =
-            std::thread(&RedisServiceImpl::CollectConnectionsMetrics,
-                        this,
-                        std::ref(brpc_server));
-    }
 
     enable_redis_stats_ =
         !CheckCommandLineFlagIsDefault("enable_redis_stats")
@@ -487,17 +437,132 @@ bool RedisServiceImpl::Init(brpc::Server &brpc_server)
         vector_index_worker_pool_ =
             std::make_unique<txservice::TxWorkerPool>(vector_index_worker_num);
     }
+    // Vector handler initialization moved to Start() since it requires tx_service_
+#endif
 
-    // Initialize vector handler
-    EloqVec::CloudConfig vector_cloud_config(config_reader);
-    if (!EloqVec::VectorHandler::InitHandlerInstance(
+    return true;
+}
+
+bool RedisServiceImpl::Start(brpc::Server &brpc_server)
+{
+    auto &ds = DataSubstrate::Instance();
+
+    // Attach to TxService and DataStoreHandler now that DataSubstrate is started.
+
+    tx_service_ = ds.GetTxService();
+    if (tx_service_ == nullptr)
+    {
+        LOG(ERROR) << "Error: TxService is not initialized.";
+        return false;
+    }
+    bool enable_store =
+        ds.GetCoreConfig().enable_data_store;
+    store_hd_ = ds.GetStoreHandler();
+    if (enable_store && store_hd_ == nullptr)
+    {
+        LOG(ERROR) << "Error: DataStoreHandler is not initialized.";
+        return false;
+    }
+    core_num_ = ds.GetCoreConfig().core_num;
+    if (core_num_ == 0)
+    {
+        LOG(ERROR) << "Error: core_num is 0.";
+        return false;
+    }
+    node_memory_limit_mb_ = FLAGS_node_memory_limit_mb;
+
+    // Size slow_log_* structures based on core_num_
+    slow_log_mutexes_.clear();
+    for (size_t core_idx = 0; core_idx < core_num_; ++core_idx)
+    {
+        slow_log_mutexes_.emplace_back(std::make_unique<bthread::Mutex>());
+    }
+
+    slow_log_.resize(core_num_);
+    next_slow_log_idx_.resize(core_num_, 0);
+    for (size_t core_idx = 0; core_idx < core_num_; ++core_idx)
+    {
+        // high 16 bits: core_id
+        // low 48 bits: counter
+        next_slow_log_unique_id_.push_back(core_idx << 48);
+    }
+
+    slow_log_len_.resize(core_num_, 0);
+
+    // Each task group will maintain its own slow log to avoid race
+    // condition.
+    for (uint32_t i = 0; i < core_num_; ++i)
+    {
+        slow_log_[i].resize(slow_log_max_length_);
+    }
+
+    // Compute redis_ip_port using network config
+    std::string local_ip = ds.GetNetworkConfig().local_ip;
+    if (ds.GetNetworkConfig().bind_all)
+    {
+        redis_ip_port = "0.0.0.0:" + std::to_string(redis_port_);
+    }
+    else
+    {
+        redis_ip_port = local_ip + ":" + std::to_string(redis_port_);
+    }
+
+    DLOG(INFO) << "Local EloqKv server ip port: " << redis_ip_port;
+
+    // Check bootstrap and handle it
+    if (ds.GetCoreConfig().bootstrap)
+    {
+        Stop();
+        ds.Shutdown();
+
+        LOG(INFO) << "bootstrap done !!!";
+
+        if (!FLAGS_alsologtostderr)
+        {
+            std::cout << "bootstrap done !!!" << std::endl;
+        }
+
+#if BRPC_WITH_GLOG
+        google::ShutdownGoogleLogging();
+#endif
+
+        exit(0);
+    }
+
+    // Metrics-related initialization that depends on DataSubstrate::InitializeMetrics
+    stopping_indicator_.store(false, std::memory_order_release);
+
+    if (metrics::enable_metrics)
+    {
+        redis_cmd_current_rounds_.resize(core_num_);
+        for (auto &vec : redis_cmd_current_rounds_)
+        {
+            vec.resize(command_types.size() + 10, 1);
+        }
+
+        // The metrics registry and redis_meter are already created by DataSubstrate.
+        // We only need to start our collector thread here.
+        metrics_collector_thd_ =
+            std::thread(&RedisServiceImpl::CollectConnectionsMetrics,
+                        this,
+                        std::ref(brpc_server));
+    }
+
+#ifdef VECTOR_INDEX_ENABLED
+    // Initialize vector handler now that tx_service_ is available
+    if (vector_index_worker_pool_ != nullptr)
+    {
+        INIReader config_reader(config_file_);
+        EloqVec::CloudConfig vector_cloud_config(config_reader);
+        if (!EloqVec::VectorHandler::InitHandlerInstance(
             tx_service_,
             vector_index_worker_pool_.get(),
             eloq_data_path,
             &vector_cloud_config))
-    {
-        LOG(ERROR) << "Failed to initialize vector handler instance";
-        return false;
+        {
+            LOG(ERROR) << "Failed to initialize vector handler instance";
+            return false;
+        }
     }
 #endif
 
@@ -5985,7 +6050,8 @@ metrics::Meter *RedisServiceImpl::GetMeter(std::size_t core_id) const
 
 size_t RedisServiceImpl::MaxConnectionCount() const
 {
-    return DataSubstrate::GetGlobal()->GetCoreConfig().maxclients;
+    auto &ds = DataSubstrate::Instance();
+    return ds.GetCoreConfig().maxclients;
 }
 
 }  // namespace EloqKV
