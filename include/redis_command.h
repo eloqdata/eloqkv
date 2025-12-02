@@ -1676,6 +1676,9 @@ struct SetRangeCommand : public StringCommand
     explicit SetRangeCommand(int64_t offset, std::string_view val)
         : offset_(offset), value_(val)
     {
+        // Set err_cod_ to OK. So that if the string object does not exist and
+        // value_ is empty, OutputResult producs 0 instead of NIL err.
+        result_.err_code_ = RD_OK;
     }
 
     /**
@@ -1700,7 +1703,9 @@ struct SetRangeCommand : public StringCommand
 
     bool ProceedOnNonExistentObject() const override
     {
-        return true;
+        // SetRange does not create new string object if the value_ is empty
+        // string.
+        return value_.Length() > 0;
     }
 
     bool ProceedOnExistentObject() const override

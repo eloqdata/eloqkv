@@ -3113,7 +3113,6 @@ txservice::TxObject *SetRangeCommand::CommitOn(txservice::TxObject *obj_ptr)
     // the object is string type
     str_obj_ptr->CommitSetRange(offset_, value_);
 
-    assert(str_obj_ptr->Length() > 0);
     return obj_ptr;
 }
 

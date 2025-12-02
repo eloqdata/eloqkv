@@ -107,7 +107,7 @@ CommandExecuteState RedisHashSetObject::Execute(SRemCommand &cmd) const
     }
 
     bool empty_after_removal =
-        result.ret_ >= static_cast<int64_t>(hash_set_.size());
+        result.ret_ >= static_cast<int32_t>(hash_set_.size());
     return empty_after_removal ? CommandExecuteState::ModifiedToEmpty
                                : CommandExecuteState::Modified;
 }
