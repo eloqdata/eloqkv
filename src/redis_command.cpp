@@ -3528,7 +3528,7 @@ txservice::ExecResult LPopCommand::ExecuteOn(const txservice::TxObject &object)
     switch (state)
     {
     case CommandExecuteState::NoChange:
-        return txservice::ExecResult::Read;
+        return txservice::ExecResult::Fail;
     case CommandExecuteState::Modified:
         return txservice::ExecResult::Write;
     case CommandExecuteState::ModifiedToEmpty:
@@ -3686,7 +3686,7 @@ txservice::ExecResult RPopCommand::ExecuteOn(const txservice::TxObject &object)
     switch (state)
     {
     case CommandExecuteState::NoChange:
-        return txservice::ExecResult::Read;
+        return txservice::ExecResult::Fail;
     case CommandExecuteState::Modified:
         return txservice::ExecResult::Write;
     case CommandExecuteState::ModifiedToEmpty:
@@ -3836,7 +3836,7 @@ txservice::ExecResult LMovePopCommand::ExecuteOn(
     switch (state)
     {
     case CommandExecuteState::NoChange:
-        return ExecResult::Read;
+        return ExecResult::Fail;
     case CommandExecuteState::Modified:
         return ExecResult::Write;
     case CommandExecuteState::ModifiedToEmpty:
@@ -4075,7 +4075,7 @@ txservice::ExecResult LTrimCommand::ExecuteOn(const txservice::TxObject &object)
     switch (state)
     {
     case CommandExecuteState::NoChange:
-        return txservice::ExecResult::Read;
+        return txservice::ExecResult::Fail;
     case CommandExecuteState::Modified:
         return txservice::ExecResult::Write;
     case CommandExecuteState::ModifiedToEmpty:
@@ -4437,7 +4437,7 @@ txservice::ExecResult LRemCommand::ExecuteOn(const txservice::TxObject &object)
     switch (state)
     {
     case CommandExecuteState::NoChange:
-        return txservice::ExecResult::Read;
+        return txservice::ExecResult::Fail;
     case CommandExecuteState::Modified:
         return txservice::ExecResult::Write;
     case CommandExecuteState::ModifiedToEmpty:
@@ -4519,20 +4519,8 @@ txservice::ExecResult LPushXCommand::ExecuteOn(
     const RedisListObject &list_obj =
         static_cast<const RedisListObject &>(object);
     CommandExecuteState state = list_obj.Execute(*this);
-    if (list_result.err_code_ != RD_OK && list_result.err_code_ != RD_NIL)
-    {
-        return txservice::ExecResult::Fail;
-    }
-
-    switch (state)
-    {
-    case CommandExecuteState::NoChange:
-        return txservice::ExecResult::Read;
-    case CommandExecuteState::Modified:
-    case CommandExecuteState::ModifiedToEmpty:
-        return txservice::ExecResult::Write;
-    }
-    return txservice::ExecResult::Fail;
+    return state == CommandExecuteState::Modified ? txservice::ExecResult::Write
+                                                  : txservice::ExecResult::Fail;
 }
 
 txservice::TxObject *LPushXCommand::CommitOn(txservice::TxObject *obj_ptr)
@@ -4614,20 +4602,9 @@ txservice::ExecResult RPushXCommand::ExecuteOn(
     const RedisListObject &list_obj =
         static_cast<const RedisListObject &>(object);
     CommandExecuteState state = list_obj.Execute(*this);
-    if (list_result.err_code_ != RD_OK && list_result.err_code_ != RD_NIL)
-    {
-        return txservice::ExecResult::Fail;
-    }
 
-    switch (state)
-    {
-    case CommandExecuteState::NoChange:
-        return txservice::ExecResult::Read;
-    case CommandExecuteState::Modified:
-    case CommandExecuteState::ModifiedToEmpty:
-        return txservice::ExecResult::Write;
-    }
-    return txservice::ExecResult::Fail;
+    return state == CommandExecuteState::Modified ? txservice::ExecResult::Write
+                                                  : txservice::ExecResult::Fail;
 }
 
 txservice::TxObject *RPushXCommand::CommitOn(txservice::TxObject *obj_ptr)
@@ -12096,8 +12073,19 @@ txservice::ExecResult ZPopCommand::ExecuteOn(const txservice::TxObject &object)
 
     const RedisZsetObject &zset_obj =
         static_cast<const RedisZsetObject &>(object);
-    return zset_obj.Execute(*this) ? txservice::ExecResult::Write
-                                   : txservice::ExecResult::Fail;
+    CommandExecuteState state = zset_obj.Execute(*this);
+
+    switch (state)
+    {
+    case CommandExecuteState::NoChange:
+        return txservice::ExecResult::Fail;
+    case CommandExecuteState::Modified:
+        return txservice::ExecResult::Write;
+    case CommandExecuteState::ModifiedToEmpty:
+        return txservice::ExecResult::Delete;
+    }
+    assert(false);
+    return txservice::ExecResult::Fail;
 }
 
 txservice::TxObject *ZPopCommand::CommitOn(txservice::TxObject *obj_ptr)
@@ -12221,23 +12209,27 @@ txservice::ExecResult ZAddCommand::ExecuteOn(const txservice::TxObject &object)
 
     if (params_.ForceClear())
     {
+        size_t new_size = 0;
         if (type_ == ElementType::vector)
         {
             auto &vct =
                 std::get<std::vector<std::pair<double, EloqString>>>(elements_);
-            zset_result_.result_ = static_cast<int>(vct.size());
+            new_size = vct.size();
+            zset_result_.result_ = static_cast<int>(new_size);
         }
         else
         {
             zset_result_.result_ = 0;
         }
         zset_result_.err_code_ = RD_OK;
-        return txservice::ExecResult::Write;
+        return new_size == 0 ? txservice::ExecResult::Delete
+                             : txservice::ExecResult::Write;
     }
     const RedisZsetObject &zset_obj =
         static_cast<const RedisZsetObject &>(object);
-    return zset_obj.Execute(*this) ? txservice::ExecResult::Write
-                                   : txservice::ExecResult::Fail;
+    CommandExecuteState state = zset_obj.Execute(*this);
+    return state == CommandExecuteState::Modified ? txservice::ExecResult::Write
+                                                  : txservice::ExecResult::Fail;
 }
 
 txservice::TxObject *ZAddCommand::CommitOn(txservice::TxObject *obj_ptr)
@@ -12974,8 +12966,19 @@ txservice::ExecResult ZRemRangeCommand::ExecuteOn(
 
     const RedisZsetObject &zset_obj =
         static_cast<const RedisZsetObject &>(object);
-    return zset_obj.Execute(*this) ? txservice::ExecResult::Write
-                                   : txservice::ExecResult::Fail;
+    CommandExecuteState state = zset_obj.Execute(*this);
+
+    switch (state)
+    {
+    case CommandExecuteState::NoChange:
+        return txservice::ExecResult::Fail;
+    case CommandExecuteState::Modified:
+        return txservice::ExecResult::Write;
+    case CommandExecuteState::ModifiedToEmpty:
+        return txservice::ExecResult::Delete;
+    }
+    assert(false);
+    return txservice::ExecResult::Fail;
 }
 
 txservice::TxObject *ZRemRangeCommand::CommitOn(txservice::TxObject *obj_ptr)
@@ -13186,8 +13189,19 @@ txservice::ExecResult ZRemCommand::ExecuteOn(const txservice::TxObject &object)
     }
     const RedisZsetObject &zset_obj =
         static_cast<const RedisZsetObject &>(object);
-    return zset_obj.Execute(*this) ? txservice::ExecResult::Write
-                                   : txservice::ExecResult::Fail;
+    CommandExecuteState state = zset_obj.Execute(*this);
+
+    switch (state)
+    {
+    case CommandExecuteState::NoChange:
+        return txservice::ExecResult::Fail;
+    case CommandExecuteState::Modified:
+        return txservice::ExecResult::Write;
+    case CommandExecuteState::ModifiedToEmpty:
+        return txservice::ExecResult::Delete;
+    }
+    assert(false);
+    return txservice::ExecResult::Fail;
 }
 
 txservice::TxObject *ZRemCommand::CommitOn(txservice::TxObject *obj_ptr)
@@ -14660,8 +14674,19 @@ txservice::ExecResult HDelCommand::ExecuteOn(const txservice::TxObject &object)
 
     const RedisHashObject &hash_obj =
         static_cast<const RedisHashObject &>(object);
-    return hash_obj.Execute(*this) ? txservice::ExecResult::Write
-                                   : txservice::ExecResult::Fail;
+    CommandExecuteState state = hash_obj.Execute(*this);
+
+    switch (state)
+    {
+    case CommandExecuteState::NoChange:
+        return txservice::ExecResult::Fail;
+    case CommandExecuteState::Modified:
+        return txservice::ExecResult::Write;
+    case CommandExecuteState::ModifiedToEmpty:
+        return txservice::ExecResult::Delete;
+    }
+    assert(false);
+    return txservice::ExecResult::Fail;
 }
 
 txservice::TxObject *HDelCommand::CommitOn(txservice::TxObject *const obj_ptr)

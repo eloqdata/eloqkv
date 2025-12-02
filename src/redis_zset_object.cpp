@@ -411,7 +411,7 @@ std::tuple<int, EloqString, bool> RedisZsetObject::ZAddIncr(
         RD_OK, EloqString(d2string(num).data(), d2string(num).size()), true};
 }
 
-bool RedisZsetObject::Execute(ZAddCommand &cmd) const
+CommandExecuteState RedisZsetObject::Execute(ZAddCommand &cmd) const
 {
     RedisZsetResult &result = cmd.zset_result_;
 
@@ -444,7 +444,7 @@ bool RedisZsetObject::Execute(ZAddCommand &cmd) const
     if (serialized_length_ + size_increased > MAX_OBJECT_SIZE)
     {
         result.err_code_ = RD_ERR_OBJECT_TOO_BIG;
-        return false;
+        return CommandExecuteState::NoChange;
     }
 
     bool modified = false;
@@ -487,7 +487,8 @@ bool RedisZsetObject::Execute(ZAddCommand &cmd) const
             cmd.params_.CH());
     }
 
-    return modified;
+    return modified ? CommandExecuteState::Modified
+                    : CommandExecuteState::NoChange;
 }
 
 void RedisZsetObject::CommitZAdd(
@@ -1112,7 +1113,7 @@ void RedisZsetObject::Execute(ZCardCommand &cmd) const
     result.result_ = static_cast<int>(z_ordered_set_.size());
 }
 
-bool RedisZsetObject::Execute(ZRemCommand &cmd) const
+CommandExecuteState RedisZsetObject::Execute(ZRemCommand &cmd) const
 {
     RedisZsetResult &result = cmd.zset_result_;
     int ans = 0;
@@ -1122,7 +1123,14 @@ bool RedisZsetObject::Execute(ZRemCommand &cmd) const
     }
     result.err_code_ = RD_OK;
     result.result_ = ans;
-    return ans > 0;
+    if (ans == 0)
+    {
+        return CommandExecuteState::NoChange;
+    }
+
+    bool empty_after_removal = ans >= static_cast<int>(z_ordered_set_.size());
+    return empty_after_removal ? CommandExecuteState::ModifiedToEmpty
+                               : CommandExecuteState::Modified;
 }
 
 void RedisZsetObject::Execute(SortableLoadCommand &cmd) const
@@ -1275,7 +1283,7 @@ int RedisZsetObject::ZRemRangeByRank(ZRangeSpec &spec) const
     return remove_cnt;
 }
 
-bool RedisZsetObject::Execute(ZRemRangeCommand &cmd) const
+CommandExecuteState RedisZsetObject::Execute(ZRemRangeCommand &cmd) const
 {
     RedisZsetResult &zset_result = cmd.zset_result_;
     zset_result.err_code_ = RD_OK;
@@ -1304,7 +1312,15 @@ bool RedisZsetObject::Execute(ZRemRangeCommand &cmd) const
         assert(false && "Unknown range type");
     }
     zset_result.result_ = remove_cnt;
-    return remove_cnt > 0;
+    if (remove_cnt <= 0)
+    {
+        return CommandExecuteState::NoChange;
+    }
+
+    bool empty_after_removal =
+        remove_cnt >= static_cast<int>(z_ordered_set_.size());
+    return empty_after_removal ? CommandExecuteState::ModifiedToEmpty
+                               : CommandExecuteState::Modified;
 }
 
 bool RedisZsetObject::CommitZRemRange(ZRangeType &range_type, ZRangeSpec &spec)
@@ -1472,9 +1488,10 @@ void RedisZsetObject::Execute(ZScoreCommand &cmd) const
     }
 }
 
-bool RedisZsetObject::Execute(ZPopCommand &cmd) const
+CommandExecuteState RedisZsetObject::Execute(ZPopCommand &cmd) const
 {
     RedisZsetResult &result = cmd.zset_result_;
+    size_t set_size = z_ordered_set_.size();
 
     std::vector<EloqString> ans;
     if (cmd.pop_type_ == ZPopCommand::PopType::POPMIN)
@@ -1501,9 +1518,17 @@ bool RedisZsetObject::Execute(ZPopCommand &cmd) const
     }
 
     bool success = !ans.empty();
+    size_t removed_cnt = ans.size() / 2;
     result.err_code_ = RD_OK;
     result.result_ = std::move(ans);
-    return success;
+    if (!success)
+    {
+        return CommandExecuteState::NoChange;
+    }
+
+    bool empty_after_removal = removed_cnt >= set_size;
+    return empty_after_removal ? CommandExecuteState::ModifiedToEmpty
+                               : CommandExecuteState::Modified;
 }
 
 bool RedisZsetObject::CommitZPop(ZPopCommand::PopType pop_type, int64_t count)

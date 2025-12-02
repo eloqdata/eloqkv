@@ -145,10 +145,11 @@ void RedisHashObject::Execute(EloqKV::HStrLenCommand &cmd) const
     }
 }
 
-bool RedisHashObject::Execute(EloqKV::HDelCommand &cmd) const
+CommandExecuteState RedisHashObject::Execute(EloqKV::HDelCommand &cmd) const
 {
     RedisHashResult &hash_result = cmd.result_;
     int cnt = 0;
+    size_t hash_size = hash_map_.size();
     for (auto &key : cmd.del_list_)
     {
         cnt += (hash_map_.find(key) != hash_map_.end());
@@ -158,7 +159,15 @@ bool RedisHashObject::Execute(EloqKV::HDelCommand &cmd) const
         hash_result.err_code_ = RD_OK;
     }
     hash_result.result_ = cnt;
-    return cnt > 0;
+
+    if (cnt == 0)
+    {
+        return CommandExecuteState::NoChange;
+    }
+
+    bool empty_after_removal = cnt >= static_cast<int>(hash_size);
+    return empty_after_removal ? CommandExecuteState::ModifiedToEmpty
+                               : CommandExecuteState::Modified;
 }
 
 bool RedisHashObject::CommitHdel(std::vector<EloqString> &keys)

@@ -183,12 +183,12 @@ public:
         ZParams &params,
         ZAddCommand::ElementType &type) const;
 
-    bool Execute(ZAddCommand &cmd) const;
-    bool Execute(ZRemCommand &cmd) const;
-    bool Execute(ZRemRangeCommand &cmd) const;
+    CommandExecuteState Execute(ZAddCommand &cmd) const;
+    CommandExecuteState Execute(ZRemCommand &cmd) const;
+    CommandExecuteState Execute(ZRemRangeCommand &cmd) const;
     void Execute(ZScoreCommand &cmd) const;
     void Execute(ZRangeCommand &cmd) const;
-    bool Execute(ZPopCommand &cmd) const;
+    CommandExecuteState Execute(ZPopCommand &cmd) const;
     void Execute(ZLexCountCommand &cmd) const;
     void Execute(ZCountCommand &cmd) const;
     void Execute(ZCardCommand &cmd) const;
