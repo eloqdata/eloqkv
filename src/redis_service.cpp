@@ -188,7 +188,8 @@ bool RedisServiceImpl::Init(brpc::Server &brpc_server)
 
     databases = config_reader.GetInteger("local", "databases", 16);
 
-    // Prebuilt Redis tables (same names as today: data_table_0 .. data_table_15)
+    // Prebuilt Redis tables (same names as today: data_table_0 ..
+    // data_table_15)
     std::vector<std::pair<txservice::TableName, std::string>> prebuilt_tables;
     prebuilt_tables.reserve(databases);
 
@@ -222,28 +223,26 @@ bool RedisServiceImpl::Init(brpc::Server &brpc_server)
     {
         std::vector<metrics::LabelGroup> label_groups = {{"type", {cmd}}};
 
-        engine_metrics.push_back(std::make_tuple(
-            metrics::NAME_REDIS_COMMAND_DURATION,
-            metrics::Type::Histogram,
-            label_groups));
-        engine_metrics.push_back(std::make_tuple(
-            metrics::NAME_REDIS_COMMAND_TOTAL,
-            metrics::Type::Counter,
-            label_groups));
+        engine_metrics.push_back(
+            std::make_tuple(metrics::NAME_REDIS_COMMAND_DURATION,
+                            metrics::Type::Histogram,
+                            label_groups));
+        engine_metrics.push_back(
+            std::make_tuple(metrics::NAME_REDIS_COMMAND_TOTAL,
+                            metrics::Type::Counter,
+                            label_groups));
     }
 
     for (const auto &access_type : {"read", "write"})
     {
-        engine_metrics.push_back(
-            std::make_tuple(metrics::NAME_REDIS_COMMAND_AGGREGATED_TOTAL,
-                            metrics::Type::Counter,
-                            std::vector<metrics::LabelGroup>{
-                                {"access_type", {access_type}}}));
-        engine_metrics.push_back(
-            std::make_tuple(metrics::NAME_REDIS_COMMAND_AGGREGATED_DURATION,
-                            metrics::Type::Histogram,
-                            std::vector<metrics::LabelGroup>{
-                                {"access_type", {access_type}}}));
+        engine_metrics.push_back(std::make_tuple(
+            metrics::NAME_REDIS_COMMAND_AGGREGATED_TOTAL,
+            metrics::Type::Counter,
+            std::vector<metrics::LabelGroup>{{"access_type", {access_type}}}));
+        engine_metrics.push_back(std::make_tuple(
+            metrics::NAME_REDIS_COMMAND_AGGREGATED_DURATION,
+            metrics::Type::Histogram,
+            std::vector<metrics::LabelGroup>{{"access_type", {access_type}}}));
     }
 
     if (!ds.RegisterEngine(txservice::TableEngine::EloqKv,
@@ -437,7 +436,8 @@ bool RedisServiceImpl::Init(brpc::Server &brpc_server)
         vector_index_worker_pool_ =
             std::make_unique<txservice::TxWorkerPool>(vector_index_worker_num);
     }
-    // Vector handler initialization moved to Start() since it requires tx_service_
+    // Vector handler initialization moved to Start() since it requires
+    // tx_service_
 #endif
 
     return true;
@@ -447,7 +447,8 @@ bool RedisServiceImpl::Start(brpc::Server &brpc_server)
 {
     auto &ds = DataSubstrate::Instance();
 
-    // Attach to TxService and DataStoreHandler now that DataSubstrate is started.
+    // Attach to TxService and DataStoreHandler now that DataSubstrate is
+    // started.
 
     tx_service_ = ds.GetTxService();
     if (tx_service_ == nullptr)
@@ -455,8 +456,7 @@ bool RedisServiceImpl::Start(brpc::Server &brpc_server)
         LOG(ERROR) << "Error: TxService is not initialized.";
         return false;
     }
-    bool enable_store =
-        ds.GetCoreConfig().enable_data_store;
+    bool enable_store = ds.GetCoreConfig().enable_data_store;
     store_hd_ = ds.GetStoreHandler();
     if (enable_store && store_hd_ == nullptr)
     {
@@ -470,6 +470,8 @@ bool RedisServiceImpl::Start(brpc::Server &brpc_server)
         return false;
     }
     node_memory_limit_mb_ = FLAGS_node_memory_limit_mb;
+    skip_kv_ = !ds.GetCoreConfig().enable_data_store;
+    skip_wal_ = !ds.GetCoreConfig().enable_wal;
 
     // Size slow_log_* structures based on core_num_
     slow_log_mutexes_.clear();
@@ -529,7 +531,8 @@ bool RedisServiceImpl::Start(brpc::Server &brpc_server)
         exit(0);
     }
 
-    // Metrics-related initialization that depends on DataSubstrate::InitializeMetrics
+    // Metrics-related initialization that depends on
+    // DataSubstrate::InitializeMetrics
     stopping_indicator_.store(false, std::memory_order_release);
 
     if (metrics::enable_metrics)
@@ -540,8 +543,8 @@ bool RedisServiceImpl::Start(brpc::Server &brpc_server)
             vec.resize(command_types.size() + 10, 1);
         }
 
-        // The metrics registry and redis_meter are already created by DataSubstrate.
-        // We only need to start our collector thread here.
+        // The metrics registry and redis_meter are already created by
+        // DataSubstrate. We only need to start our collector thread here.
         metrics_collector_thd_ =
             std::thread(&RedisServiceImpl::CollectConnectionsMetrics,
                         this,
@@ -555,10 +558,10 @@ bool RedisServiceImpl::Start(brpc::Server &brpc_server)
         INIReader config_reader(config_file_);
         EloqVec::CloudConfig vector_cloud_config(config_reader);
         if (!EloqVec::VectorHandler::InitHandlerInstance(
-            tx_service_,
-            vector_index_worker_pool_.get(),
-            eloq_data_path,
-            &vector_cloud_config))
+                tx_service_,
+                vector_index_worker_pool_.get(),
+                ds.GetCoreConfig().data_path,
+                &vector_cloud_config))
         {
             LOG(ERROR) << "Failed to initialize vector handler instance";
             return false;
