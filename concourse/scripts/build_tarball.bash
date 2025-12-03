@@ -197,8 +197,13 @@ fi
 if [ -n "${DSS_TYPE}" ]; then
     DSS_SRC_DIR="${ELOQKV_SRC}/data_substrate/store_handler/eloq_data_store_service"
     cd "${DSS_SRC_DIR}"
+
+    if [ "${DATA_STORE_TYPE}" = "ELOQDSS_ELOQSTORE" ]; then
+        DSS_CMAKE_ARGS="${DSS_CMAKE_ARGS} -DELOQ_MODULE_ENABLED=ON"
+    fi
+
     mkdir -p build && cd build
-    cmake .. -DCMAKE_BUILD_TYPE=${BUILD_TYPE} -DWITH_DATA_STORE=${DSS_TYPE}
+    cmake .. -DCMAKE_BUILD_TYPE=${BUILD_TYPE} -DWITH_DATA_STORE=${DSS_TYPE} ${DSS_CMAKE_ARGS}
     cmake --build . --config ${BUILD_TYPE} -j${NCORE}
     copy_libraries dss_server ${DEST_DIR}/lib
     mv dss_server ${DEST_DIR}/bin/
