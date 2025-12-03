@@ -183,8 +183,8 @@ cmake .. -DCMAKE_BUILD_TYPE=$BUILD_TYPE -DWITH_DATA_STORE=$DATA_STORE_TYPE $CMAK
 cmake --build . --config ${BUILD_TYPE} -j${NCORE}
 copy_libraries eloqkv ${DEST_DIR}/lib
 mv eloqkv ${DEST_DIR}/bin/
-copy_libraries host_manager ${DEST_DIR}/lib
-mv host_manager ${DEST_DIR}/bin/
+copy_libraries data_substrate/host_manager ${DEST_DIR}/lib
+mv data_substrate/host_manager ${DEST_DIR}/bin/
 
 # build dss_server and include in tarball
 # Map DATA_STORE_TYPE to DSS-compatible values (any ELOQDSS_* builds DSS; others skip)
