@@ -32,6 +32,26 @@ option(BUILD_ELOQKV_AS_LIBRARY "Build eloqkv as library instead of executable" O
 
 set(WITH_DATA_STORE "ELOQDSS_ROCKSDB" CACHE STRING "Which key-value storage to use")
 set_property(CACHE WITH_DATA_STORE PROPERTY STRINGS "DYNAMODB" "BIGTABLE" "ELOQDSS_ROCKSDB_CLOUD_S3" "ELOQDSS_ELOQSTORE" "ELOQDSS_ROCKSDB")
+
+# Keep log-state options visible at the top level so every target shares the
+# same compile definitions as the data_substrate library.
+set(WITH_LOG_STATE "ROCKSDB" CACHE STRING "The log state implementation")
+set_property(CACHE WITH_LOG_STATE PROPERTY STRINGS "MEMORY" "ROCKSDB" "ROCKSDB_CLOUD_S3" "ROCKSDB_CLOUD_GCS")
+
+if(WITH_LOG_STATE STREQUAL "MEMORY")
+    add_compile_definitions(LOG_STATE_TYPE_MEM)
+elseif(WITH_LOG_STATE STREQUAL "ROCKSDB")
+    add_compile_definitions(LOG_STATE_TYPE_RKDB)
+    add_compile_definitions(LOG_STATE_TYPE_RKDB_ALL)
+elseif(WITH_LOG_STATE STREQUAL "ROCKSDB_CLOUD_S3")
+    add_compile_definitions(LOG_STATE_TYPE_RKDB_S3)
+    add_compile_definitions(LOG_STATE_TYPE_RKDB_ALL)
+elseif(WITH_LOG_STATE STREQUAL "ROCKSDB_CLOUD_GCS")
+    add_compile_definitions(LOG_STATE_TYPE_RKDB_GCS)
+    add_compile_definitions(LOG_STATE_TYPE_RKDB_ALL)
+else()
+    message(FATAL_ERROR "Unknown WITH_LOG_STATE: ${WITH_LOG_STATE}")
+endif()
 option(INI_USE_HEAP "Whether parse ini on heap" ON)
 
 if(INI_USE_HEAP)
