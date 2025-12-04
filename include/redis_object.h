@@ -36,9 +36,9 @@ namespace EloqKV
 {
 enum class CommandExecuteState
 {
-    NoChange,
-    Modified,
-    ModifiedToEmpty,
+    NoChange,         // Object was not modified (no-op or validation error)
+    Modified,         // Object was modified and remains non-empty
+    ModifiedToEmpty,  // Object was modified and is now empty (will be deleted)
 };
 
 // Don't change the RedisObjectTypes order, because object serialization used

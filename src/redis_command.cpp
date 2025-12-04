@@ -17410,16 +17410,14 @@ SortCommand::LessFunc() const
     }
     else if (!desc_ && alpha_)
     {
-        return [](const SortObject &a, const SortObject &b)
-        {
+        return [](const SortObject &a, const SortObject &b) {
             return a.cmpkey_ != b.cmpkey_ ? a.cmpkey_ < b.cmpkey_
                                           : a.id_ < b.id_;
         };
     }
     else
     {
-        return [](const SortObject &a, const SortObject &b)
-        {
+        return [](const SortObject &a, const SortObject &b) {
             return a.cmpkey_ != b.cmpkey_ ? a.cmpkey_ > b.cmpkey_
                                           : a.id_ > b.id_;
         };
