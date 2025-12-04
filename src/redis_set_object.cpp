@@ -547,7 +547,7 @@ void RedisHashSetTTLObject::Serialize(std::vector<char> &buf,
     offset += 1;
 
     // serialize ttl_
-    const char* ttl_ptr = reinterpret_cast<const char*>(&ttl_);
+    const char *ttl_ptr = reinterpret_cast<const char *>(&ttl_);
     std::copy(ttl_ptr, ttl_ptr + sizeof(uint64_t), buf.begin() + offset);
     offset += sizeof(uint64_t);
 
