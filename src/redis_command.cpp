@@ -13162,9 +13162,14 @@ std::tuple<bool, EloqKey, ZRemCommand> ParseZRemCommand(
     }
     std::vector<EloqString> elements;
     elements.reserve(args.size() - 2);
+    std::unordered_set<std::string_view> dedup;
+    dedup.reserve(args.size() - 2);
     for (size_t i = 2; i < args.size(); i++)
     {
-        elements.emplace_back(args[i].data());
+        if (dedup.insert(args[i]).second)
+        {
+            elements.emplace_back(args[i].data());
+        }
     }
 
     return {true, EloqKey(args[1]), ZRemCommand(std::move(elements))};
