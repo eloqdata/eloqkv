@@ -18306,14 +18306,15 @@ std::tuple<bool, EloqKey, HDelCommand> ParseHDelCommand(
     }
     std::vector<EloqString> elements;
     elements.reserve(args.size() - 2);
-    for (auto sv_it = args.begin() + 2; sv_it != args.end(); sv_it++)
+    std::unordered_set<std::string_view> dedup;
+    dedup.reserve(args.size() - 2);
+    for (auto sv_it = args.begin() + 2; sv_it != args.end(); ++sv_it)
     {
-        elements.emplace_back(*sv_it);
+        if (dedup.insert(*sv_it).second)
+        {
+            elements.emplace_back(*sv_it);
+        }
     }
-
-    // Remove duplicate elements
-    elements.erase(std::unique(elements.begin(), elements.end()),
-                   elements.end());
 
     return {true, EloqKey(args[1]), HDelCommand(std::move(elements))};
 }
