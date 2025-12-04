@@ -286,7 +286,8 @@ struct RedisListTTLObject : public RedisListObject
         offset += 1;
 
         // serialize ttl_
-        std::copy(&ttl_, &ttl_ + sizeof(uint64_t), buf.begin() + offset);
+        const char *ttl_ptr = reinterpret_cast<const char *>(&ttl_);
+        std::copy(ttl_ptr, ttl_ptr + sizeof(uint64_t), buf.begin() + offset);
         offset += sizeof(uint64_t);
 
         uint32_t cnt = list_object_.size();

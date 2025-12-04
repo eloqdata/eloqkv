@@ -13165,7 +13165,7 @@ std::tuple<bool, EloqKey, ZRemCommand> ParseZRemCommand(
     {
         if (dedup.insert(args[i]).second)
         {
-            elements.emplace_back(args[i].data());
+            elements.emplace_back(args[i]);
         }
     }
 
