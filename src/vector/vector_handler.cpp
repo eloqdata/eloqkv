@@ -92,7 +92,7 @@ static std::once_flag vector_handler_once;
 bool VectorHandler::InitHandlerInstance(
     TxService *tx_service,
     txservice::TxWorkerPool *vector_index_worker_pool,
-    std::string &vector_index_data_path,
+    const std::string &vector_index_data_path,
     const CloudConfig *cloud_config)
 {
     std::call_once(vector_handler_once,

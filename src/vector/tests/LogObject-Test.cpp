@@ -120,7 +120,6 @@ std::unique_ptr<TxService> InitTxService()
                                  nullptr,
                                  tx_path,
                                  cluster_config_file_path,
-                                 true,
                                  false) == 0);
     LOG(INFO) << "TxService started";
     new_tx_service->WaitClusterReady();
