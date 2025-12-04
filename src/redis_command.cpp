@@ -4685,10 +4685,6 @@ txservice::ExecResult BlockLPopCommand::ExecuteOn(
     else
     {
         CommandExecuteState state = list_obj.Execute(*this);
-        if (list_result.err_code_ != RD_OK && list_result.err_code_ != RD_NIL)
-        {
-            return txservice::ExecResult::Fail;
-        }
         has_elements = state != CommandExecuteState::NoChange;
         empty_after_pop = state == CommandExecuteState::ModifiedToEmpty;
     }

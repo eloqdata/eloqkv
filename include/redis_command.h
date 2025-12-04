@@ -1677,7 +1677,7 @@ struct SetRangeCommand : public StringCommand
         : offset_(offset), value_(val)
     {
         // Set err_cod_ to OK. So that if the string object does not exist and
-        // value_ is empty, OutputResult producs 0 instead of NIL err.
+        // value_ is empty, OutputResult produces 0 instead of NIL err.
         result_.err_code_ = RD_OK;
     }
 
