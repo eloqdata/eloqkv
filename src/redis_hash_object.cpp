@@ -165,7 +165,7 @@ CommandExecuteState RedisHashObject::Execute(EloqKV::HDelCommand &cmd) const
         return CommandExecuteState::NoChange;
     }
 
-    bool empty_after_removal = cnt >= static_cast<int>(hash_size);
+    bool empty_after_removal = static_cast<size_t>(cnt) >= hash_size;
     return empty_after_removal ? CommandExecuteState::ModifiedToEmpty
                                : CommandExecuteState::Modified;
 }

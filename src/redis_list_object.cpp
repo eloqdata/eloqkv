@@ -274,7 +274,7 @@ CommandExecuteState RedisListObject::Execute(LTrimCommand &cmd) const
     // 0.
     if (cmd.start_ < 0)
     {
-        cmd.start_ = list_size + cmd.start_;
+        cmd.start_ = static_cast<int64_t>(list_size) + cmd.start_;
         if (cmd.start_ < 0)
         {
             cmd.start_ = 0;
@@ -290,7 +290,7 @@ CommandExecuteState RedisListObject::Execute(LTrimCommand &cmd) const
     // and set start to 1 to remove all elements in the list.
     if (cmd.end_ < 0)
     {
-        cmd.end_ = list_size + cmd.end_;
+        cmd.end_ = static_cast<int64_t>(list_size) + cmd.end_;
         if (cmd.end_ < 0)
         {
             cmd.start_ = 1;
@@ -491,8 +491,8 @@ CommandExecuteState RedisListObject::Execute(LRemCommand &cmd) const
 
     list_result.ret_ = 0;
     size_t list_size = list_object_.size();
-    int to_be_removed_cnt = std::abs(cmd.count_);
-    int removed_cnt = 0;
+    int64_t to_be_removed_cnt = std::abs(cmd.count_);
+    int64_t removed_cnt = 0;
 
     // If COUNT is negative, start from the end of the list
     if (cmd.count_ < 0)

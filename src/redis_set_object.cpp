@@ -75,7 +75,7 @@ CommandExecuteState RedisHashSetObject::Execute(SAddCommand &cmd) const
     }
 
     return result.ret_ > 0 ? CommandExecuteState::Modified
-                            : CommandExecuteState::NoChange;
+                           : CommandExecuteState::NoChange;
 }
 
 void RedisHashSetObject::Execute(SMembersCommand &cmd) const
@@ -107,7 +107,7 @@ CommandExecuteState RedisHashSetObject::Execute(SRemCommand &cmd) const
     }
 
     bool empty_after_removal =
-        result.ret_ >= static_cast<int32_t>(hash_set_.size());
+        static_cast<size_t>(result.ret_) >= hash_set_.size();
     return empty_after_removal ? CommandExecuteState::ModifiedToEmpty
                                : CommandExecuteState::Modified;
 }
@@ -298,8 +298,7 @@ CommandExecuteState RedisHashSetObject::Execute(SPopCommand &cmd) const
         return CommandExecuteState::NoChange;
     }
 
-    bool empty_after_removal =
-        result.string_list_.size() >= hash_set_.size();
+    bool empty_after_removal = result.string_list_.size() >= hash_set_.size();
     return empty_after_removal ? CommandExecuteState::ModifiedToEmpty
                                : CommandExecuteState::Modified;
 }

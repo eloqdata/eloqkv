@@ -12204,6 +12204,7 @@ txservice::ExecResult ZAddCommand::ExecuteOn(const txservice::TxObject &object)
 
     if (params_.ForceClear())
     {
+        assert(type_ == ElementType::vector || type_ == ElementType::monostate);
         size_t new_size = 0;
         if (type_ == ElementType::vector)
         {
