@@ -249,7 +249,8 @@ bool RedisServiceImpl::Init(brpc::Server &brpc_server)
                            &catalog_factory,
                            /*system_handler=*/nullptr,
                            std::move(prebuilt_tables),
-                           std::move(engine_metrics)))
+                           std::move(engine_metrics),
+                           eloqkv_publish_func))
     {
         LOG(ERROR) << "Failed to register EloqKV engine with DataSubstrate";
         return false;
@@ -557,10 +558,11 @@ bool RedisServiceImpl::Start(brpc::Server &brpc_server)
     {
         INIReader config_reader(config_file_);
         EloqVec::CloudConfig vector_cloud_config(config_reader);
+        const std::string &data_path = ds.GetCoreConfig().data_path;
         if (!EloqVec::VectorHandler::InitHandlerInstance(
                 tx_service_,
                 vector_index_worker_pool_.get(),
-                ds.GetCoreConfig().data_path,
+                data_path,
                 &vector_cloud_config))
         {
             LOG(ERROR) << "Failed to initialize vector handler instance";

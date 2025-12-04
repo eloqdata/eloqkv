@@ -52,7 +52,7 @@ public:
     static bool InitHandlerInstance(
         txservice::TxService *tx_service,
         txservice::TxWorkerPool *vector_index_worker_pool,
-        std::string &vector_index_data_path,
+        const std::string &vector_index_data_path,
         const CloudConfig *cloud_config = nullptr);
 
     /**
@@ -202,7 +202,7 @@ private:
     // Private constructor to prevent instantiation
     VectorHandler(txservice::TxService *tx_service,
                   txservice::TxWorkerPool *vector_index_worker_pool,
-                  std::string &vector_index_data_path,
+                  const std::string &vector_index_data_path,
                   const CloudConfig *cloud_config = nullptr)
         : tx_service_(tx_service),
           vector_index_worker_pool_(vector_index_worker_pool),

@@ -31,7 +31,7 @@ set(VECTOR_SOURCES
 add_library(eloq_vector STATIC ${VECTOR_SOURCES} ${INI_SOURCES})
 
 target_include_directories(eloq_vector PUBLIC ${VECTOR_INCLUDE_DIR})
-target_link_libraries(eloq_vector PUBLIC txservice ${ABSEIL} ${DYNAMIC_LIB})
+target_link_libraries(eloq_vector PUBLIC data_substrate ${ABSEIL} ${DYNAMIC_LIB})
 
 if(RUN_VECTOR_CTEST)
     enable_testing()
