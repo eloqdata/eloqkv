@@ -3140,7 +3140,7 @@ void SetRangeCommand::Deserialize(std::string_view cmd_image)
 void SetRangeCommand::OutputResult(OutputHandler *reply) const
 {
     const auto &str_result = result_;
-    if (str_result.err_code_ == RD_OK)
+    if (str_result.err_code_ == RD_OK || str_result.err_code_ == RD_NIL)
     {
         reply->OnInt(str_result.int_ret_);
     }
