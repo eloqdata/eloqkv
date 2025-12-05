@@ -1,0 +1,66 @@
+# EditorConfig for C++ projects
+
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+# Common C++ source files
+[*.{cpp,cc,cxx}]
+indent_style = space
+indent_size = 2
+
+# Header files
+[*.{hpp,h,hh,hxx,ixx}]
+indent_style = space
+indent_size = 2
+
+# CMake files
+[CMakeLists.txt]
+indent_style = space
+indent_size = 2
+
+[*.cmake]
+indent_style = space
+indent_size = 2
+
+# Makefiles require tabs
+[Makefile]
+indent_style = tab
+
+# Python scripts (often found in build systems)
+[*.py]
+indent_style = space
+indent_size = 4
+
+# Shell scripts
+[*.sh]
+indent_style = space
+indent_size = 2
+
+# Markdown documentation
+[*.md]
+trim_trailing_whitespace = false  # Allow trailing spaces for line breaks
+max_line_length = 80
+
+# JSON config files
+[*.json]
+indent_style = space
+indent_size = 2
+
+# YAML config files
+[*.{yml,yaml}]
+indent_style = space
+indent_size = 2
+
+# Git ignore
+[.gitignore]
+indent_style = space
+indent_size = 2
+
+# Text files
+[*.txt]
+trim_trailing_whitespace = false
