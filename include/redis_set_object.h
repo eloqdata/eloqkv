@@ -56,14 +56,14 @@ public:
 
     txservice::TxRecord::Uptr AddTTL(uint64_t) override;
 
-    bool Execute(SAddCommand &cmd) const;
+    CommandExecuteState Execute(SAddCommand &cmd) const;
     void Execute(SMembersCommand &cmd) const;
-    bool Execute(SRemCommand &cmd) const;
+    CommandExecuteState Execute(SRemCommand &cmd) const;
     void Execute(SCardCommand &cmd) const;
     void Execute(SIsMemberCommand &cmd) const;
     void Execute(SMIsMemberCommand &cmd) const;
     void Execute(SRandMemberCommand &cmd) const;
-    bool Execute(SPopCommand &cmd) const;
+    CommandExecuteState Execute(SPopCommand &cmd) const;
     void Execute(SScanCommand &cmd) const;
     void Execute(SortableLoadCommand &cmd) const;
     void Execute(SZScanCommand &cmd) const;

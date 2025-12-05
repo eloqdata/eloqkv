@@ -183,12 +183,12 @@ public:
         ZParams &params,
         ZAddCommand::ElementType &type) const;
 
-    bool Execute(ZAddCommand &cmd) const;
-    bool Execute(ZRemCommand &cmd) const;
-    bool Execute(ZRemRangeCommand &cmd) const;
+    CommandExecuteState Execute(ZAddCommand &cmd) const;
+    CommandExecuteState Execute(ZRemCommand &cmd) const;
+    CommandExecuteState Execute(ZRemRangeCommand &cmd) const;
     void Execute(ZScoreCommand &cmd) const;
     void Execute(ZRangeCommand &cmd) const;
-    bool Execute(ZPopCommand &cmd) const;
+    CommandExecuteState Execute(ZPopCommand &cmd) const;
     void Execute(ZLexCountCommand &cmd) const;
     void Execute(ZCountCommand &cmd) const;
     void Execute(ZCardCommand &cmd) const;
@@ -404,7 +404,8 @@ public:
         offset += 1;
 
         // serialize ttl_
-        std::copy(&ttl_, &ttl_ + sizeof(uint64_t), buf.begin() + offset);
+        const char *ttl_ptr = reinterpret_cast<const char *>(&ttl_);
+        std::copy(ttl_ptr, ttl_ptr + sizeof(uint64_t), buf.begin() + offset);
         offset += sizeof(uint64_t);
 
         uint32_t cnt = z_hash_map_.size();

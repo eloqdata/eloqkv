@@ -210,7 +210,7 @@ public:
     void Execute(HGetCommand &) const;
     void Execute(HLenCommand &) const;
     void Execute(HStrLenCommand &) const;
-    bool Execute(HDelCommand &) const;
+    CommandExecuteState Execute(HDelCommand &) const;
     void Execute(HExistsCommand &) const;
     void Execute(HGetAllCommand &) const;
     bool Execute(HIncrByCommand &) const;
@@ -297,7 +297,8 @@ public:
         offset += 1;
 
         // serialize ttl_
-        std::copy(&ttl_, &ttl_ + sizeof(uint64_t), buf.begin() + offset);
+        const char *ttl_ptr = reinterpret_cast<const char *>(&ttl_);
+        std::copy(ttl_ptr, ttl_ptr + sizeof(uint64_t), buf.begin() + offset);
         offset += sizeof(uint64_t);
 
         uint32_t cnt = static_cast<uint32_t>(hash_map_.size());

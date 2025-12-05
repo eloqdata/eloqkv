@@ -1700,7 +1700,9 @@ struct SetRangeCommand : public StringCommand
 
     bool ProceedOnNonExistentObject() const override
     {
-        return true;
+        // SetRange does not create new string object if the value_ is empty
+        // string.
+        return value_.Length() > 0;
     }
 
     bool ProceedOnExistentObject() const override
@@ -3205,8 +3207,6 @@ struct ExistsCommand : public RedisCommand
     }
 
     txservice::ExecResult ExecuteOn(const txservice::TxObject &object) override;
-
-    txservice::TxObject *CommitOn(txservice::TxObject *obj_ptr) override;
 
     void Serialize(std::string &str) const override;
 
