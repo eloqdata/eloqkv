@@ -86,8 +86,36 @@ copy_libraries() {
     local executable="$1"
     local path="$2"
     libraries=$(ldd "$executable" | awk 'NF==4{print $(NF-1)}{}')
+    local -a skip_patterns=(
+        "libc.so*"
+        "libm.so*"
+        "libpthread.so*"
+        "libdl.so*"
+        "librt.so*"
+        "libanl.so*"
+        "libresolv.so*"
+        "libutil.so*"
+        "libnsl.so*"
+        "ld-linux*.so*"
+    )
     mkdir -p "$path"
+    local lib
     for lib in $libraries; do
+        if [[ ! -e "$lib" ]]; then
+            continue
+        fi
+        local lib_name
+        lib_name=$(basename "$lib")
+        local skip_lib=false
+        for pattern in "${skip_patterns[@]}"; do
+            if [[ "$lib_name" == $pattern ]]; then
+                skip_lib=true
+                break
+            fi
+        done
+        if [[ "$skip_lib" == true ]]; then
+            continue
+        fi
         rsync -avL --ignore-existing "$lib" "$path/"
     done
 }
