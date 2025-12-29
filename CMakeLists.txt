@@ -31,7 +31,7 @@ add_compile_definitions(ELOQ_MODULE_ELOQKV)
 option(BUILD_ELOQKV_AS_LIBRARY "Build eloqkv as library instead of executable" OFF)
 
 set(WITH_DATA_STORE "ELOQDSS_ROCKSDB" CACHE STRING "Which key-value storage to use")
-set_property(CACHE WITH_DATA_STORE PROPERTY STRINGS "DYNAMODB" "BIGTABLE" "ELOQDSS_ROCKSDB_CLOUD_S3" "ELOQDSS_ELOQSTORE" "ELOQDSS_ROCKSDB")
+set_property(CACHE WITH_DATA_STORE PROPERTY STRINGS "DYNAMODB" "BIGTABLE" "ELOQDSS_ROCKSDB_CLOUD_S3" "ELOQDSS_ROCKSDB_CLOUD_GCS" "ELOQDSS_ELOQSTORE" "ELOQDSS_ROCKSDB")
 
 # Keep log-state options visible at the top level so every target shares the
 # same compile definitions as the data_substrate library.
@@ -148,6 +148,9 @@ elseif(WITH_DATA_STORE STREQUAL "BIGTABLE")
 elseif(WITH_DATA_STORE STREQUAL "ELOQDSS_ROCKSDB_CLOUD_S3")
     set(KV_STORAGE_VAL 3 CACHE STRING "eloq_ds" FORCE)
     add_compile_definitions(DATA_STORE_TYPE_ELOQDSS_ROCKSDB_CLOUD_S3)
+elseif(WITH_DATA_STORE STREQUAL "ELOQDSS_ROCKSDB_CLOUD_GCS")
+    set(KV_STORAGE_VAL 3 CACHE STRING "eloq_ds" FORCE)
+    add_compile_definitions(DATA_STORE_TYPE_ELOQDSS_ROCKSDB_CLOUD_GCS)
 elseif(WITH_DATA_STORE STREQUAL "ELOQDSS_ROCKSDB")
     set(KV_STORAGE_VAL 3 CACHE STRING "eloq_ds" FORCE)
     add_compile_definitions(DATA_STORE_TYPE_ELOQDSS_ROCKSDB)
