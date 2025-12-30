@@ -218,6 +218,11 @@ public:
     bool AddCommandHandler(const std::string &name,
                            RedisCommandHandler *handler);
 
+    // TLS configuration accessors
+    bool IsTlsEnabled() const { return enable_tls_; }
+    const std::string& GetTlsCertFile() const { return tls_cert_file_; }
+    const std::string& GetTlsKeyFile() const { return tls_key_file_; }
+
     // This function should not be touched by user and used by brpc deverloper
     // only.
     RedisCommandHandler *FindCommandHandler(
@@ -559,6 +564,11 @@ private:
     // Whether to retry transaction on OCC caused error. OCC break repeatable
     // read and write-write conflict are both retried.
     bool retry_on_occ_error_{false};
+
+    // TLS configuration
+    bool enable_tls_{false};
+    std::string tls_cert_file_;
+    std::string tls_key_file_;
 
 #ifdef VECTOR_INDEX_ENABLED
     // Vector index related
