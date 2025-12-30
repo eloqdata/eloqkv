@@ -132,6 +132,8 @@ DEFINE_string(
     "OCC",
     "Concurrency control protocol of MULTI/EXEC and Lua transactions.");
 
+DEFINE_uint32(proxy_port_offset, 0, "Proxy port offset.");
+
 DEFINE_bool(retry_on_occ_error, true, "Retry transaction on OCC caused error.");
 
 namespace EloqKV
@@ -262,6 +264,10 @@ bool RedisServiceImpl::Init(brpc::Server &brpc_server)
                       ? FLAGS_eloqkv_port
                       : config_reader.GetInteger(
                             "local", "eloqkv_port", FLAGS_eloqkv_port);
+    proxy_port_offset_ = !CheckCommandLineFlagIsDefault("proxy_port_offset")
+                             ? FLAGS_proxy_port_offset
+                             : config_reader.GetInteger(
+        "local", "proxy_port_offset", 0);
     FLAGS_cluster_mode = !CheckCommandLineFlagIsDefault("cluster_mode")
                              ? FLAGS_cluster_mode
                              : config_reader.GetBoolean(
@@ -829,7 +835,7 @@ void RedisServiceImpl::RedisClusterNodes(std::vector<std::string> &info)
                 // ip:port@cport
                 node_info_str.append(" ");
                 node_info_str.append(replica.ip + ":" +
-                                     std::to_string(replica.port));
+                                     std::to_string(ApplyPortOffset(replica.port)));
                 node_info_str.append("@0");
 
                 // flags
@@ -957,6 +963,9 @@ void RedisServiceImpl::RedisClusterSlots(std::vector<SlotInfo> &info)
 
                 for (auto replica : ng_replicas)
                 {
+                    // Apply port offset before adding to slot_info
+                    replica.port = ApplyPortOffset(replica.port);
+                    
                     if (replica.node_id == leader_node_id)
                     {
                         slot_info.hosts.push_front(replica);

@@ -513,6 +513,12 @@ private:
     inline std::string_view GetCommandAccessType(
         const std::string_view &cmd_type) const;
 
+    // Apply proxy_port_offset to a port value
+    uint16_t ApplyPortOffset(uint16_t port) const
+    {
+        return static_cast<uint16_t>(port + proxy_port_offset_);
+    }
+
 private:
     typedef std::unordered_map<std::string, RedisCommandHandler *> CommandMap;
     CommandMap command_map_;
@@ -543,6 +549,7 @@ private:
     bool skip_wal_;
     uint32_t core_num_;
     uint32_t redis_port_;
+    uint32_t proxy_port_offset_{0};  // Port offset for proxy scenarios
     uint64_t start_sec_;  // The start second since The Epoch
     std::string config_file_;
     uint32_t node_memory_limit_mb_;
