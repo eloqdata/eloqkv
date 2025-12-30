@@ -21,6 +21,7 @@
  */
 #include <brpc/acceptor.h>
 #include <brpc/server.h>
+#include <brpc/ssl_options.h>
 #include <gflags/gflags.h>
 #include <glog/logging.h>
 
@@ -504,6 +505,25 @@ int main(int argc, char *argv[])
     // Notice: redis_service_impl will be deleted in server's destructor.
     server_options.redis_service = redis_service_impl.release();
     server_options.has_builtin_services = false;
+
+    // Configure TLS if enabled
+    if (redis_service_ptr->IsTlsEnabled())
+    {
+        brpc::ServerSSLOptions *ssl_options =
+            server_options.mutable_ssl_options();
+
+        // Set server certificate and key (required when TLS is enabled)
+        // Validation in Init() ensures both files are provided
+        ssl_options->default_cert.certificate =
+            redis_service_ptr->GetTlsCertFile();
+        ssl_options->default_cert.private_key =
+            redis_service_ptr->GetTlsKeyFile();
+
+        LOG(INFO) << "TLS enabled for brpc server. Certificate: "
+                  << redis_service_ptr->GetTlsCertFile()
+                  << ", Key: " << redis_service_ptr->GetTlsKeyFile();
+    }
+
     if (server.Start(redis_ip_port.c_str(), &server_options) != 0)
     {
         LOG(ERROR) << "Failed to start EloqKV server.";
