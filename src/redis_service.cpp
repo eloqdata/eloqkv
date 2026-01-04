@@ -38,6 +38,7 @@
 #include <charconv>
 #include <cstddef>
 #include <cstdint>
+#include <filesystem>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -133,6 +134,10 @@ DEFINE_string(
     "Concurrency control protocol of MULTI/EXEC and Lua transactions.");
 
 DEFINE_bool(retry_on_occ_error, true, "Retry transaction on OCC caused error.");
+
+DEFINE_bool(enable_tls, false, "Enable TLS for brpc RPC connections");
+DEFINE_string(tls_cert_file, "", "Path to TLS certificate file (PEM format)");
+DEFINE_string(tls_key_file, "", "Path to TLS private key file (PEM format)");
 
 namespace EloqKV
 {
@@ -440,6 +445,77 @@ bool RedisServiceImpl::Init(brpc::Server &brpc_server)
     // Vector handler initialization moved to Start() since it requires
     // tx_service_
 #endif
+
+    // Read TLS configuration
+    enable_tls_ = !CheckCommandLineFlagIsDefault("enable_tls")
+                      ? FLAGS_enable_tls
+                      : config_reader.GetBoolean("local", "enable_tls", false);
+
+    if (enable_tls_)
+    {
+        tls_cert_file_ =
+            !CheckCommandLineFlagIsDefault("tls_cert_file")
+                ? FLAGS_tls_cert_file
+                : config_reader.GetString("local", "tls_cert_file", "");
+
+        tls_key_file_ =
+            !CheckCommandLineFlagIsDefault("tls_key_file")
+                ? FLAGS_tls_key_file
+                : config_reader.GetString("local", "tls_key_file", "");
+
+        // Validate that both certificate and key files are specified (required
+        // when TLS is enabled)
+        if (tls_cert_file_.empty() || tls_key_file_.empty())
+        {
+            LOG(ERROR) << "TLS is enabled but certificate or key file path is "
+                          "not specified. "
+                       << "Please set both tls_cert_file and tls_key_file.";
+            return false;
+        }
+
+        // Validate that certificate file exists and is readable
+        std::error_code error_code;
+        if (!std::filesystem::exists(tls_cert_file_, error_code))
+        {
+            LOG(ERROR)
+                << "TLS certificate file does not exist or is not accessible: "
+                << tls_cert_file_;
+            if (error_code.value() != 0)
+            {
+                LOG(ERROR) << "Error code: " << error_code.value()
+                           << ", error message: " << error_code.message();
+            }
+            return false;
+        }
+
+        // Validate that key file exists and is readable
+        if (!std::filesystem::exists(tls_key_file_, error_code))
+        {
+            LOG(ERROR) << "TLS key file does not exist or is not accessible: "
+                       << tls_key_file_;
+            if (error_code.value() != 0)
+            {
+                LOG(ERROR) << "Error code: " << error_code.value()
+                           << ", error message: " << error_code.message();
+            }
+            return false;
+        }
+
+        // Check if files are regular files (not directories)
+        if (!std::filesystem::is_regular_file(tls_cert_file_, error_code))
+        {
+            LOG(ERROR) << "TLS certificate file is not a regular file: "
+                       << tls_cert_file_;
+            return false;
+        }
+
+        if (!std::filesystem::is_regular_file(tls_key_file_, error_code))
+        {
+            LOG(ERROR) << "TLS key file is not a regular file: "
+                       << tls_key_file_;
+            return false;
+        }
+    }
 
     return true;
 }
