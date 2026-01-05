@@ -199,7 +199,8 @@ bool RedisServiceImpl::Init(brpc::Server &brpc_server)
         table_name.append(std::to_string(i));
         TableName redis_table_name(
             std::move(table_name), TableType::Primary, TableEngine::EloqKv);
-        std::string image = redis_table_name.String();
+
+        std::string image = GenKvTableName(redis_table_name);
 #if defined(DATA_STORE_TYPE_CASSANDRA)
         EloqDS::CassCatalogInfo temp_kv_info(image, "");
         auto kv_info_str = temp_kv_info.Serialize();
@@ -2583,7 +2584,7 @@ bool RedisServiceImpl::ExecuteFlushDBCommand(
     }
 
     // The schema image only contains kv_table_name.
-    std::string new_image = redis_table_name->String();
+    std::string new_image = GenKvTableName(*redis_table_name);
     new_image.append(GetCurrentTimeAsString());
     new_image.append("_" + std::to_string(txm->TxNumber()));
 
@@ -2680,7 +2681,7 @@ bool RedisServiceImpl::ExecuteFlushALLCommand(RedisConnectionContext *ctx,
         }
 
         // The schema image only contains kv_table_name.
-        std::string new_image = redis_table_name.String();
+        std::string new_image = GenKvTableName(redis_table_name);
         new_image.append(GetCurrentTimeAsString());
         new_image.append("_" + std::to_string(txm->TxNumber()));
 
