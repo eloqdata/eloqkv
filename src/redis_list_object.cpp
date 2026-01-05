@@ -767,7 +767,13 @@ bool RedisListObject::CommitRPop(int64_t count)
 
 bool RedisListObject::CommitLMovePop(bool is_left)
 {
-    assert(!list_object_.empty());
+    if (list_object_.empty())
+    {
+        LOG(WARNING)
+            << "CommitLMovePop invoked on an empty list. Skipping removal.";
+        assert(false);
+        return true;
+    }
     if (is_left)
     {
         serialized_length_ -=
@@ -902,7 +908,13 @@ bool RedisListObject::CommitLRem(int64_t count, EloqString &element)
 
 bool RedisListObject::CommitBlockPop(bool is_left, uint32_t count)
 {
-    assert(!list_object_.empty());
+    if (list_object_.empty())
+    {
+        LOG(WARNING)
+            << "CommitBlockPop invoked on an empty list. Skipping removal.";
+        assert(false);
+        return true;
+    }
     uint32_t cnt = static_cast<uint32_t>(list_object_.size());
     if (cnt > count)
     {

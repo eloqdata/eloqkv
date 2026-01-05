@@ -2826,7 +2826,7 @@ txservice::ExecResult GetDelCommand::ExecuteOn(
     }
 
     str_obj.Execute(*this);
-    return txservice::ExecResult::Write;
+    return txservice::ExecResult::Delete;
 }
 
 txservice::TxObject *GetDelCommand::CommitOn(txservice::TxObject *obj_ptr)
