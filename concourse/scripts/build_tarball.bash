@@ -251,7 +251,7 @@ patchelf --set-rpath '$ORIGIN' ${DEST_DIR}/lib/libbrpc.*
 patchelf --set-rpath '$ORIGIN' ${DEST_DIR}/lib/libbraft.*
 patchelf --set-rpath '$ORIGIN' ${DEST_DIR}/lib/librocksdb*
 
-cp ${ELOQKV_SRC}/concourse/artifact/eloqkv.ini ${DEST_DIR}/conf/
+cp ${ELOQKV_SRC}/eloqkv.ini ${DEST_DIR}/conf/
 tar -czvf eloqkv.tar.gz -C ${HOME} EloqKV
 
 if [ -n "${TAGGED}" ]; then

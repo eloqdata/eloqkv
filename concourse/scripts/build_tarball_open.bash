@@ -107,8 +107,8 @@ if command -v patchelf >/dev/null 2>&1; then
 fi
 
 # Include default config if present
-if [ -f "${ELOQKV_SRC}/concourse/artifact/eloqkv.ini" ]; then
-  cp "${ELOQKV_SRC}/concourse/artifact/eloqkv.ini" "${DEST_DIR}/conf/"
+if [ -f "${ELOQKV_SRC}/eloqkv.ini" ]; then
+  cp "${ELOQKV_SRC}/eloqkv.ini" "${DEST_DIR}/conf/"
 fi
 
 # Build and include open log_service
