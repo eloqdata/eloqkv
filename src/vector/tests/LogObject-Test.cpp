@@ -46,7 +46,7 @@ constexpr std::string_view base_log_name_v{"test_log_object:index"};
 
 std::unique_ptr<TxService> InitTxService()
 {
-    GFLAGS_NAMESPACE::SetCommandLineOption("worker_polling_time_us", "1000");
+    GFLAGS_NAMESPACE::SetCommandLineOption("worker_polling_time_us", "100000");
     GFLAGS_NAMESPACE::SetCommandLineOption("brpc_worker_as_ext_processor",
                                            "true");
     GFLAGS_NAMESPACE::SetCommandLineOption("use_pthread_event_dispatcher",
