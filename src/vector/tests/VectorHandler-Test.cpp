@@ -57,7 +57,7 @@ constexpr size_t test_max_elements = 100000;
  */
 std::unique_ptr<TxService> InitTxService()
 {
-    GFLAGS_NAMESPACE::SetCommandLineOption("worker_polling_time_us", "1000");
+    GFLAGS_NAMESPACE::SetCommandLineOption("worker_polling_time_us", "100000");
     GFLAGS_NAMESPACE::SetCommandLineOption("brpc_worker_as_ext_processor",
                                            "true");
     GFLAGS_NAMESPACE::SetCommandLineOption("use_pthread_event_dispatcher",
