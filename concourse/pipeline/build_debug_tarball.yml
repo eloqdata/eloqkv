@@ -10,12 +10,6 @@ resources:
   type: registry-image
   source:
     repository: eloqdata/eloq-build-ubuntu2204
-- name: eloqstore_src_main
-  type: git
-  source:
-    branch: main
-    uri: git@github.com:eloqdata/eloqstore.git
-    private_key: ((git-key))
 
 - name: logservice_src_main
   type: git
@@ -43,8 +37,6 @@ jobs:
         resource: logservice_src_main
       - get: raft_host_manager_src
         resource: raft_host_manager_src_main
-      - get: eloqstore_src
-        resource: eloqstore_src_main
       - get: image_ubuntu2204
         resource: image_ubuntu2204_main
 

@@ -51,13 +51,6 @@ resources:
     private_key: ((git-key))
     uri: git@github.com:eloqdata/raft_host_manager.git
 
-- name: eloqstore_src_main
-  type: git
-  source:
-    branch: main
-    uri: git@github.com:eloqdata/eloqstore.git
-    private_key: ((git-key))
-
 jobs:
 - name: ubuntu2004-main
   plan:
@@ -118,8 +111,6 @@ jobs:
         resource: logservice_src_main
       - get: raft_host_manager_src
         resource: raft_host_manager_src_main
-      - get: eloqstore_src
-        resource: eloqstore_src_main
       - get: image_ubuntu2204
         resource: image_ubuntu2204_main
   
@@ -184,8 +175,6 @@ jobs:
         resource: logservice_src_main
       - get: raft_host_manager_src
         resource: raft_host_manager_src_main
-      - get: eloqstore_src
-        resource: eloqstore_src_main
       - get: image_ubuntu2404
         resource: image_ubuntu2404_main
 
