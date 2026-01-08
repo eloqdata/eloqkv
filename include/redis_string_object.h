@@ -294,7 +294,7 @@ public:
 
     size_t SerializedLength() const override
     {
-        return sizeof(size_t) + RedisStringObject::SerializedLength();
+        return sizeof(uint64_t) + RedisStringObject::SerializedLength();
     }
 
     void Serialize(std::vector<char> &buf, size_t &offset) const override
