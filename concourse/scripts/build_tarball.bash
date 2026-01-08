@@ -22,11 +22,6 @@ pushd data_substrate/tx_service
 ln -s $WORKSPACE/raft_host_manager_src raft_host_manager
 popd
 
-if [ "${DATA_STORE_TYPE}" = "ELOQDSS_ELOQSTORE" ]; then
-    pushd data_substrate/store_handler/eloq_data_store_service
-    ln -s $WORKSPACE/eloqstore_src eloqstore
-    popd
-fi
 ELOQKV_SRC=${PWD}
 
 # Get OS information from /etc/os-release

@@ -8,9 +8,6 @@ jobs:
             - get: eloqkv_src
               params:
                 submodules: all
-            - get: eloq_store_src
-              params:
-                submodules: all
             - get: logservice_src
               params:
                 submodules: all
@@ -33,9 +30,6 @@ jobs:
             - get: eloqkv_src
               params:
                 submodules: all
-            - get: eloq_store_src
-              params:
-                submodules: all
             - get: logservice_src
               params:
                 submodules: all
@@ -56,9 +50,6 @@ jobs:
           limit: 2
           steps:
             - get: eloqkv_src
-              params:
-                submodules: all
-            - get: eloq_store_src
               params:
                 submodules: all
             - get: logservice_src
@@ -87,12 +78,6 @@ resources:
       private_key: ((git-key))
       uri: git@github.com:eloqdata/eloqkv.git
     type: git
-  - name: eloq_store_src
-    type: git
-    source:
-      branch: main
-      uri: git@github.com:eloqdata/eloqstore.git
-      private_key: ((git-key))
   - name: logservice_src
     type: git
     source:
