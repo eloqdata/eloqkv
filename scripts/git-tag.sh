@@ -57,4 +57,3 @@ fi
 
 create_and_push_release_branch "data_substrate/eloq_log_service" "$REL_BRANCH"
 create_and_push_release_branch "data_substrate/tx_service/raft_host_manager" "$REL_BRANCH"
-create_and_push_release_branch "data_substrate/store_handler/eloq_data_store_service/eloqstore" "$REL_BRANCH"
