@@ -98,6 +98,8 @@ public:
 
     void Serialize(std::string &str) const override
     {
+        str.reserve(str.size() + SerializedLength());
+
         // object type (1 byte), string length (4 bytes), string content (string
         // length bytes)
 
@@ -292,7 +294,7 @@ public:
 
     size_t SerializedLength() const override
     {
-        return sizeof(size_t) + RedisStringObject::SerializedLength();
+        return sizeof(uint64_t) + RedisStringObject::SerializedLength();
     }
 
     void Serialize(std::vector<char> &buf, size_t &offset) const override
@@ -329,6 +331,8 @@ public:
 
     void Serialize(std::string &str) const override
     {
+        str.reserve(str.size() + SerializedLength());
+
         int8_t obj_type_val = static_cast<int8_t>(RedisObjectType::TTLString);
         str.append(1, obj_type_val);
 
