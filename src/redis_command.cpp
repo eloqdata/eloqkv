@@ -17163,6 +17163,7 @@ std::pair<bool, MGetCommand> ParseMGetCommand(
     std::vector<GetCommand *> vct_raw_cmd;
     vct_key.reserve(args.size() - 1);
     vct_cmd.reserve(args.size() - 1);
+    vct_raw_cmd.reserve(args.size() - 1);
 
     for (auto it = args.begin() + 1; it != args.end(); it++)
     {
