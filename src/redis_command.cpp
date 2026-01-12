@@ -17139,6 +17139,18 @@ std::pair<bool, MSetNxCommand> ParseMSetNxCommand(
 std::pair<bool, MGetCommand> ParseMGetCommand(
     const std::vector<std::string_view> &args, OutputHandler *output)
 {
+    struct Timer
+    {
+        ~Timer()
+        {
+            auto diff = butil::cpuwide_time_ns() - start;
+            if (diff > 500000)
+            {
+                LOG(ERROR) << "ParseMGetCommand cost " << diff << "ns";
+            }
+        }
+        int64_t start{butil::cpuwide_time_ns()};
+    } timer;
     assert(args[0] == "mget");
     if (args.size() < 2)
     {

@@ -5468,7 +5468,7 @@ public:
             ~Timer()
             {
                 int64_t diff = butil::cpuwide_time_ns() - start;
-                if (diff > 1000)
+                if (diff > 1000000)
                 {
                     LOG(ERROR) << "OutputResult " << diff << "ns";
                 }
