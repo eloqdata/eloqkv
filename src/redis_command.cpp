@@ -17169,7 +17169,6 @@ std::pair<bool, MGetCommand> ParseMGetCommand(
 
     for (auto it = args.begin() + 1; it != args.end(); it++)
     {
-        // auto key_it = std::find(vct_key.begin(), vct_key.end(), *it);
         auto key_it = key_to_cmd_ptr.find(*it);
         GetCommand *cmd_ptr = nullptr;
         if (key_it == key_to_cmd_ptr.end())
@@ -17181,8 +17180,6 @@ std::pair<bool, MGetCommand> ParseMGetCommand(
         }
         else
         {
-            // auto cmd_it = vct_cmd.begin() + (key_it - vct_key.begin());
-            // cmd_ptr = &(*cmd_it);
             cmd_ptr = key_it->second;
         }
         vct_raw_cmd.emplace_back(cmd_ptr);
