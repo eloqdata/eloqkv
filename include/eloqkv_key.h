@@ -21,6 +21,7 @@
  */
 #pragma once
 
+#include <functional>
 #include <string_view>
 #include <vector>
 
@@ -416,3 +417,16 @@ private:
 };
 
 }  // namespace EloqKV
+
+namespace std
+{
+
+template <> struct hash<EloqKV::EloqKey>
+{
+    size_t operator()(const EloqKV::EloqKey &key) const noexcept
+    {
+        return key.Hash();
+    }
+};
+
+}  // namespace std
