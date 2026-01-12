@@ -17161,24 +17161,29 @@ std::pair<bool, MGetCommand> ParseMGetCommand(
     std::vector<EloqKey> vct_key;
     std::vector<GetCommand> vct_cmd;
     std::vector<GetCommand *> vct_raw_cmd;
+    absl::flat_hash_map<EloqKey, GetCommand *> key_to_cmd_ptr;
     vct_key.reserve(args.size() - 1);
     vct_cmd.reserve(args.size() - 1);
     vct_raw_cmd.reserve(args.size() - 1);
+    key_to_cmd_ptr.reserve(args.size() - 1);
 
     for (auto it = args.begin() + 1; it != args.end(); it++)
     {
-        auto key_it = std::find(vct_key.begin(), vct_key.end(), *it);
+        // auto key_it = std::find(vct_key.begin(), vct_key.end(), *it);
+        auto key_it = key_to_cmd_ptr.find(*it);
         GetCommand *cmd_ptr = nullptr;
-        if (key_it == vct_key.end())
+        if (key_it == key_to_cmd_ptr.end())
         {
             vct_key.emplace_back(*it);
             vct_cmd.emplace_back();
             cmd_ptr = &vct_cmd.back();
+            key_to_cmd_ptr[*it] = cmd_ptr;
         }
         else
         {
-            auto cmd_it = vct_cmd.begin() + (key_it - vct_key.begin());
-            cmd_ptr = &(*cmd_it);
+            // auto cmd_it = vct_cmd.begin() + (key_it - vct_key.begin());
+            // cmd_ptr = &(*cmd_it);
+            cmd_ptr = key_it->second;
         }
         vct_raw_cmd.emplace_back(cmd_ptr);
     }
