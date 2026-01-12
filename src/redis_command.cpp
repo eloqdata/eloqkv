@@ -17037,22 +17037,24 @@ std::pair<bool, MExistsCommand> ParseExistsCommand(
 
     std::vector<EloqKey> vct_key;
     std::vector<ExistsCommand> vct_cmd;
+    absl::flat_hash_map<EloqKey, ExistsCommand *> key_to_cmd_ptr;
     vct_key.reserve(args.size() - 1);
     vct_cmd.reserve(args.size() - 1);
+    key_to_cmd_ptr.reserve(args.size() - 1);
 
     // EXISTS command does not deduplicate repeated key.
     for (auto it = args.begin() + 1; it != args.end(); it++)
     {
-        auto key_it = std::find(vct_key.begin(), vct_key.end(), *it);
-        if (key_it == vct_key.end())
+        auto key_it = key_to_cmd_ptr.find(*it);
+        if (key_it == key_to_cmd_ptr.end())
         {
             vct_key.emplace_back(*it);
             vct_cmd.emplace_back(1);
+            key_to_cmd_ptr[*it] = &vct_cmd.back();
         }
         else
         {
-            auto cmd_it = vct_cmd.begin() + (key_it - vct_key.begin());
-            cmd_it->cnt_++;
+            key_it->second->cnt_++;
         }
     }
 
@@ -17071,24 +17073,24 @@ std::pair<bool, MSetCommand> ParseMSetCommand(
 
     std::vector<EloqKey> vct_key;
     std::vector<SetCommand> vct_cmd;
+    absl::flat_hash_map<EloqKey, SetCommand *> key_to_cmd_ptr;
     size_t sz = (args.size() - 1) / 2;
     vct_key.reserve(sz);
     vct_cmd.reserve(sz);
+    key_to_cmd_ptr.reserve(sz);
 
     for (auto it = args.begin() + 1; it != args.end(); it += 2)
     {
-        auto key_it = std::find(vct_key.begin(), vct_key.end(), *it);
-        if (key_it == vct_key.end())
+        auto key_it = key_to_cmd_ptr.find(*it);
+        if (key_it == key_to_cmd_ptr.end())
         {
             vct_key.emplace_back(*it);
             vct_cmd.emplace_back(*(it + 1));
+            key_to_cmd_ptr[*it] = &vct_cmd.back();
         }
         else
         {
-            auto cmd_it = vct_cmd.begin() + (key_it - vct_key.begin());
-            assert(cmd_it != vct_cmd.end());
-            *key_it = *it;
-            *cmd_it = SetCommand(*(it + 1));
+            *key_it->second = SetCommand(*(it + 1));
         }
     }
     return {true, MSetCommand(std::move(vct_key), std::move(vct_cmd))};
@@ -17108,26 +17110,28 @@ std::pair<bool, MSetNxCommand> ParseMSetNxCommand(
     std::vector<ExistsCommand> exist_cmds;
     std::vector<SetCommand> set_cmds;
 
+    absl::flat_hash_map<EloqKey, std::pair<ExistsCommand *, SetCommand *>>
+        key_to_cmd_ptr;
     size_t sz = (args.size() - 1) / 2;
     keys.reserve(sz);
     exist_cmds.reserve(sz);
     set_cmds.reserve(sz);
+    key_to_cmd_ptr.reserve(sz);
 
     for (auto it = args.begin() + 1; it != args.end(); it += 2)
     {
-        auto key_it = std::find(keys.begin(), keys.end(), *it);
-        if (key_it == keys.end())
+        auto key_it = key_to_cmd_ptr.find(*it);
+        if (key_it == key_to_cmd_ptr.end())
         {
             keys.emplace_back(*it);
             exist_cmds.emplace_back(1);
             set_cmds.emplace_back(*(it + 1));
+            key_to_cmd_ptr[*it] = {&exist_cmds.back(), &set_cmds.back()};
         }
         else
         {
-            auto exist_it = exist_cmds.begin() + (key_it - keys.begin());
-            exist_it->cnt_++;
-            auto set_it = set_cmds.begin() + (key_it - keys.begin());
-            *set_it = SetCommand(*(it + 1));
+            key_it->second.first->cnt_++;
+            *key_it->second.second = SetCommand(*(it + 1));
         }
     }
 
