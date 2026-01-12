@@ -17110,7 +17110,8 @@ std::pair<bool, MSetNxCommand> ParseMSetNxCommand(
     std::vector<ExistsCommand> exist_cmds;
     std::vector<SetCommand> set_cmds;
 
-    absl::flat_hash_map<EloqKey, std::pair<ExistsCommand *, SetCommand *>>
+    absl::flat_hash_map<std::string_view,
+                        std::pair<ExistsCommand *, SetCommand *>>
         key_to_cmd_ptr;
     size_t sz = (args.size() - 1) / 2;
     keys.reserve(sz);
