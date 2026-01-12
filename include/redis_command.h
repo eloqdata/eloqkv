@@ -5463,18 +5463,6 @@ public:
 
     void OutputResult(OutputHandler *reply) const override
     {
-        struct Timer
-        {
-            ~Timer()
-            {
-                int64_t diff = butil::cpuwide_time_ns() - start;
-                if (diff > 1000000)
-                {
-                    LOG(ERROR) << "OutputResult " << diff << "ns";
-                }
-            }
-            int64_t start{butil::cpuwide_time_ns()};
-        } timer;
         reply->OnArrayStart(raw_cmds_.size());
         for (const auto cmd : raw_cmds_)
         {
