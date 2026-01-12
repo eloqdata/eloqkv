@@ -417,17 +417,3 @@ private:
 };
 
 }  // namespace EloqKV
-
-namespace std
-{
-
-template <>
-struct hash<EloqKV::EloqKey>
-{
-    size_t operator()(const EloqKV::EloqKey &key) const noexcept
-    {
-        return key.Hash();
-    }
-};
-
-}  // namespace std

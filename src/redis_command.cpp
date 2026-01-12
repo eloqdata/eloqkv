@@ -17037,7 +17037,7 @@ std::pair<bool, MExistsCommand> ParseExistsCommand(
 
     std::vector<EloqKey> vct_key;
     std::vector<ExistsCommand> vct_cmd;
-    absl::flat_hash_map<EloqKey, ExistsCommand *> key_to_cmd_ptr;
+    absl::flat_hash_map<std::string_view, ExistsCommand *> key_to_cmd_ptr;
     vct_key.reserve(args.size() - 1);
     vct_cmd.reserve(args.size() - 1);
     key_to_cmd_ptr.reserve(args.size() - 1);
@@ -17073,7 +17073,7 @@ std::pair<bool, MSetCommand> ParseMSetCommand(
 
     std::vector<EloqKey> vct_key;
     std::vector<SetCommand> vct_cmd;
-    absl::flat_hash_map<EloqKey, SetCommand *> key_to_cmd_ptr;
+    absl::flat_hash_map<std::string_view, SetCommand *> key_to_cmd_ptr;
     size_t sz = (args.size() - 1) / 2;
     vct_key.reserve(sz);
     vct_cmd.reserve(sz);
@@ -17153,7 +17153,7 @@ std::pair<bool, MGetCommand> ParseMGetCommand(
     std::vector<EloqKey> vct_key;
     std::vector<GetCommand> vct_cmd;
     std::vector<GetCommand *> vct_raw_cmd;
-    absl::flat_hash_map<EloqKey, GetCommand *> key_to_cmd_ptr;
+    absl::flat_hash_map<std::string_view, GetCommand *> key_to_cmd_ptr;
     vct_key.reserve(args.size() - 1);
     vct_cmd.reserve(args.size() - 1);
     vct_raw_cmd.reserve(args.size() - 1);
