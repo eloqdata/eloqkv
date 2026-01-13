@@ -513,6 +513,15 @@ private:
     inline std::string_view GetCommandAccessType(
         const std::string_view &cmd_type) const;
 
+    std::string GenKvTableName(const TableName &table_name) const
+    {
+        // NOTICE: The kv table name is prefixed with "eloqkv_" to avoid
+        // conflicts with other engines.
+        // Must consistent with txservice::KvTablePrefixOf.
+
+        return "eloqkv_" + table_name.String();
+    }
+
 private:
     typedef std::unordered_map<std::string, RedisCommandHandler *> CommandMap;
     CommandMap command_map_;
