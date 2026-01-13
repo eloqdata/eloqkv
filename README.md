@@ -201,14 +201,14 @@ git submodule update --init --recursive
 mkdir build
 cd build
 cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=./install ..
-make -j 8
+make -j$(nproc)
 make install
 ```
 
 ### 4. Run EloqKV
 ```bash
 cd install
-./bin/eloqkv --port=6389
+./bin/eloqkv --config=../../eloqkv.ini
 ```
 
 ---
