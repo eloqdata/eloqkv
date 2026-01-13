@@ -696,6 +696,12 @@ void RedisListObject::CommitLSet(int64_t index, EloqString &element)
 
 void RedisListObject::CommitRPush(std::vector<EloqString> &elements)
 {
+    if (list_object_.empty() && elements.size() == 1 &&
+        elements[0].StringView() == "foo")
+    {
+        DLOG(INFO) << "Empty list object CommitRPush foo";
+    }
+
     for (auto &element : elements)
     {
         serialized_length_ += sizeof(uint32_t) + element.Length();

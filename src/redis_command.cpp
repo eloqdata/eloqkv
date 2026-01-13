@@ -5045,6 +5045,7 @@ BLMPopCommand::BLMPopCommand(std::vector<EloqKey> &&v_key,
     // into the related object.
     vct_key_ptrs_.push_back(std::move(vct_key));
     vct_cmd_ptrs_.push_back(std::move(vct_cmd));
+    DLOG(INFO) << "BLMPopCommand, ts_expired: " << ts_expired;
 }
 
 void BLMPopCommand::OutputResult(OutputHandler *reply) const
@@ -11588,6 +11589,11 @@ std::tuple<bool, EloqKey, RPushCommand> ParseRPushCommand(
     {
         output->OnError("ERR wrong number of arguments for 'rpush' command");
         return {false, EloqKey(), RPushCommand()};
+    }
+
+    if ((args[1] == "blist1{t}" || args[1] == "blist2{t}") && args[2] == "foo")
+    {
+        DLOG(INFO) << "rpush : " << args[1] << " " << args[2];
     }
 
     std::vector<EloqString> elements;
