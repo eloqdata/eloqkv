@@ -208,7 +208,7 @@ make install
 ### 4. Run EloqKV
 ```bash
 cd install
-./bin/eloqkv --port=6389
+./bin/eloqkv --config=../../eloqkv.ini
 ```
 
 ---
