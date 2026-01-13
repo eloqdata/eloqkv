@@ -201,7 +201,7 @@ git submodule update --init --recursive
 mkdir build
 cd build
 cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=./install ..
-make -j 8
+make -j$(nproc)
 make install
 ```
 
