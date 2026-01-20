@@ -17,7 +17,7 @@
 # EloqKV  
 EloqKV is a high-performance distributed database with a Redis/ValKey compatible API. It offers features like **ACID transactions, full elasticity and scalability, tiered storage, and session-style transaction syntax** — all while preserving Redis' simplicity and usability. EloqKV is engineered for developers who need a modern no-compromise database solution to power the next generation of demanding applications in the AI era. 
 
-This repo contains the code for the pluggable Redis API layer. See [Architecture](#Architecture) for more details. The API sits on top of EloqData's [Data Substrate](https://github.com/eloqdata/tx_service) modular database foundation and the dependencies are included as submodules.
+This repo contains the code for the pluggable Redis API layer. See [Architecture](#architecture) for more details. The API sits on top of EloqData's [Data Substrate](https://github.com/eloqdata/tx_service) modular database foundation and the dependencies are included as submodules.
 
 - [Key Features](#key-features)
 - [Quick Start](#quick-start)
