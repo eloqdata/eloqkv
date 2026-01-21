@@ -2409,6 +2409,7 @@ function run_eloqkv_cluster_tests() {
         --ip_port_list=127.0.0.1:6379,127.0.0.1:7379,127.0.0.1:8379 \
         --node_group_replica_num=1 \
         --txlog_group_replica_num=3 \
+        --auto_redirect=true \
         --maxclients=1000000 \
         --logtostderr=true \
         --aws_access_key_id="${rocksdb_cloud_aws_access_key_id}" \
@@ -2660,9 +2661,6 @@ function run_eloqkv_cluster_tests() {
     kill $log_service_pid
     wait_until_finished
 
-    echo "stop data store server." >> /tmp/redis_cluster_with_eloqstore.log
-    # kill data store server
-    stop_and_clean_dss_server $kv_store_type
     echo "finished redis_servers nowal, withstore after log replay." >> /tmp/redis_cluster_with_eloqstore.log
 
   fi
