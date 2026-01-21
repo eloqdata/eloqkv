@@ -96,7 +96,7 @@ function run_tcl_tests()
     $fault_inject \
     $no_evicted \
     --single /unit/mono/"
-  local files=$(find ${eloqkv_base_path}/tests/unit/mono -maxdepth 2 -type f)
+  local files=$(find ${eloqkv_base_path}/tests/unit/eloq -maxdepth 2 -type f)
 
   for file in $files; do
     local file_extension="${file##*.}"
