@@ -95,12 +95,12 @@ function run_tcl_tests()
     --tags -needs:support_cmd_later \
     $fault_inject \
     $no_evicted \
-    --single /unit/mono/"
+    --single /unit/eloq/"
   local files=$(find ${eloqkv_base_path}/tests/unit/eloq -maxdepth 2 -type f)
 
   for file in $files; do
     local file_extension="${file##*.}"
-    local relative_path="${file#${eloqkv_base_path}/tests/unit/mono/}"
+    local relative_path="${file#${eloqkv_base_path}/tests/unit/eloq/}"
     relative_path="${relative_path%.*}"
 
     if [[ "$file_extension" = "tcl" ]]; then
