@@ -72,7 +72,6 @@ sudo sed -i "s/#\s*StrictHostKeyChecking ask/    StrictHostKeyChecking no/g" /et
 python3.8 -m venv my_env
 source my_env/bin/activate
 pip install -r /home/$current_user/workspace/eloqkv/tests/unit/eloq/log_replay_test/requirements.txt
-pip install minio
 deactivate
 
 build_types=("Debug")
