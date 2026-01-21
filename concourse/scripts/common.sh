@@ -2177,6 +2177,7 @@ function run_eloqkv_cluster_tests() {
     local txlog_rocksdb_cloud_bucket_name=${ROCKSDB_CLOUD_BUCKET_NAME}
     local txlog_rocksdb_cloud_object_path=${TXLOG_ROCKSDB_CLOUD_OBJECT_PATH}
     local txlog_rocksdb_cloud_s3_endpoint_url=${ROCKSDB_CLOUD_S3_ENDPOINT}
+    local eloq_store_cloud_store_path=${ELOQSTORE_BUCKET_NAME}/eloqstore
     local ports=(6379 7379 8379)
     local eloqkv_bin_path="/home/$current_user/workspace/eloqkv/install/bin/eloqkv"
 
@@ -2247,10 +2248,6 @@ function run_eloqkv_cluster_tests() {
     #
     # Test small ckpt interval
     #
-    stop_and_clean_dss_server $kv_store_type
-    start_dss_server "127.0.0.1" "9100" $kv_store_type
-    echo "Data store server is ready!"  >> /tmp/redis_cluster_with_eloqstore.log
-
     rm -rf /tmp/redis_server_data_0/*
     rm -rf /tmp/redis_server_data_1/*
     rm -rf /tmp/redis_server_data_2/*
@@ -2275,6 +2272,13 @@ function run_eloqkv_cluster_tests() {
       --txlog_rocksdb_cloud_bucket_name=${txlog_rocksdb_cloud_bucket_name} \
       --txlog_rocksdb_cloud_object_path=${txlog_rocksdb_cloud_object_path} \
       --txlog_rocksdb_cloud_s3_endpoint_url="${txlog_rocksdb_cloud_s3_endpoint_url}" \
+	    --eloq_store_max_concurrent_writes=0 \
+	    --eloq_store_pages_per_file_shift=1 \
+      --eloq_store_cloud_endpoint="${txlog_rocksdb_cloud_s3_endpoint_url}" \
+      --eloq_store_cloud_access_key="${rocksdb_cloud_aws_access_key_id}" \
+      --eloq_store_cloud_secret_key="${rocksdb_cloud_aws_secret_access_key}" \
+      --eloq_store_cloud_store_path="${eloq_store_cloud_store_path}" \
+      --eloq_store_reuse_local_files=true \
       --bootstrap \
       >/tmp/redis_server_multi_node_bootstrap.log 2>&1 \
       &
@@ -2312,7 +2316,13 @@ function run_eloqkv_cluster_tests() {
         --txlog_rocksdb_cloud_bucket_name=${txlog_rocksdb_cloud_bucket_name} \
         --txlog_rocksdb_cloud_object_path=${txlog_rocksdb_cloud_object_path} \
         --txlog_rocksdb_cloud_s3_endpoint_url="${txlog_rocksdb_cloud_s3_endpoint_url}" \
-        --eloq_dss_peer_node=${dss_peer_node} \
+	      --eloq_store_max_concurrent_writes=0 \
+	      --eloq_store_pages_per_file_shift=1 \
+        --eloq_store_cloud_endpoint="${txlog_rocksdb_cloud_s3_endpoint_url}" \
+        --eloq_store_cloud_access_key="${rocksdb_cloud_aws_access_key_id}" \
+        --eloq_store_cloud_secret_key="${rocksdb_cloud_aws_secret_access_key}" \
+        --eloq_store_cloud_store_path="${eloq_store_cloud_store_path}" \
+        --eloq_store_reuse_local_files=true \
         >/tmp/redis_server_multi_node_nowal_withstore_smallckptinterval_$index.log 2>&1 \
         &
       redis_pids+=($!)
