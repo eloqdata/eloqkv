@@ -2265,6 +2265,7 @@ function run_eloqkv_cluster_tests() {
       --maxclients=1000000 \
       --checkpointer_interval=36000 \
       --ip_port_list=127.0.0.1:6379,127.0.0.1:7379,127.0.0.1:8379 \
+      --node_group_replica_num=1 \
       --aws_access_key_id="${rocksdb_cloud_aws_access_key_id}" \
       --aws_secret_key="${rocksdb_cloud_aws_secret_access_key}" \
       --txlog_rocksdb_cloud_bucket_prefix=${txlog_rocksdb_cloud_bucket_prefix} \
@@ -2308,6 +2309,7 @@ function run_eloqkv_cluster_tests() {
         --checkpointer_interval=1 \
 	      --kickout_data_for_test=true \
         --ip_port_list=127.0.0.1:6379,127.0.0.1:7379,127.0.0.1:8379 \
+        --node_group_replica_num=1 \
         --txlog_group_replica_num=3 \
         --aws_access_key_id="${rocksdb_cloud_aws_access_key_id}" \
         --aws_secret_key="${rocksdb_cloud_aws_secret_access_key}" \
@@ -2369,6 +2371,7 @@ function run_eloqkv_cluster_tests() {
       --maxclients=1000000 \
       --checkpointer_interval=36000 \
       --ip_port_list=127.0.0.1:6379,127.0.0.1:7379,127.0.0.1:8379 \
+      --node_group_replica_num=1 \
       --aws_access_key_id="${rocksdb_cloud_aws_access_key_id}" \
       --aws_secret_key="${rocksdb_cloud_aws_secret_access_key}" \
       --txlog_rocksdb_cloud_bucket_prefix=${txlog_rocksdb_cloud_bucket_prefix} \
@@ -2404,6 +2407,7 @@ function run_eloqkv_cluster_tests() {
         --eloq_data_path="/tmp/redis_server_data_$index" \
         --node_memory_limit_mb=${node_memory_limit_mb} \
         --ip_port_list=127.0.0.1:6379,127.0.0.1:7379,127.0.0.1:8379 \
+        --node_group_replica_num=1 \
         --txlog_group_replica_num=3 \
         --maxclients=1000000 \
         --logtostderr=true \
@@ -2484,6 +2488,7 @@ function run_eloqkv_cluster_tests() {
       --maxclients=1000000 \
       --checkpointer_interval=36000 \
       --ip_port_list=127.0.0.1:6379,127.0.0.1:7379,127.0.0.1:8379 \
+      --node_group_replica_num=1 \
       --txlog_service_list=$log_service_ip_port \
       --txlog_group_replica_num=3 \
       --aws_access_key_id="${rocksdb_cloud_aws_access_key_id}" \
@@ -2528,6 +2533,7 @@ function run_eloqkv_cluster_tests() {
         --logtostderr=true \
         --checkpointer_interval=36000 \
         --ip_port_list=127.0.0.1:6379,127.0.0.1:7379,127.0.0.1:8379 \
+        --node_group_replica_num=1 \
         --txlog_service_list=$log_service_ip_port \
         --txlog_group_replica_num=3 \
         --aws_access_key_id="${rocksdb_cloud_aws_access_key_id}" \
@@ -2596,6 +2602,7 @@ function run_eloqkv_cluster_tests() {
         --logtostderr=true \
         --checkpointer_interval=36000 \
         --ip_port_list=127.0.0.1:6379,127.0.0.1:7379,127.0.0.1:8379 \
+        --node_group_replica_num=1 \
         --txlog_service_list=$log_service_ip_port \
         --txlog_group_replica_num=3 \
         --aws_access_key_id="${rocksdb_cloud_aws_access_key_id}" \
