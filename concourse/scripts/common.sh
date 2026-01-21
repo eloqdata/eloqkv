@@ -2265,7 +2265,6 @@ function run_eloqkv_cluster_tests() {
       --maxclients=1000000 \
       --checkpointer_interval=36000 \
       --ip_port_list=127.0.0.1:6379,127.0.0.1:7379,127.0.0.1:8379 \
-      --eloq_dss_peer_node=${dss_peer_node} \
       --aws_access_key_id="${rocksdb_cloud_aws_access_key_id}" \
       --aws_secret_key="${rocksdb_cloud_aws_secret_access_key}" \
       --txlog_rocksdb_cloud_bucket_prefix=${txlog_rocksdb_cloud_bucket_prefix} \
@@ -2347,16 +2346,12 @@ function run_eloqkv_cluster_tests() {
 
     echo "stop data store server." >> /tmp/redis_cluster_with_eloqstore.log
     # kill data store server
-    stop_and_clean_dss_server $kv_store_type
     echo "finished redis_servers with nowal, withstore, small ckpt interval."  >> /tmp/redis_cluster_with_eloqstore.log
     echo ""  >> /tmp/redis_cluster_with_eloqstore.log
 
     #
     # Test default ckpt interval
     #
-    start_dss_server "127.0.0.1" "9100" $kv_store_type
-    echo "Data store server is ready!"  >> /tmp/redis_cluster_with_eloqstore.log
-
     rm -rf /tmp/redis_server_data_0/*
     rm -rf /tmp/redis_server_data_1/*
     rm -rf /tmp/redis_server_data_2/*
@@ -2374,13 +2369,19 @@ function run_eloqkv_cluster_tests() {
       --maxclients=1000000 \
       --checkpointer_interval=36000 \
       --ip_port_list=127.0.0.1:6379,127.0.0.1:7379,127.0.0.1:8379 \
-      --eloq_dss_peer_node=${dss_peer_node} \
       --aws_access_key_id="${rocksdb_cloud_aws_access_key_id}" \
       --aws_secret_key="${rocksdb_cloud_aws_secret_access_key}" \
       --txlog_rocksdb_cloud_bucket_prefix=${txlog_rocksdb_cloud_bucket_prefix} \
       --txlog_rocksdb_cloud_bucket_name=${txlog_rocksdb_cloud_bucket_name} \
       --txlog_rocksdb_cloud_object_path=${txlog_rocksdb_cloud_object_path} \
       --txlog_rocksdb_cloud_s3_endpoint_url="${txlog_rocksdb_cloud_s3_endpoint_url}" \
+	    --eloq_store_max_concurrent_writes=0 \
+	    --eloq_store_pages_per_file_shift=1 \
+      --eloq_store_cloud_endpoint="${txlog_rocksdb_cloud_s3_endpoint_url}" \
+      --eloq_store_cloud_access_key="${rocksdb_cloud_aws_access_key_id}" \
+      --eloq_store_cloud_secret_key="${rocksdb_cloud_aws_secret_access_key}" \
+      --eloq_store_cloud_store_path="${eloq_store_cloud_store_path}" \
+      --eloq_store_reuse_local_files=true \
       --bootstrap \
       >/tmp/redis_server_multi_node_bootstrap.log 2>&1 \
       &
@@ -2404,7 +2405,6 @@ function run_eloqkv_cluster_tests() {
         --node_memory_limit_mb=${node_memory_limit_mb} \
         --ip_port_list=127.0.0.1:6379,127.0.0.1:7379,127.0.0.1:8379 \
         --txlog_group_replica_num=3 \
-        --eloq_dss_peer_node=${dss_peer_node} \
         --maxclients=1000000 \
         --logtostderr=true \
         --aws_access_key_id="${rocksdb_cloud_aws_access_key_id}" \
@@ -2413,7 +2413,13 @@ function run_eloqkv_cluster_tests() {
         --txlog_rocksdb_cloud_bucket_name=${txlog_rocksdb_cloud_bucket_name} \
         --txlog_rocksdb_cloud_object_path=${txlog_rocksdb_cloud_object_path} \
         --txlog_rocksdb_cloud_s3_endpoint_url="${txlog_rocksdb_cloud_s3_endpoint_url}" \
-        --eloq_dss_peer_node=${dss_peer_node} \
+	      --eloq_store_max_concurrent_writes=0 \
+	      --eloq_store_pages_per_file_shift=1 \
+        --eloq_store_cloud_endpoint="${txlog_rocksdb_cloud_s3_endpoint_url}" \
+        --eloq_store_cloud_access_key="${rocksdb_cloud_aws_access_key_id}" \
+        --eloq_store_cloud_secret_key="${rocksdb_cloud_aws_secret_access_key}" \
+        --eloq_store_cloud_store_path="${eloq_store_cloud_store_path}" \
+        --eloq_store_reuse_local_files=true \
         >/tmp/redis_server_multi_node_nowal_withstore_defaultckptinterval_$index.log 2>&1 \
         &
       redis_pids+=($!)
@@ -2438,8 +2444,6 @@ function run_eloqkv_cluster_tests() {
     wait_until_finished
 
     echo "stop data store server." >> /tmp/redis_cluster_with_eloqstore.log
-    # kill data store server
-    stop_and_clean_dss_server $kv_store_type
     echo "finished redis_servers nowal, withstore, default ckpt interval." >> /tmp/redis_cluster_with_eloqstore.log
     echo ""  >> /tmp/redis_cluster_with_eloqstore.log
 
@@ -2463,10 +2467,6 @@ function run_eloqkv_cluster_tests() {
     # wait for log service to be ready
     sleep 10
 
-    stop_and_clean_dss_server $kv_store_type
-    start_dss_server "127.0.0.1" "9100" $kv_store_type
-    echo "Data store server is ready!"  >> /tmp/redis_cluster_with_eloqstore.log
-
     rm -rf /tmp/redis_server_data_0/*
     rm -rf /tmp/redis_server_data_1/*
     rm -rf /tmp/redis_server_data_2/*
@@ -2486,13 +2486,19 @@ function run_eloqkv_cluster_tests() {
       --ip_port_list=127.0.0.1:6379,127.0.0.1:7379,127.0.0.1:8379 \
       --txlog_service_list=$log_service_ip_port \
       --txlog_group_replica_num=3 \
-      --eloq_dss_peer_node=${dss_peer_node} \
       --aws_access_key_id="${rocksdb_cloud_aws_access_key_id}" \
       --aws_secret_key="${rocksdb_cloud_aws_secret_access_key}" \
       --txlog_rocksdb_cloud_bucket_prefix=${txlog_rocksdb_cloud_bucket_prefix} \
       --txlog_rocksdb_cloud_bucket_name=${txlog_rocksdb_cloud_bucket_name} \
       --txlog_rocksdb_cloud_object_path=${txlog_rocksdb_cloud_object_path} \
       --txlog_rocksdb_cloud_s3_endpoint_url="${txlog_rocksdb_cloud_s3_endpoint_url}" \
+	    --eloq_store_max_concurrent_writes=0 \
+	    --eloq_store_pages_per_file_shift=1 \
+      --eloq_store_cloud_endpoint="${txlog_rocksdb_cloud_s3_endpoint_url}" \
+      --eloq_store_cloud_access_key="${rocksdb_cloud_aws_access_key_id}" \
+      --eloq_store_cloud_secret_key="${rocksdb_cloud_aws_secret_access_key}" \
+      --eloq_store_cloud_store_path="${eloq_store_cloud_store_path}" \
+      --eloq_store_reuse_local_files=true \
       --bootstrap \
       >/tmp/redis_server_multi_node_withwal_withstore_bootstrap.log 2>&1 \
       &
@@ -2530,7 +2536,13 @@ function run_eloqkv_cluster_tests() {
         --txlog_rocksdb_cloud_bucket_name=${txlog_rocksdb_cloud_bucket_name} \
         --txlog_rocksdb_cloud_object_path=${txlog_rocksdb_cloud_object_path} \
         --txlog_rocksdb_cloud_s3_endpoint_url="${txlog_rocksdb_cloud_s3_endpoint_url}" \
-        --eloq_dss_peer_node=${dss_peer_node} \
+	      --eloq_store_max_concurrent_writes=0 \
+	      --eloq_store_pages_per_file_shift=1 \
+        --eloq_store_cloud_endpoint="${txlog_rocksdb_cloud_s3_endpoint_url}" \
+        --eloq_store_cloud_access_key="${rocksdb_cloud_aws_access_key_id}" \
+        --eloq_store_cloud_secret_key="${rocksdb_cloud_aws_secret_access_key}" \
+        --eloq_store_cloud_store_path="${eloq_store_cloud_store_path}" \
+        --eloq_store_reuse_local_files=true \
         >/tmp/redis_server_multi_node_withwal_withstore_beforelogreplay_$index.log 2>&1 \
         &
       redis_pids+=($!)
@@ -2592,7 +2604,13 @@ function run_eloqkv_cluster_tests() {
         --txlog_rocksdb_cloud_bucket_name=${txlog_rocksdb_cloud_bucket_name} \
         --txlog_rocksdb_cloud_object_path=${txlog_rocksdb_cloud_object_path} \
         --txlog_rocksdb_cloud_s3_endpoint_url="${txlog_rocksdb_cloud_s3_endpoint_url}" \
-        --eloq_dss_peer_node=${dss_peer_node} \
+	      --eloq_store_max_concurrent_writes=0 \
+	      --eloq_store_pages_per_file_shift=1 \
+        --eloq_store_cloud_endpoint="${txlog_rocksdb_cloud_s3_endpoint_url}" \
+        --eloq_store_cloud_access_key="${rocksdb_cloud_aws_access_key_id}" \
+        --eloq_store_cloud_secret_key="${rocksdb_cloud_aws_secret_access_key}" \
+        --eloq_store_cloud_store_path="${eloq_store_cloud_store_path}" \
+        --eloq_store_reuse_local_files=true \
         >/tmp/redis_server_multi_node_withwal_withstore_afterlogreplay_$index.log 2>&1 \
         &
       redis_pids+=($!)
