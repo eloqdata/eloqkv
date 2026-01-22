@@ -1,0 +1,2 @@
+export LD_LIBRARY_PATH=/mnt/bigfoot/tianxj_hive/eloqdata/eloqkv//lib
+/mnt/bigfoot/tianxj_hive/eloqdata/eloqkv//bin/eloqkv --config=/mnt/bigfoot/tianxj_hive/eloqdata/eloq-test/runtime/my_3.cnf --cmd_read_catalog=true --rocksdb_cloud_run_purger=true --rocksdb_cloud_purger_periodicity_secs=30 --logtostderr=true &>> /mnt/bigfoot/tianxj_hive/eloqdata/eloq-test/runtime/node3_log &
