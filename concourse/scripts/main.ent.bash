@@ -77,8 +77,8 @@ deactivate
 build_types=("Debug")
 # kv_store_types=("CASSANDRA" "ROCKSDB")
 # kv_store_types=("ELOQDSS_ELOQSTORE" "ELOQDSS_ROCKSDB_CLOUD_S3" "ROCKSDB")
-# kv_store_types=("ELOQDSS_ELOQSTORE")
-kv_store_types=("ELOQDSS_ROCKSDB_CLOUD_S3" "ROCKSDB")
+kv_store_types=("ELOQDSS_ELOQSTORE")
+# kv_store_types=("ELOQDSS_ROCKSDB_CLOUD_S3" "ROCKSDB")
 
 for bt in "${build_types[@]}"; do
   for kst in "${kv_store_types[@]}"; do
