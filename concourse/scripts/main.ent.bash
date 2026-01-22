@@ -75,8 +75,7 @@ pip install -r /home/$current_user/workspace/eloqkv/tests/unit/eloq/log_replay_t
 deactivate
 
 build_types=("Debug")
-# kv_store_types=("ELOQDSS_ELOQSTORE" "ELOQDSS_ROCKSDB_CLOUD_S3" "ROCKSDB")
-kv_store_types=("ELOQDSS_ELOQSTORE")
+kv_store_types=("ELOQDSS_ELOQSTORE" "ELOQDSS_ROCKSDB_CLOUD_S3" "ROCKSDB")
 
 for bt in "${build_types[@]}"; do
   for kst in "${kv_store_types[@]}"; do
@@ -92,8 +91,8 @@ for bt in "${build_types[@]}"; do
 
     source my_env/bin/activate
     run_eloq_test $bt $kst
-    # run_eloqkv_tests $bt $kst
-    # run_eloqkv_cluster_tests $bt $kst
+    run_eloqkv_tests $bt $kst
+    run_eloqkv_cluster_tests $bt $kst
     deactivate
   done
 done
