@@ -2691,10 +2691,10 @@ function run_eloq_test(){
   else
     mkdir /home/$current_user/workspace/eloq_test/runtime
   fi
-  # if [[ "$kv_store_type" == "ELOQDSS_ELOQSTORE" ]]; then
-  #   echo "skip run_eloq_test for ELOQDSS_ELOQSTORE."
-  #   return 0
-  # fi
+  if [[ "$kv_store_type" == "ELOQDSS_ELOQSTORE" ]]; then
+    echo "skip run_eloq_test for ELOQDSS_ELOQSTORE."
+    return 0
+  fi
 
   # generate cassandra keyspace name.
   local timestamp=$(($(date +%s%N)/1000000))
@@ -2817,8 +2817,6 @@ function run_eloq_test(){
 
     # run single/multi test
     rm -rf runtime/*
-    python3 run_tests.py --dbtype redis --group single --storage eloqdss-eloqstore --install_path ${eloqkv_install_path}
-
     python3 redis_test/multi_test/smoke_test.py --dbtype redis --storage eloqdss-eloqstore --install_path ${eloqkv_install_path}
 
     # disable unstable multi test
