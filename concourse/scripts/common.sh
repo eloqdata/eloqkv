@@ -2691,10 +2691,10 @@ function run_eloq_test(){
   else
     mkdir /home/$current_user/workspace/eloq_test/runtime
   fi
-  if [[ "$kv_store_type" == "ELOQDSS_ELOQSTORE" ]]; then
-    echo "skip run_eloq_test for ELOQDSS_ELOQSTORE."
-    return 0
-  fi
+  # if [[ "$kv_store_type" == "ELOQDSS_ELOQSTORE" ]]; then
+  #   echo "skip run_eloq_test for ELOQDSS_ELOQSTORE."
+  #   return 0
+  # fi
 
   # generate cassandra keyspace name.
   local timestamp=$(($(date +%s%N)/1000000))
