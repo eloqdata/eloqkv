@@ -7,10 +7,10 @@ def create_bucket(minio_endpoint_url, minio_access_key, minio_secret_key, bucket
     minio_endpoint = ""
     if minio_endpoint_url.find("http://") == 0:
         secure = False
-        minio_endpoint = minio_endpoint_url.removeprefix("http://")
+        minio_endpoint = minio_endpoint_url.lstrip("http://")
     elif minio_endpoint_url.find("https://") == 0:
         secure = True
-        minio_endpoint = minio_endpoint_url.removeprefix("https://")
+        minio_endpoint = minio_endpoint_url.lstrip("https://")
 
     client = minio.Minio(minio_endpoint,
                          access_key=minio_access_key,
