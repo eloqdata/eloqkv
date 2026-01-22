@@ -26,6 +26,7 @@ export ROCKSDB_CLOUD_AWS_SECRET_ACCESS_KEY=${MINIO_SECRET_KEY}
 timestamp=$(($(date +%s%N) / 1000000))
 export ROCKSDB_CLOUD_BUCKET_PREFIX="eloqkv-pr-"
 export ROCKSDB_CLOUD_BUCKET_NAME="test-${timestamp}"
+export ELOQSTORE_BUCKET_NAME="eloqkv-pr-eloqstore-test-${timestamp}"
 export ROCKSDB_CLOUD_OBJECT_PATH="dss"
 export TXLOG_ROCKSDB_CLOUD_OBJECT_PATH="txlog"
 
