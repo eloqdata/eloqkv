@@ -343,7 +343,7 @@ function run_eloqkv_tests() {
     # log replay test
     echo "Running log replay test for $build_type build: "
 
-    local python_test_file="/home/$current_user/workspace/eloqkv/tests/unit/mono/log_replay_test/log_replay_test.py"
+    local python_test_file="${eloqkv_base_path}/tests/unit/eloq/log_replay_test/log_replay_test.py"
     python3 $python_test_file --load > /tmp/load.log 2>&1
 
     # wait for load to finish
@@ -522,7 +522,7 @@ function run_eloqkv_tests() {
     # log replay test
     echo "Running log replay test for $build_type build: "
 
-    local python_test_file="/home/$current_user/workspace/eloqkv/tests/unit/mono/log_replay_test/log_replay_test.py"
+    local python_test_file="${eloqkv_base_path}/tests/unit/eloq/log_replay_test/log_replay_test.py"
     python3 $python_test_file --load > /tmp/load.log 2>&1
 
     # wait for load to finish
@@ -744,7 +744,7 @@ function run_eloqkv_tests() {
     # log replay test
     echo "Running log replay test for $build_type build: "
 
-    local python_test_file="/home/$current_user/workspace/eloqkv/tests/unit/mono/log_replay_test/log_replay_test.py"
+    local python_test_file="${eloqkv_base_path}/tests/unit/eloq/log_replay_test/log_replay_test.py"
     python3 $python_test_file --load > /tmp/load.log 2>&1
 
     # wait for load to finish
@@ -1029,7 +1029,7 @@ function run_eloqkv_tests() {
     echo "Running log replay test for $build_type build: " >> /tmp/redis_single_node.log
     echo "" >> /tmp/redis_single_node.log
 
-    local python_test_file="${eloqkv_base_path}/tests/unit/mono/log_replay_test/log_replay_test.py"
+    local python_test_file="${eloqkv_base_path}/tests/unit/eloq/log_replay_test/log_replay_test.py"
     python3 $python_test_file --load > /tmp/load.log 2>&1
 
     # wait for load to finish
@@ -1725,7 +1725,7 @@ function run_eloqkv_cluster_tests() {
     # TODO(ZX) log replay test for cluster
     echo "Running log replay test for Debug build: "
 
-    local python_test_file="/home/$current_user/workspace/eloqkv/tests/unit/mono/log_replay_test/log_replay_test.py"
+    local python_test_file="${eloqkv_base_path}/tests/unit/eloq/log_replay_test/log_replay_test.py"
     python3 $python_test_file --load > load.log 2>&1
 
     # wait for load to finish
@@ -2076,7 +2076,7 @@ function run_eloqkv_cluster_tests() {
     # TODO(ZX) log replay test for cluster
     echo "Running log replay test for Debug build: "
 
-    local python_test_file="/home/$current_user/workspace/eloqkv/tests/unit/mono/log_replay_test/log_replay_test.py"
+    local python_test_file="${eloqkv_base_path}/tests/unit/eloq/log_replay_test/log_replay_test.py"
     python3 $python_test_file --load > load.log 2>&1
 
     # wait for load to finish
@@ -2563,7 +2563,7 @@ function run_eloqkv_cluster_tests() {
 
     echo "Running log replay test for Debug build: " >> /tmp/redis_cluster_with_eloqstore.log
 
-    local python_test_file="${eloqkv_base_path}/tests/unit/$current_user/log_replay_test/log_replay_test.py"
+    local python_test_file="${eloqkv_base_path}/tests/unit/eloq/log_replay_test/log_replay_test.py"
     python3 $python_test_file --load > /tmp/load.log 2>&1
 
     # wait for load to finish
