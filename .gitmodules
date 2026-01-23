@@ -2,5 +2,5 @@
 	path = crcspeed
 	url = https://github.com/mattsta/crcspeed
 [submodule "data_substrate"]
-	path = data_substrate
-	url = https://github.com/eloqdata/tx_service.git
+    path = data_substrate
+    url = https://github.com/eatbreads/tx_service.git
