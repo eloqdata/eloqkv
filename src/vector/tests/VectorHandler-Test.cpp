@@ -1888,7 +1888,7 @@ int main(int argc, char **argv)
 
     // Init the vector index worker pool
     EloqVec::vector_index_worker_pool =
-        std::make_unique<TxWorkerPool>(EloqVec::num_cores);
+        std::make_unique<TxWorkerPool>("vindex_test", EloqVec::num_cores);
 
     // Init VectorHandler
     std::string data_path = EloqVec::vector_index_data_path;

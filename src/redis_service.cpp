@@ -435,8 +435,8 @@ bool RedisServiceImpl::Init(brpc::Server &brpc_server)
                                        FLAGS_vector_index_worker_num);
     if (vector_index_worker_num > 0)
     {
-        vector_index_worker_pool_ =
-            std::make_unique<txservice::TxWorkerPool>(vector_index_worker_num);
+        vector_index_worker_pool_ = std::make_unique<txservice::TxWorkerPool>(
+            "vindex", vector_index_worker_num);
     }
     // Vector handler initialization moved to Start() since it requires
     // tx_service_
