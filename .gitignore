@@ -1,4 +1,5 @@
 *.code-workspace
+.codex
 .cursor
 .vscode
 .cursor
@@ -8,6 +9,8 @@
 .cache
 .clangd
 .cursor
+
+AGENTS.md
 
 # Prerequisites
 *.d
