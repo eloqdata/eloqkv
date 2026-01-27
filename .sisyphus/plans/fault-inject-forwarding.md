@@ -192,7 +192,7 @@ Task 1 (header change) → Task 2 (cpp implementation) → Task 3 (verification)
 
 ---
 
-- [ ] 3. Verify fault injection reaches log_service
+- [x] 3. Verify fault injection reaches log_service
 
   **What to do**:
   - Build with full fault injection and embedded log service flags
