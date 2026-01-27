@@ -64,6 +64,7 @@ jobs:
       AWS_SECRET_ACCESS_KEY: ((aws_secret_access_key))
       BUILD_LOG_SRV: "true"
       BUILD_TYPE: RelWithDebInfo
+      LOG_STATE_TYPE: ROCKSDB_CLOUD_S3
       DATA_STORE_TYPE: ELOQDSS_ROCKSDB_CLOUD_S3
       OUT_NAME: nightly
       CLOUDFRONT_DIST: ((cloudfront-dist))
@@ -78,6 +79,7 @@ jobs:
       AWS_SECRET_ACCESS_KEY: ((aws_secret_access_key))
       BUILD_LOG_SRV: "true"
       BUILD_TYPE: RelWithDebInfo
+      LOG_STATE_TYPE: ROCKSDB
       DATA_STORE_TYPE: ROCKSDB
       OUT_NAME: nightly
       CLOUDFRONT_DIST: ((cloudfront-dist))
@@ -108,6 +110,7 @@ jobs:
       AWS_SECRET_ACCESS_KEY: ((aws_secret_access_key))
       BUILD_LOG_SRV: "true"
       BUILD_TYPE: RelWithDebInfo
+      LOG_STATE_TYPE: ROCKSDB_CLOUD_S3
       DATA_STORE_TYPE: ELOQDSS_ELOQSTORE
       OUT_NAME: nightly
       CLOUDFRONT_DIST: ((cloudfront-dist))
@@ -122,6 +125,7 @@ jobs:
       AWS_SECRET_ACCESS_KEY: ((aws_secret_access_key))
       BUILD_LOG_SRV: "true"
       BUILD_TYPE: RelWithDebInfo
+      LOG_STATE_TYPE: ROCKSDB_CLOUD_S3
       DATA_STORE_TYPE: ELOQDSS_ROCKSDB_CLOUD_S3
       OUT_NAME: nightly
       CLOUDFRONT_DIST: ((cloudfront-dist))
@@ -136,6 +140,7 @@ jobs:
       AWS_SECRET_ACCESS_KEY: ((aws_secret_access_key))
       BUILD_LOG_SRV: "true"
       BUILD_TYPE: RelWithDebInfo
+      LOG_STATE_TYPE: ROCKSDB
       DATA_STORE_TYPE: ROCKSDB
       OUT_NAME: nightly
       CLOUDFRONT_DIST: ((cloudfront-dist))
@@ -166,6 +171,7 @@ jobs:
       AWS_SECRET_ACCESS_KEY: ((aws_secret_access_key))
       BUILD_LOG_SRV: "true"
       BUILD_TYPE: RelWithDebInfo
+      LOG_STATE_TYPE: ROCKSDB_CLOUD_S3
       DATA_STORE_TYPE: ELOQDSS_ELOQSTORE
       OUT_NAME: nightly
       CLOUDFRONT_DIST: ((cloudfront-dist))
@@ -180,6 +186,7 @@ jobs:
       AWS_SECRET_ACCESS_KEY: ((aws_secret_access_key))
       BUILD_LOG_SRV: "true"
       BUILD_TYPE: RelWithDebInfo
+      LOG_STATE_TYPE: ROCKSDB_CLOUD_S3
       DATA_STORE_TYPE: ELOQDSS_ROCKSDB_CLOUD_S3
       OUT_NAME: nightly
       CLOUDFRONT_DIST: ((cloudfront-dist))
@@ -194,6 +201,7 @@ jobs:
       AWS_SECRET_ACCESS_KEY: ((aws_secret_access_key))
       BUILD_LOG_SRV: "true"
       BUILD_TYPE: RelWithDebInfo
+      LOG_STATE_TYPE: ROCKSDB
       DATA_STORE_TYPE: ROCKSDB
       OUT_NAME: nightly
       CLOUDFRONT_DIST: ((cloudfront-dist))
@@ -224,6 +232,7 @@ jobs:
       AWS_SECRET_ACCESS_KEY: ((aws_secret_access_key))
       BUILD_LOG_SRV: "true"
       BUILD_TYPE: RelWithDebInfo
+      LOG_STATE_TYPE: ROCKSDB_CLOUD_S3
       DATA_STORE_TYPE: ELOQDSS_ROCKSDB_CLOUD_S3
       OUT_NAME: nightly
       CLOUDFRONT_DIST: ((cloudfront-dist))
@@ -238,6 +247,7 @@ jobs:
       AWS_SECRET_ACCESS_KEY: ((aws_secret_access_key))
       BUILD_LOG_SRV: "true"
       BUILD_TYPE: RelWithDebInfo
+      LOG_STATE_TYPE: ROCKSDB
       DATA_STORE_TYPE: ROCKSDB
       OUT_NAME: nightly
       CLOUDFRONT_DIST: ((cloudfront-dist))
