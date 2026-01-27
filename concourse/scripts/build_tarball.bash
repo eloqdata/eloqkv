@@ -122,10 +122,9 @@ S3_PREFIX="s3://${S3_BUCKET}/eloqkv"
 if [ "${DATA_STORE_TYPE}" = "ROCKSDB" ]; then
     DATA_STORE_ID="rocksdb"
 elif [ "${DATA_STORE_TYPE}" = "ELOQDSS_ROCKSDB_CLOUD_S3" ]; then
-    CMAKE_ARGS="${CMAKE_ARGS} -DWITH_LOG_STATE=ROCKSDB_CLOUD_S3 -DWITH_CLOUD_AZ_INFO=ON"
+    CMAKE_ARGS="${CMAKE_ARGS} -DWITH_CLOUD_AZ_INFO=ON"
     DATA_STORE_ID="rocks_s3"
 elif [ "${DATA_STORE_TYPE}" = "ELOQDSS_ROCKSDB_CLOUD_GCS" ]; then
-    CMAKE_ARGS="${CMAKE_ARGS} -DWITH_LOG_STATE=ROCKSDB_CLOUD_GCS"
     DATA_STORE_ID="rocks_gcs"
 elif [ "${DATA_STORE_TYPE}" = "ELOQDSS_ROCKSDB" ]; then
     DATA_STORE_ID="eloqdss_rocksdb"
@@ -202,7 +201,7 @@ fi
 
 cmake .. -DCMAKE_BUILD_TYPE=$BUILD_TYPE -DWITH_DATA_STORE=$DATA_STORE_TYPE $CMAKE_ARGS \
     -DWITH_LOG_SERVICE=ON -DDISABLE_CKPT_REPORT=${CKPT_REPORT_FLAG} -DDISABLE_CODE_LINE_IN_LOG=${CODE_LINE_FLAG} \
-    -DWITH_ASAN=$ASAN -DOPEN_LOG_SERVICE=OFF -DFORK_HM_PROCESS=ON
+    -DWITH_ASAN=$ASAN -DOPEN_LOG_SERVICE=OFF -DFORK_HM_PROCESS=ON -DWITH_LOG_STATE=${LOG_STATE_TYPE}
 cmake --build . --config ${BUILD_TYPE} -j${NCORE}
 copy_libraries eloqkv ${DEST_DIR}/lib
 mv eloqkv ${DEST_DIR}/bin/
@@ -279,11 +278,9 @@ build_upload_log_srv() {
     cd ${log_sv_src}
     mkdir -p LogService/bin
     mkdir build && cd build
-    cmake_args="-DCMAKE_BUILD_TYPE=$BUILD_TYPE -DWITH_ASAN=$ASAN -DDISABLE_CODE_LINE_IN_LOG=ON"
+    cmake_args="-DCMAKE_BUILD_TYPE=$BUILD_TYPE -DWITH_LOG_STATE=${LOG_STATE_TYPE} -DWITH_ASAN=$ASAN -DDISABLE_CODE_LINE_IN_LOG=ON"
     if [ "$kv_type" = "ELOQDSS_ROCKSDB_CLOUD_S3" ]; then
-        cmake_args="$cmake_args -DWITH_LOG_STATE=ROCKSDB_CLOUD_S3 -DWITH_CLOUD_AZ_INFO=ON"
-    elif [ "$kv_type" = "ELOQDSS_ROCKSDB_CLOUD_GCS" ]; then
-        cmake_args="$cmake_args -DWITH_LOG_STATE=ROCKSDB_CLOUD_GCS"
+        cmake_args="$cmake_args -DWITH_CLOUD_AZ_INFO=ON"
     fi
     cmake .. $cmake_args
     # build and copy log_server
