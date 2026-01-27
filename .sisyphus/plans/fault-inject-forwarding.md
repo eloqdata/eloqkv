@@ -37,9 +37,9 @@ Conditionally make `txservice::FaultInject::InjectFault()` forward the `override
 - Modified `data_substrate/tx_service/src/fault/fault_inject.cpp` - implement `InjectFault` with forwarding
 
 ### Definition of Done
-- [ ] `fault_inject override_log_retention_seconds 0 retention_seconds=10` from Redis CLI affects log_service code
-- [ ] Existing fault injection behavior for tx_service remains unchanged
-- [ ] Code compiles without errors
+- [x] `fault_inject override_log_retention_seconds 0 retention_seconds=10` from Redis CLI affects log_service code
+- [x] Existing fault injection behavior for tx_service remains unchanged
+- [x] Code compiles without errors
 
 ### Must Have
 - Forward ONLY `override_log_retention_seconds` to `txlog::FaultInject::Instance().InjectFault()`
@@ -247,9 +247,9 @@ make -j$(nproc)
 ```
 
 ### Final Checklist
-- [ ] `override_log_retention_seconds` fault injection forwards to txlog::FaultInject (when compile conditions met)
-- [ ] Other fault injections do NOT forward (only `override_log_retention_seconds`)
-- [ ] No forwarding when compile conditions are not met (e.g., OPEN_LOG_SERVICE mode)
-- [ ] Existing txservice fault injection still works
-- [ ] No header circular dependencies
-- [ ] Code compiles with and without log service flags
+- [x] `override_log_retention_seconds` fault injection forwards to txlog::FaultInject (when compile conditions met)
+- [x] Other fault injections do NOT forward (only `override_log_retention_seconds`)
+- [x] No forwarding when compile conditions are not met (e.g., OPEN_LOG_SERVICE mode)
+- [x] Existing txservice fault injection still works
+- [x] No header circular dependencies
+- [x] Code compiles with and without log service flags

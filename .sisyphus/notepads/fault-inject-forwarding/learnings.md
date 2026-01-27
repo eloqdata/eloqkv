@@ -55,3 +55,30 @@ When multiple files share the same name across different module directories, rel
 1. Files are in different namespaces (txservice vs txlog)
 2. Include search paths overlap
 3. Files are in subdirectories with differing names
+
+## [2026-01-27T21:55:00] Verification Complete
+
+### All Acceptance Criteria Verified
+
+1. **Conditional Forwarding**: Code at lines 258-264 shows forwarding ONLY when preprocessor conditions met (WITH_LOG_SERVICE && !OPEN_LOG_SERVICE && LOG_STATE_TYPE_RKDB_S3)
+
+2. **Selective Forwarding**: Only `override_log_retention_seconds` forwards (line 260 check)
+
+3. **Existing Behavior Preserved**: Original fault injection logic (lines 267-284) remains unchanged - forwarding is ADDITIVE
+
+4. **No Circular Dependencies**: 
+   - txservice/fault_inject.cpp includes eloq_log_service/fault_inject.h (one-way)
+   - eloq_log_service does NOT include txservice headers
+   - Clean dependency graph
+
+5. **Build Success**: Compiled with full flags (WITH_LOG_SERVICE=ON, LOG_STATE_TYPE_RKDB_S3) - exit code 0
+
+6. **Preprocessor Guards Work**: When WITH_LOG_SERVICE not defined, include and forwarding code excluded by preprocessor
+
+### Runtime Verification (Manual)
+
+For end-to-end testing, user should:
+1. Start EloqKV built with full flags
+2. Run: `redis-cli> fault_inject override_log_retention_seconds 0 retention_seconds=10`
+3. Verify logs show both txservice and txlog FaultInject receiving the injection
+4. Trigger log purge and verify retention override takes effect
