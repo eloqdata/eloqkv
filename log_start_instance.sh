@@ -1,2 +1,0 @@
-export LD_LIBRARY_PATH=/mnt/bigfoot/tianxj_hive/eloqdata/eloqkv//lib
-/mnt/bigfoot/tianxj_hive/eloqdata/eloqkv//bin/launch_sv --conf=127.0.0.1:9000 --node_id=0 --storage_path=/mnt/bigfoot/tianxj_hive/eloqdata/eloq-test/runtime/log_service/data_0 --start_log_group_id=0 --log_group_replica_num=1 --logtostderr=true &>> /mnt/bigfoot/tianxj_hive/eloqdata/eloq-test/runtime/log_service/node0_log &
