@@ -2272,7 +2272,7 @@ function run_eloqkv_cluster_tests() {
       --txlog_rocksdb_cloud_bucket_name=${txlog_rocksdb_cloud_bucket_name} \
       --txlog_rocksdb_cloud_object_path=${txlog_rocksdb_cloud_object_path} \
       --txlog_rocksdb_cloud_s3_endpoint_url="${txlog_rocksdb_cloud_s3_endpoint_url}" \
-	    --eloq_store_max_concurrent_writes=0 \
+	    --max_processing_time_microsonds=1000 \
 	    --eloq_store_pages_per_file_shift=1 \
       --eloq_store_cloud_endpoint="${txlog_rocksdb_cloud_s3_endpoint_url}" \
       --eloq_store_cloud_access_key="${rocksdb_cloud_aws_access_key_id}" \
@@ -2317,7 +2317,7 @@ function run_eloqkv_cluster_tests() {
         --txlog_rocksdb_cloud_bucket_name=${txlog_rocksdb_cloud_bucket_name} \
         --txlog_rocksdb_cloud_object_path=${txlog_rocksdb_cloud_object_path} \
         --txlog_rocksdb_cloud_s3_endpoint_url="${txlog_rocksdb_cloud_s3_endpoint_url}" \
-	      --eloq_store_max_concurrent_writes=0 \
+	      --max_processing_time_microsonds=1000 \
 	      --eloq_store_pages_per_file_shift=1 \
         --eloq_store_cloud_endpoint="${txlog_rocksdb_cloud_s3_endpoint_url}" \
         --eloq_store_cloud_access_key="${rocksdb_cloud_aws_access_key_id}" \
@@ -2378,7 +2378,7 @@ function run_eloqkv_cluster_tests() {
       --txlog_rocksdb_cloud_bucket_name=${txlog_rocksdb_cloud_bucket_name} \
       --txlog_rocksdb_cloud_object_path=${txlog_rocksdb_cloud_object_path} \
       --txlog_rocksdb_cloud_s3_endpoint_url="${txlog_rocksdb_cloud_s3_endpoint_url}" \
-	    --eloq_store_max_concurrent_writes=0 \
+	    --max_processing_time_microsonds=1000 \
 	    --eloq_store_pages_per_file_shift=1 \
       --eloq_store_cloud_endpoint="${txlog_rocksdb_cloud_s3_endpoint_url}" \
       --eloq_store_cloud_access_key="${rocksdb_cloud_aws_access_key_id}" \
@@ -2418,7 +2418,7 @@ function run_eloqkv_cluster_tests() {
         --txlog_rocksdb_cloud_bucket_name=${txlog_rocksdb_cloud_bucket_name} \
         --txlog_rocksdb_cloud_object_path=${txlog_rocksdb_cloud_object_path} \
         --txlog_rocksdb_cloud_s3_endpoint_url="${txlog_rocksdb_cloud_s3_endpoint_url}" \
-	      --eloq_store_max_concurrent_writes=0 \
+	      --max_processing_time_microsonds=1000 \
 	      --eloq_store_pages_per_file_shift=1 \
         --eloq_store_cloud_endpoint="${txlog_rocksdb_cloud_s3_endpoint_url}" \
         --eloq_store_cloud_access_key="${rocksdb_cloud_aws_access_key_id}" \
@@ -2497,7 +2497,7 @@ function run_eloqkv_cluster_tests() {
       --txlog_rocksdb_cloud_bucket_name=${txlog_rocksdb_cloud_bucket_name} \
       --txlog_rocksdb_cloud_object_path=${txlog_rocksdb_cloud_object_path} \
       --txlog_rocksdb_cloud_s3_endpoint_url="${txlog_rocksdb_cloud_s3_endpoint_url}" \
-	    --eloq_store_max_concurrent_writes=0 \
+	    --max_processing_time_microsonds=1000 \
 	    --eloq_store_pages_per_file_shift=1 \
       --eloq_store_cloud_endpoint="${txlog_rocksdb_cloud_s3_endpoint_url}" \
       --eloq_store_cloud_access_key="${rocksdb_cloud_aws_access_key_id}" \
@@ -2541,7 +2541,7 @@ function run_eloqkv_cluster_tests() {
         --txlog_rocksdb_cloud_bucket_name=${txlog_rocksdb_cloud_bucket_name} \
         --txlog_rocksdb_cloud_object_path=${txlog_rocksdb_cloud_object_path} \
         --txlog_rocksdb_cloud_s3_endpoint_url="${txlog_rocksdb_cloud_s3_endpoint_url}" \
-	      --eloq_store_max_concurrent_writes=0 \
+	      --max_processing_time_microsonds=1000 \
 	      --eloq_store_pages_per_file_shift=1 \
         --eloq_store_cloud_endpoint="${txlog_rocksdb_cloud_s3_endpoint_url}" \
         --eloq_store_cloud_access_key="${rocksdb_cloud_aws_access_key_id}" \
@@ -2609,7 +2609,7 @@ function run_eloqkv_cluster_tests() {
         --txlog_rocksdb_cloud_bucket_name=${txlog_rocksdb_cloud_bucket_name} \
         --txlog_rocksdb_cloud_object_path=${txlog_rocksdb_cloud_object_path} \
         --txlog_rocksdb_cloud_s3_endpoint_url="${txlog_rocksdb_cloud_s3_endpoint_url}" \
-	      --eloq_store_max_concurrent_writes=0 \
+	      --max_processing_time_microsonds=1000 \
 	      --eloq_store_pages_per_file_shift=1 \
         --eloq_store_cloud_endpoint="${txlog_rocksdb_cloud_s3_endpoint_url}" \
         --eloq_store_cloud_access_key="${rocksdb_cloud_aws_access_key_id}" \
