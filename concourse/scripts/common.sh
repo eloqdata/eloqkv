@@ -959,6 +959,8 @@ function run_eloqkv_tests() {
         --txlog_rocksdb_cloud_bucket_name=${txlog_rocksdb_cloud_bucket_name} \
         --txlog_rocksdb_cloud_object_path=${txlog_rocksdb_cloud_object_path} \
         --txlog_rocksdb_cloud_s3_endpoint_url=${txlog_rocksdb_cloud_s3_endpoint_url} \
+	      --max_processing_time_microseconds=1000 \
+	      --eloq_store_pages_per_file_shift=1 \
         --eloq_store_cloud_provider=${eloq_store_cloud_provider} \
         --eloq_store_cloud_endpoint=${eloq_store_cloud_endpoint} \
         --eloq_store_cloud_access_key=${eloq_store_cloud_access_key} \
@@ -1007,6 +1009,8 @@ function run_eloqkv_tests() {
       --txlog_rocksdb_cloud_bucket_name=${txlog_rocksdb_cloud_bucket_name} \
       --txlog_rocksdb_cloud_object_path=${txlog_rocksdb_cloud_object_path} \
       --txlog_rocksdb_cloud_s3_endpoint_url=${txlog_rocksdb_cloud_s3_endpoint_url} \
+	    --max_processing_time_microseconds=1000 \
+	    --eloq_store_pages_per_file_shift=1 \
       --eloq_store_cloud_provider=${eloq_store_cloud_provider} \
       --eloq_store_cloud_endpoint=${eloq_store_cloud_endpoint} \
       --eloq_store_cloud_access_key=${eloq_store_cloud_access_key} \
@@ -1064,6 +1068,8 @@ function run_eloqkv_tests() {
       --txlog_rocksdb_cloud_bucket_name=${txlog_rocksdb_cloud_bucket_name} \
       --txlog_rocksdb_cloud_object_path=${txlog_rocksdb_cloud_object_path} \
       --txlog_rocksdb_cloud_s3_endpoint_url=${txlog_rocksdb_cloud_s3_endpoint_url} \
+	    --max_processing_time_microseconds=1000 \
+	    --eloq_store_pages_per_file_shift=1 \
       --eloq_store_cloud_provider=${eloq_store_cloud_provider} \
       --eloq_store_cloud_endpoint=${eloq_store_cloud_endpoint} \
       --eloq_store_cloud_access_key=${eloq_store_cloud_access_key} \
@@ -1145,6 +1151,8 @@ function run_eloqkv_tests() {
         --txlog_rocksdb_cloud_bucket_name=${txlog_rocksdb_cloud_bucket_name} \
         --txlog_rocksdb_cloud_object_path=${txlog_rocksdb_cloud_object_path} \
         --txlog_rocksdb_cloud_s3_endpoint_url=${txlog_rocksdb_cloud_s3_endpoint_url} \
+	      --max_processing_time_microseconds=1000 \
+	      --eloq_store_pages_per_file_shift=1 \
         --eloq_store_cloud_provider=${eloq_store_cloud_provider} \
         --eloq_store_cloud_endpoint=${eloq_store_cloud_endpoint} \
         --eloq_store_cloud_access_key=${eloq_store_cloud_access_key} \
@@ -1193,6 +1201,8 @@ function run_eloqkv_tests() {
         --txlog_rocksdb_cloud_bucket_name=${txlog_rocksdb_cloud_bucket_name} \
         --txlog_rocksdb_cloud_object_path=${txlog_rocksdb_cloud_object_path} \
         --txlog_rocksdb_cloud_s3_endpoint_url=${txlog_rocksdb_cloud_s3_endpoint_url} \
+	      --max_processing_time_microseconds=1000 \
+	      --eloq_store_pages_per_file_shift=1 \
         --eloq_store_cloud_provider=${eloq_store_cloud_provider} \
         --eloq_store_cloud_endpoint=${eloq_store_cloud_endpoint} \
         --eloq_store_cloud_access_key=${eloq_store_cloud_access_key} \
@@ -1241,6 +1251,8 @@ function run_eloqkv_tests() {
         --txlog_rocksdb_cloud_bucket_name=${txlog_rocksdb_cloud_bucket_name} \
         --txlog_rocksdb_cloud_object_path=${txlog_rocksdb_cloud_object_path} \
         --txlog_rocksdb_cloud_s3_endpoint_url=${txlog_rocksdb_cloud_s3_endpoint_url} \
+	      --max_processing_time_microseconds=1000 \
+	      --eloq_store_pages_per_file_shift=1 \
         --eloq_store_cloud_provider=${eloq_store_cloud_provider} \
         --eloq_store_cloud_endpoint=${eloq_store_cloud_endpoint} \
         --eloq_store_cloud_access_key=${eloq_store_cloud_access_key} \
