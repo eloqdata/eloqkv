@@ -30,7 +30,7 @@ resources:
       branch: main
       uri: git@github.com:eloqdata/raft_host_manager.git
       private_key: ((git-key))
-
+  
   - name: eloq_ubuntu_2404
     type: registry-image
     source:

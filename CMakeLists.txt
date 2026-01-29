@@ -465,7 +465,7 @@ option(BUILD_WITH_TESTS "Run unit-tests" OFF)
 if(${BUILD_WITH_TESTS})
     find_package(Catch2 REQUIRED)
 
-    add_executable(object_serialize_deserialize_test ./tests/unit/mono/object_serialize_deserialize_test.cpp ${RESELOQ_RESOURCES})
+    add_executable(object_serialize_deserialize_test ./tests/unit/eloq/object_serialize_deserialize_test.cpp ${RESELOQ_RESOURCES})
     target_link_libraries(object_serialize_deserialize_test PRIVATE Catch2::Catch2WithMain ${ABSEIL} ${LOG_LIB} ${RESELOQ_LIBRARY} lua fpconv ${DYNAMIC_LIB})
 
     add_test(NAME serialize/deserialize_test COMMAND object_serialize_deserialize_test WORKING_DIRECTORY ${CMAKE_BINARY_DIR})

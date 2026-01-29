@@ -26,6 +26,7 @@ export ROCKSDB_CLOUD_AWS_SECRET_ACCESS_KEY=${MINIO_SECRET_KEY}
 timestamp=$(($(date +%s%N) / 1000000))
 export ROCKSDB_CLOUD_BUCKET_PREFIX="eloqkv-pr-"
 export ROCKSDB_CLOUD_BUCKET_NAME="test-${timestamp}"
+export ELOQSTORE_BUCKET_NAME="eloqkv-pr-eloqstore-test-${timestamp}"
 export ROCKSDB_CLOUD_OBJECT_PATH="dss"
 export TXLOG_ROCKSDB_CLOUD_OBJECT_PATH="txlog"
 
@@ -105,18 +106,20 @@ sudo sed -i "s/#\s*StrictHostKeyChecking ask/    StrictHostKeyChecking no/g" /et
 
 python3.8 -m venv my_env
 source my_env/bin/activate
-pip install -r /home/$current_user/workspace/eloqkv/tests/unit/mono/log_replay_test/requirements.txt
+pip install -r /home/$current_user/workspace/eloqkv/tests/unit/eloq/log_replay_test/requirements.txt
 deactivate
 
 build_types=("Debug")
 # kv_store_types=("CASSANDRA" "ROCKSDB")
-kv_store_types=("ELOQDSS_ROCKSDB_CLOUD_S3" "ROCKSDB")
+kv_store_types=("ELOQDSS_ELOQSTORE" "ELOQDSS_ROCKSDB_CLOUD_S3" "ROCKSDB")
 
 
 for bt in "${build_types[@]}"; do
   for kst in "${kv_store_types[@]}"; do
     rm -rf /home/$current_user/workspace/eloqkv/eloq_data
     if [ "$kst" == "ELOQDSS_ROCKSDB_CLOUD_S3" ]; then
+      txlog_log_state="ROCKSDB_CLOUD_S3"
+    elif [ "$kst" == "ELOQDSS_ELOQSTORE" ]; then
       txlog_log_state="ROCKSDB_CLOUD_S3"
     elif [ "$kst" == "ROCKSDB" ]; then
       txlog_log_state="ROCKSDB"
