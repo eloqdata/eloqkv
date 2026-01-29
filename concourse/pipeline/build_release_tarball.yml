@@ -166,7 +166,7 @@ jobs:
       - get: image_ubuntu2404
         resource: image_ubuntu2404_main
 
-  - task: build-eloqstore-type
+  - task: build-eloqstore-s3-type
     file: eloqkv_src/concourse/tasks/build_release_tarball.yml
     image: image_ubuntu2404
     params:
@@ -182,6 +182,23 @@ jobs:
       CLOUDFRONT_DIST: ((cloudfront-dist))
       PG_CONN: ((pg-conn))
       NCORE: 4
+
+  - task: build-eloqstore-gcs-type
+    file: eloqkv_src/concourse/tasks/build_release_tarball.yml
+    image: image_ubuntu2404
+    params:
+      TAGGED: "true"
+      GIT_SSH_KEY: ((git-key))
+      AWS_ACCESS_KEY_ID: ((aws_access_key_id))
+      AWS_DEFAULT_REGION: ((aws-region))
+      AWS_SECRET_ACCESS_KEY: ((aws_secret_access_key))
+      BUILD_LOG_SRV: "true"
+      BUILD_TYPE: RelWithDebInfo
+      LOG_STATE_TYPE: ROCKSDB_CLOUD_GCS
+      DATA_STORE_TYPE: ELOQDSS_ELOQSTORE
+      CLOUDFRONT_DIST: ((cloudfront-dist))
+      PG_CONN: ((pg-conn))
+      NCORE: 4 
 
   - task: build-rocksdb-cloud-s3-type
     file: eloqkv_src/concourse/tasks/build_release_tarball.yml
