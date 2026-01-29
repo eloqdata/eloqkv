@@ -77,6 +77,8 @@ if [ -n "${TAGGED}" ]; then
     scripts/git-checkout.sh "${TAGGED}"
 fi
 
+eval ${INSTALL_PSQL}
+
 copy_libraries() {
     local executable="$1"
     local path="$2"
@@ -260,7 +262,6 @@ tar -czvf eloqkv.tar.gz -C ${HOME} EloqKV
 
 if [ -n "${TAGGED}" ]; then
     TX_TARBALL="eloqkv-${TAGGED}-${OS_ID}-${ARCH}.tar.gz"
-    eval ${INSTALL_PSQL}
     SQL="INSERT INTO tx_release VALUES ('eloqkv', '${ARCH}', '${OS_ID}', '${DATA_STORE_ID}', $(echo ${TAGGED} | tr '.' ',')) ON CONFLICT DO NOTHING"
     psql postgresql://${PG_CONN}/eloq_release?sslmode=require -c "${SQL}"
 else
