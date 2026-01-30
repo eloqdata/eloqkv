@@ -131,11 +131,11 @@ elif [ "${DATA_STORE_TYPE}" = "ELOQDSS_ROCKSDB" ]; then
 elif [ "${DATA_STORE_TYPE}" = "ELOQDSS_ELOQSTORE" ]; then
     if [ "${LOG_STATE_TYPE}" = "ROCKSDB_CLOUD_S3" ]; then
         CMAKE_ARGS="${CMAKE_ARGS} -DWITH_CLOUD_AZ_INFO=ON"
-        DATA_STORE_ID="eloqdss_eloqstore_s3"
+        DATA_STORE_ID="eloqstore_s3"
     elif [ "${LOG_STATE_TYPE}" = "ROCKSDB_CLOUD_GCS" ]; then
-        DATA_STORE_ID="eloqdss_eloqstore_gcs"
+        DATA_STORE_ID="eloqstore_gcs"
     elif [ "${LOG_STATE_TYPE}" = "ROCKSDB" ]; then
-        DATA_STORE_ID="eloqdss_eloqstore_local"
+        DATA_STORE_ID="eloqstore_local"
     else
         echo "Unsupported LOG_STATE_TYPE: ${LOG_STATE_TYPE}"
         exit 1
