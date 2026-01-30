@@ -2807,32 +2807,17 @@ function run_eloq_test(){
 
   elif [[ $kv_store_type = "ELOQDSS_ELOQSTORE" ]]; then
     echo "Run eloq_test for ELOQDSS_ELOQSTORE"
-    local rocksdb_cloud_s3_endpoint_url=${ROCKSDB_CLOUD_S3_ENDPOINT}
-    local rocksdb_cloud_s3_endpoint_url_escape=${ROCKSDB_CLOUD_S3_ENDPOINT_ESCAPE}
-    local rocksdb_cloud_aws_access_key_id=${ROCKSDB_CLOUD_AWS_ACCESS_KEY_ID}
-    local rocksdb_cloud_aws_secret_access_key=${ROCKSDB_CLOUD_AWS_SECRET_ACCESS_KEY}
-    local rocksdb_cloud_bucket_name=${ROCKSDB_CLOUD_BUCKET_NAME}
-    local rocksdb_cloud_object_path=${ROCKSDB_CLOUD_OBJECT_PATH}
-    local txlog_rocksdb_cloud_object_path=${TXLOG_ROCKSDB_CLOUD_OBJECT_PATH}
-
-    echo "rocksdb_cloud_s3_endpoint_url: ${rocksdb_cloud_s3_endpoint_url}"
-
-    sed -i "s/txlog_rocksdb_cloud_s3_endpoint_url.*=.\+/txlog_rocksdb_cloud_s3_endpoint_url=${rocksdb_cloud_s3_endpoint_url_escape}/g"  ./bootstrap_cnf/*_eloqdss_eloqstore.cnf
-    sed -i "s/aws_access_key_id.*=.\+/aws_access_key_id=${rocksdb_cloud_aws_access_key_id}/g"  ./bootstrap_cnf/*_eloqdss_eloqstore.cnf
-    sed -i "s/aws_secret_key.*=.\+/aws_secret_key=${rocksdb_cloud_aws_secret_access_key}/g"  ./bootstrap_cnf/*_eloqdss_eloqstore.cnf
-    sed -i "s/txlog_rocksdb_cloud_bucket_name.*=.\+/txlog_rocksdb_cloud_bucket_name=${rocksdb_cloud_bucket_name}/g"  ./bootstrap_cnf/*_eloqdss_eloqstore.cnf
-    sed -i "s/txlog_rocksdb_cloud_object_path.*=.\+/txlog_rocksdb_cloud_object_path=${txlog_rocksdb_cloud_object_path}/g"  ./bootstrap_cnf/*_eloqdss_eloqstore.cnf
 
     # run single/multi test
     rm -rf runtime/*
-    python3 redis_test/multi_test/smoke_test.py --dbtype redis --storage eloqdss-eloqstore --install_path ${eloqkv_install_path}
+    python3 redis_test/multi_test/smoke_test.py --dbtype redis --storage eloqdss-eloqstore --install_path ${eloqkv_install_path} --bootstrap true
 
-    python3 redis_test/multi_test/cluster_rolling_upgrade.py --dbtype redis --storage eloqdss-eloqstore --install_path ${eloqkv_install_path}
-    python3 redis_test/multi_test/cluster_scale_test.py --dbtype redis --storage eloqdss-eloqstore --install_path ${eloqkv_install_path}
+    python3 redis_test/multi_test/cluster_rolling_upgrade.py --dbtype redis --storage eloqdss-eloqstore --install_path ${eloqkv_install_path} --bootstrap true
+    python3 redis_test/multi_test/cluster_scale_test.py --dbtype redis --storage eloqdss-eloqstore --install_path ${eloqkv_install_path} --bootstrap true
 
     # run log service scale test
     rm -rf runtime/*
-    python3 redis_test/log_service_test/log_service_scale_test.py --dbtype redis --storage eloqdss-eloqstore --install_path ${eloqkv_install_path}
+    python3 redis_test/log_service_test/log_service_scale_test.py --dbtype redis --storage eloqdss-eloqstore --install_path ${eloqkv_install_path} --bootstrap true
 
     # run standby test
     # rm -rf runtime/*
