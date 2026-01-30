@@ -77,6 +77,8 @@ if [ -n "${TAGGED}" ]; then
     scripts/git-checkout.sh "${TAGGED}"
 fi
 
+eval ${INSTALL_PSQL}
+
 copy_libraries() {
     local executable="$1"
     local path="$2"
@@ -131,11 +133,11 @@ elif [ "${DATA_STORE_TYPE}" = "ELOQDSS_ROCKSDB" ]; then
 elif [ "${DATA_STORE_TYPE}" = "ELOQDSS_ELOQSTORE" ]; then
     if [ "${LOG_STATE_TYPE}" = "ROCKSDB_CLOUD_S3" ]; then
         CMAKE_ARGS="${CMAKE_ARGS} -DWITH_CLOUD_AZ_INFO=ON"
-        DATA_STORE_ID="eloqdss_eloqstore_s3"
+        DATA_STORE_ID="eloqstore_s3"
     elif [ "${LOG_STATE_TYPE}" = "ROCKSDB_CLOUD_GCS" ]; then
-        DATA_STORE_ID="eloqdss_eloqstore_gcs"
+        DATA_STORE_ID="eloqstore_gcs"
     elif [ "${LOG_STATE_TYPE}" = "ROCKSDB" ]; then
-        DATA_STORE_ID="eloqdss_eloqstore_local"
+        DATA_STORE_ID="eloqstore_local"
     else
         echo "Unsupported LOG_STATE_TYPE: ${LOG_STATE_TYPE}"
         exit 1
@@ -260,7 +262,6 @@ tar -czvf eloqkv.tar.gz -C ${HOME} EloqKV
 
 if [ -n "${TAGGED}" ]; then
     TX_TARBALL="eloqkv-${TAGGED}-${OS_ID}-${ARCH}.tar.gz"
-    eval ${INSTALL_PSQL}
     SQL="INSERT INTO tx_release VALUES ('eloqkv', '${ARCH}', '${OS_ID}', '${DATA_STORE_ID}', $(echo ${TAGGED} | tr '.' ',')) ON CONFLICT DO NOTHING"
     psql postgresql://${PG_CONN}/eloq_release?sslmode=require -c "${SQL}"
 else
