@@ -2817,7 +2817,7 @@ function run_eloq_test(){
 
     # run log service scale test
     rm -rf runtime/*
-    python3 redis_test/log_service_test/log_service_scale_test.py --dbtype redis --storage eloqdss-eloqstore --install_path ${eloqkv_install_path} --bootstrap true
+    python3 redis_test/log_service_test/log_service_scale_test.py --dbtype redis --storage eloqdss-eloqstore --install_path ${eloqkv_install_path}
 
     # run standby test
     # rm -rf runtime/*
