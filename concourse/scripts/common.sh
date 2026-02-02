@@ -2789,7 +2789,7 @@ function run_eloq_test(){
     # rm -rf runtime/*
 
     # run standby tests.
-    python3 run_tests.py --dbtype redis --group standby --storage eloqdss-rocksdb-cloud-s3 --install_path ${eloqkv_install_path}
+    python3 run_tests.py --dbtype redis --group standby --storage eloqdss-rocksdb-cloud-s3 --install_path ${eloqkv_install_path} --bootstrap true
     rm -rf runtime/*
 
     # rm -rf runtime/*
