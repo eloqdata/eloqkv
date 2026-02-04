@@ -2,7 +2,7 @@ resources:
 - name: eloqkv_src_main
   type: git
   source:
-    branch: rel_x_x_x_eloqkv
+    branch: rel_x_x_0_eloqkv
     uri: git@github.com:eloqdata/eloqkv.git
     private_key: ((git-key))
     tag_regex: '^[[:digit:]]+\.[[:digit:]]+\.[[:digit:]]+$'
@@ -165,6 +165,23 @@ jobs:
         resource: raft_host_manager_src_main
       - get: image_ubuntu2404
         resource: image_ubuntu2404_main
+
+  - task: build-eloqstore-type
+    file: eloqkv_src/concourse/tasks/build_release_tarball.yml
+    image: image_ubuntu2404
+    params:
+      TAGGED: "true"
+      GIT_SSH_KEY: ((git-key))
+      AWS_ACCESS_KEY_ID: ((aws_access_key_id))
+      AWS_DEFAULT_REGION: ((aws-region))
+      AWS_SECRET_ACCESS_KEY: ((aws_secret_access_key))
+      BUILD_LOG_SRV: "true"
+      BUILD_TYPE: RelWithDebInfo
+      LOG_STATE_TYPE: ROCKSDB
+      DATA_STORE_TYPE: ELOQDSS_ELOQSTORE
+      CLOUDFRONT_DIST: ((cloudfront-dist))
+      PG_CONN: ((pg-conn))
+      NCORE: 4
 
   - task: build-eloqstore-s3-type
     file: eloqkv_src/concourse/tasks/build_release_tarball.yml
