@@ -92,12 +92,16 @@ redis-cli -h eloqkv-server SET key "value"  # Works out of the box!
 ### Using Docker
 We recommend using Docker for a quick local try-out of EloqKV.
 
+
 **1. Start a Single Node using Docker:**  
+
+> **Note**: EloqKV enables `io_uring` by default for high performance. To avoid initialization errors on some platforms (e.g., macOS Docker), you must run with `--privileged` and set custom ulimits.
+
 ```bash  
 # Create subnet for containers.
 docker network create --subnet=172.20.0.0/16 eloqnet
 
-docker run -d --net eloqnet --ip 172.20.0.10 -p 6379:6379 --name=eloqkv eloqdata/eloqkv
+docker run -d --privileged --ulimit memlock=-1:-1 --net eloqnet --ip 172.20.0.10 -p 6379:6379 --name=eloqkv eloqdata/eloqkv
 ``` 
 
 **Or using Docker Compose:**
@@ -112,6 +116,9 @@ services:
     ports:
       - "6379:6379"
     command: -enable_wal=true
+    privileged: true
+    ulimits:
+      memlock: -1
     volumes:
       - ./data/EloqKv:/home/eloquser/EloqKV/eloq_data
 ```

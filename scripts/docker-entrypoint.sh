@@ -15,4 +15,4 @@ fi
 mkdir -p logs
 export GLOG_log_dir=logs
 export GLOG_max_log_size=1024
-./bin/eloqkv --config eloqkv.ini
+./bin/eloqkv --config eloqkv.ini $@
