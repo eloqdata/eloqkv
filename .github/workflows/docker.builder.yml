@@ -1,4 +1,4 @@
-name: Builder Docker 
+name: Builder Docker
 
 on:
   workflow_dispatch:
@@ -22,6 +22,6 @@ jobs:
     uses: ./.github/workflows/docker.template.yml
     with:
       dockerfile: ./scripts/docker/builder.docker
-      image-name: builder
+      image-name: eloqkv-builder
       force-latest: true
     secrets: inherit

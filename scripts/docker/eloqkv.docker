@@ -1,5 +1,5 @@
 ARG DOCKER_ORG=eloqdata
-ARG BUILDER_IMAGE=${DOCKER_ORG}/builder:latest
+ARG BUILDER_IMAGE=${DOCKER_ORG}/eloqkv-builder:latest
 FROM ${BUILDER_IMAGE} AS builder
 
 WORKDIR /app
