@@ -120,6 +120,9 @@ public:
 
         str.append(blob_len_ptr, sizeof(uint32_t));
         str.append(str_view.data(), blob_len);
+
+        LOG(INFO) << "Serialize: str size = " << str.size()
+                  << ", blob len = " << blob_len;
     }
 
     void Deserialize(const char *buf, size_t &offset) override
@@ -351,6 +354,9 @@ public:
 
         str.append(blob_len_ptr, sizeof(uint32_t));
         str.append(str_view.data(), blob_len);
+
+        LOG(INFO) << "Serialize: str size = " << str.size()
+                  << ", blob len = " << blob_len
     }
 
     void Deserialize(const char *buf, size_t &offset) override
