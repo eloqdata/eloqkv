@@ -139,6 +139,7 @@ public:
         uint32_t len = *len_ptr;
         offset += sizeof(uint32_t);
 
+        LOG(INFO) << "offset = " << offset << ", len = " << len;
         str_obj_ = EloqString(buf + offset, len);
 
         offset += len;
