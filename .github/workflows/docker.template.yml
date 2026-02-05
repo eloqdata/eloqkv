@@ -1,15 +1,34 @@
-name: Publish Docker image
+name: Docker Template
 
 on:
-  workflow_dispatch:
-  push:
-    tags:
-      - "v*.*.*"
-      - "[0-9]+.[0-9]+.[0-9]+"
+  workflow_call:
+    inputs:
+      dockerfile:
+        required: true
+        type: string
+        description: "Path to the Dockerfile"
+      image-name:
+        required: true
+        type: string
+        description: "Name of the image (without registry logic)"
+      build-args:
+        required: false
+        type: string
+        description: "List of build-time variables"
+      force-latest:
+        required: false
+        type: boolean
+        default: false
+        description: "Whether manually triggered builds should be tagged as latest version"
+
+    secrets:
+      build-args:
+        required: false
+        description: "Build args containing secrets"
 
 jobs:
   build:
-    name: Build ${{ matrix.platform }}
+    name: Build ${{ inputs.image-name }} ${{ matrix.platform }}
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
@@ -26,7 +45,6 @@ jobs:
         with:
           submodules: recursive
 
-
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -40,12 +58,12 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ secrets.DOCKER_ORG }}/eloqkv
+          images: ${{ secrets.DOCKER_ORG }}/${{ inputs.image-name }}
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=raw,value={{date 'YYYY-MM-DD'}},enable=${{ github.event_name == 'workflow_dispatch' }}
-            type=raw,value=latest,enable=${{ github.ref_type == 'tag' }}
+            type=raw,value=latest,enable=${{ github.ref_type == 'tag' || inputs.force-latest == true }}
 
       - name: Generate suffixed tags
         id: suffixed_tags
@@ -62,16 +80,19 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: ./Dockerfile
+          file: ${{ inputs.dockerfile }}
           push: true
           platforms: ${{ matrix.platform }}
           tags: ${{ steps.suffixed_tags.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha,scope=${{ matrix.platform }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.platform }}
+          build-args: |
+            ${{ inputs.build-args }}
+            ${{ secrets.build-args }}
+          cache-from: type=gha,scope=${{ matrix.platform }}-${{ inputs.image-name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.platform }}-${{ inputs.image-name }}
 
   merge:
-    name: Merge Multi-Arch Manifests
+    name: Merge ${{ inputs.image-name }} Manifests
     runs-on: ubuntu-latest
     needs: build
     permissions:
@@ -89,12 +110,12 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ secrets.DOCKER_ORG }}/eloqkv
+          images: ${{ secrets.DOCKER_ORG }}/${{ inputs.image-name }}
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=raw,value={{date 'YYYY-MM-DD'}},enable=${{ github.event_name == 'workflow_dispatch' }}
-            type=raw,value=latest,enable=${{ github.ref_type == 'tag' }}
+            type=raw,value=latest,enable=${{ github.ref_type == 'tag' || inputs.force-latest == true }}
 
       - name: Create and push manifest list
         id: merge
@@ -122,6 +143,6 @@ jobs:
       - name: Generate artifact attestation
         uses: actions/attest-build-provenance@v1
         with:
-          subject-name: index.docker.io/${{ secrets.DOCKER_ORG }}/eloqkv
+          subject-name: index.docker.io/${{ secrets.DOCKER_ORG }}/${{ inputs.image-name }}
           subject-digest: ${{ steps.merge.outputs.digest }}
           push-to-registry: true

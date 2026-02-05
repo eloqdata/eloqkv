@@ -1,31 +1,18 @@
-# Stage 1: Builder
-FROM ubuntu:24.04 AS builder
-
-ENV DEBIAN_FRONTEND=noninteractive
-
-RUN apt-get update && apt-get install -y \
-  sudo \
-  curl \
-  git \
-  build-essential \
-  pkg-config \
-  && rm -rf /var/lib/apt/lists/*
-
-COPY scripts /tmp/scripts
-RUN chmod +x /tmp/scripts/*.sh /tmp/scripts/dep/ubuntu/*.sh
-
-RUN /tmp/scripts/install_dependency_ubuntu2404.sh
+ARG BUILDER_IMAGE=eloqdata/builder
+FROM ${BUILDER_IMAGE} AS builder
 
 WORKDIR /app
 
 COPY . .
 
-RUN mkdir build && cd build && \
-  cmake .. -DCMAKE_BUILD_TYPE=Release && \
-  make -j$(nproc)
+RUN --mount=type=cache,target=/app/build,sharing=locked \
+  mkdir -p build && cd build && \
+  cmake .. -DCMAKE_BUILD_TYPE=Release -DGIT_SUBMODULE=OFF && \
+  make -j$(nproc) && \
+  cp eloqkv /app/eloqkv
 
 RUN mkdir -p /so && \
-  ldd build/eloqkv | grep "=> /" | awk '{print $3}' | xargs -I '{}' cp -v -L "{}" /so/
+  ldd /app/eloqkv | grep "=> /" | awk '{print $3}' | xargs -I '{}' cp -v -L "{}" /so/
 
 # Stage 2: Final Runtime Image
 FROM ubuntu:24.04
@@ -56,7 +43,7 @@ WORKDIR /home/eloquser
 
 RUN mkdir -p /home/eloquser/EloqKV/bin /home/eloquser/EloqKV/conf
 
-COPY --from=builder /app/build/eloqkv /home/eloquser/EloqKV/bin/eloqkv
+COPY --from=builder /app/eloqkv /home/eloquser/EloqKV/bin/eloqkv
 COPY --from=builder /so/* /usr/local/lib/
 COPY ./eloqkv.ini /home/eloquser/EloqKV/conf/
 
