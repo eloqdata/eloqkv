@@ -1,112 +1,147 @@
 resources:
-- name: eloqkv_src_main
-  type: git
-  source:
-    branch: main
-    uri: git@github.com:eloqdata/eloqkv.git
-    private_key: ((git-key))
+  - name: eloqkv_src_main
+    type: git
+    source:
+      branch: main
+      uri: git@github.com:eloqdata/eloqkv.git
+      private_key: ((git-key))
 
-- name: image_ubuntu2204_main
-  type: registry-image
-  source:
-    repository: eloqdata/eloq-build-ubuntu2204
+  - name: image_ubuntu2204_main
+    type: registry-image
+    source:
+      repository: eloqdata/eloq-build-ubuntu2204
 
-- name: logservice_src_main
-  type: git
-  source:
-    branch: main
-    private_key: ((git-key))
-    uri: git@github.com:eloqdata/eloq_log_service.git
+  - name: image_ubuntu2404_main
+    type: registry-image
+    source:
+      repository: eloqdata/eloq-ci-build-ubuntu2404
 
-- name: raft_host_manager_src_main
-  type: git
-  source:
-    branch: main
-    private_key: ((git-key))
-    uri: git@github.com:eloqdata/raft_host_manager.git
+  - name: logservice_src_main
+    type: git
+    source:
+      branch: main
+      private_key: ((git-key))
+      uri: git@github.com:eloqdata/eloq_log_service.git
+
+  - name: raft_host_manager_src_main
+    type: git
+    source:
+      branch: main
+      private_key: ((git-key))
+      uri: git@github.com:eloqdata/raft_host_manager.git
 
 jobs:
-- name: ubuntu2204-main
-  plan:
-  - in_parallel:
-      limit: 2
-      steps:
-      - get: eloqkv_src
-        resource: eloqkv_src_main
-      - get: logservice_src
-        resource: logservice_src_main
-      - get: raft_host_manager_src
-        resource: raft_host_manager_src_main
-      - get: image_ubuntu2204
-        resource: image_ubuntu2204_main
+  - name: ubuntu2204-main
+    plan:
+      - in_parallel:
+          limit: 2
+          steps:
+            - get: eloqkv_src
+              resource: eloqkv_src_main
+            - get: logservice_src
+              resource: logservice_src_main
+            - get: raft_host_manager_src
+              resource: raft_host_manager_src_main
+            - get: image_ubuntu2204
+              resource: image_ubuntu2204_main
 
-  - task: build-eloqstore-type
-    file: eloqkv_src/concourse/tasks/build_debug_tarball.yml
-    image: image_ubuntu2204
-    params:
-      ASAN: "ON"
-      TAGGED: ""
-      GIT_SSH_KEY: ((git-key))
-      AWS_ACCESS_KEY_ID: ((aws_access_key_id))
-      AWS_DEFAULT_REGION: ((aws-region))
-      AWS_SECRET_ACCESS_KEY: ((aws_secret_access_key))
-      BUILD_LOG_SRV: "true"
-      BUILD_TYPE: Debug
-      LOG_STATE_TYPE: ROCKSDB_CLOUD_S3
-      DATA_STORE_TYPE: ELOQDSS_ELOQSTORE
-      OUT_NAME: debug
-      CLOUDFRONT_DIST: ((cloudfront-dist))
+      - task: build-eloqstore-type
+        file: eloqkv_src/concourse/tasks/build_debug_tarball.yml
+        image: image_ubuntu2204
+        params:
+          ASAN: "ON"
+          TAGGED: ""
+          GIT_SSH_KEY: ((git-key))
+          AWS_ACCESS_KEY_ID: ((aws_access_key_id))
+          AWS_DEFAULT_REGION: ((aws-region))
+          AWS_SECRET_ACCESS_KEY: ((aws_secret_access_key))
+          BUILD_LOG_SRV: "true"
+          BUILD_TYPE: Debug
+          LOG_STATE_TYPE: ROCKSDB_CLOUD_S3
+          DATA_STORE_TYPE: ELOQDSS_ELOQSTORE
+          OUT_NAME: debug
+          CLOUDFRONT_DIST: ((cloudfront-dist))
 
-  - task: build-rocksdb-cloud-s3-type
-    file: eloqkv_src/concourse/tasks/build_debug_tarball.yml
-    image: image_ubuntu2204
-    params:
-      ASAN: "ON"
-      TAGGED: ""
-      GIT_SSH_KEY: ((git-key))
-      AWS_ACCESS_KEY_ID: ((aws_access_key_id))
-      AWS_DEFAULT_REGION: ((aws-region))
-      AWS_SECRET_ACCESS_KEY: ((aws_secret_access_key))
-      BUILD_LOG_SRV: "true"
-      BUILD_TYPE: Debug
-      LOG_STATE_TYPE: ROCKSDB_CLOUD_S3
-      DATA_STORE_TYPE: ELOQDSS_ROCKSDB_CLOUD_S3
-      OUT_NAME: debug
-      CLOUDFRONT_DIST: ((cloudfront-dist))
+      - task: build-rocksdb-cloud-s3-type
+        file: eloqkv_src/concourse/tasks/build_debug_tarball.yml
+        image: image_ubuntu2204
+        params:
+          ASAN: "ON"
+          TAGGED: ""
+          GIT_SSH_KEY: ((git-key))
+          AWS_ACCESS_KEY_ID: ((aws_access_key_id))
+          AWS_DEFAULT_REGION: ((aws-region))
+          AWS_SECRET_ACCESS_KEY: ((aws_secret_access_key))
+          BUILD_LOG_SRV: "true"
+          BUILD_TYPE: Debug
+          LOG_STATE_TYPE: ROCKSDB_CLOUD_S3
+          DATA_STORE_TYPE: ELOQDSS_ROCKSDB_CLOUD_S3
+          OUT_NAME: debug
+          CLOUDFRONT_DIST: ((cloudfront-dist))
 
-  - task: build-rocksdb-type
-    file: eloqkv_src/concourse/tasks/build_debug_tarball.yml
-    image: image_ubuntu2204
-    params:
-      ASAN: "ON"
-      TAGGED: ""
-      GIT_SSH_KEY: ((git-key))
-      AWS_ACCESS_KEY_ID: ((aws_access_key_id))
-      AWS_DEFAULT_REGION: ((aws-region))
-      AWS_SECRET_ACCESS_KEY: ((aws_secret_access_key))
-      BUILD_LOG_SRV: "true"
-      BUILD_TYPE: Debug
-      LOG_STATE_TYPE: ROCKSDB
-      DATA_STORE_TYPE: ROCKSDB
-      OUT_NAME: debug
-      CLOUDFRONT_DIST: ((cloudfront-dist))
+      - task: build-rocksdb-type
+        file: eloqkv_src/concourse/tasks/build_debug_tarball.yml
+        image: image_ubuntu2204
+        params:
+          ASAN: "ON"
+          TAGGED: ""
+          GIT_SSH_KEY: ((git-key))
+          AWS_ACCESS_KEY_ID: ((aws_access_key_id))
+          AWS_DEFAULT_REGION: ((aws-region))
+          AWS_SECRET_ACCESS_KEY: ((aws_secret_access_key))
+          BUILD_LOG_SRV: "true"
+          BUILD_TYPE: Debug
+          LOG_STATE_TYPE: ROCKSDB
+          DATA_STORE_TYPE: ROCKSDB
+          OUT_NAME: debug
+          CLOUDFRONT_DIST: ((cloudfront-dist))
 
-  - task: build-eloqdss-rocksdb-type
-    file: eloqkv_src/concourse/tasks/build_debug_tarball.yml
-    image: image_ubuntu2204
-    params:
-      ASAN: "ON"
-      TAGGED: ""
-      GIT_SSH_KEY: ((git-key))
-      AWS_ACCESS_KEY_ID: ((aws_access_key_id))
-      AWS_DEFAULT_REGION: ((aws-region))
-      AWS_SECRET_ACCESS_KEY: ((aws_secret_access_key))
-      BUILD_LOG_SRV: "true"
-      BUILD_TYPE: Debug
-      LOG_STATE_TYPE: ROCKSDB
-      DATA_STORE_TYPE: ELOQDSS_ROCKSDB
-      OUT_NAME: debug
-      CLOUDFRONT_DIST: ((cloudfront-dist))
+      - task: build-eloqdss-rocksdb-type
+        file: eloqkv_src/concourse/tasks/build_debug_tarball.yml
+        image: image_ubuntu2204
+        params:
+          ASAN: "ON"
+          TAGGED: ""
+          GIT_SSH_KEY: ((git-key))
+          AWS_ACCESS_KEY_ID: ((aws_access_key_id))
+          AWS_DEFAULT_REGION: ((aws-region))
+          AWS_SECRET_ACCESS_KEY: ((aws_secret_access_key))
+          BUILD_LOG_SRV: "true"
+          BUILD_TYPE: Debug
+          LOG_STATE_TYPE: ROCKSDB
+          DATA_STORE_TYPE: ELOQDSS_ROCKSDB
+          OUT_NAME: debug
+          CLOUDFRONT_DIST: ((cloudfront-dist))
 
-  serial: true
+    serial: true
 
+  - name: ubuntu2404-main
+    plan:
+      - in_parallel:
+          limit: 2
+          steps:
+            - get: eloqkv_src
+              resource: eloqkv_src_main
+            - get: logservice_src
+              resource: logservice_src_main
+            - get: raft_host_manager_src
+              resource: raft_host_manager_src_main
+            - get: image_ubuntu2404
+              resource: image_ubuntu2404_main
+
+      - task: build-eloqstore-type
+        file: eloqkv_src/concourse/tasks/build_debug_tarball.yml
+        image: image_ubuntu2404
+        params:
+          ASAN: "ON"
+          TAGGED: ""
+          GIT_SSH_KEY: ((git-key))
+          AWS_ACCESS_KEY_ID: ((aws_access_key_id))
+          AWS_DEFAULT_REGION: ((aws-region))
+          AWS_SECRET_ACCESS_KEY: ((aws_secret_access_key))
+          BUILD_LOG_SRV: "true"
+          BUILD_TYPE: Debug
+          LOG_STATE_TYPE: ROCKSDB_CLOUD_S3
+          DATA_STORE_TYPE: ELOQDSS_ELOQSTORE
+          OUT_NAME: debug
+          CLOUDFRONT_DIST: ((cloudfront-dist))
