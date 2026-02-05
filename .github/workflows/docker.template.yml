@@ -1,4 +1,4 @@
-name: Docker Template
+name: Github Action Docker Template
 
 on:
   workflow_call:
@@ -20,11 +20,6 @@ on:
         type: boolean
         default: false
         description: "Whether manually triggered builds should be tagged as latest version"
-
-    secrets:
-      build-args:
-        required: false
-        description: "Build args containing secrets"
 
 jobs:
   build:
@@ -86,8 +81,8 @@ jobs:
           tags: ${{ steps.suffixed_tags.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
+            DOCKER_ORG=${{ secrets.DOCKER_ORG }}
             ${{ inputs.build-args }}
-            ${{ secrets.build-args }}
           cache-from: type=gha,scope=${{ matrix.platform }}-${{ inputs.image-name }}
           cache-to: type=gha,mode=max,scope=${{ matrix.platform }}-${{ inputs.image-name }}
 

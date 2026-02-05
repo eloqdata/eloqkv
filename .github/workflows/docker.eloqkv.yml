@@ -14,13 +14,7 @@ permissions:
 jobs:
   eloqkv:
     uses: ./.github/workflows/docker.template.yml
-    secrets:
-      build-args: |
-        BUILDER_IMAGE=${{ secrets.DOCKER_ORG }}/builder:latest
-      DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
-      DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
-      DOCKER_ORG: ${{ secrets.DOCKER_ORG }}
-
     with:
       dockerfile: ./scripts/docker/eloqkv.docker
       image-name: eloqkv
+    secrets: inherit
