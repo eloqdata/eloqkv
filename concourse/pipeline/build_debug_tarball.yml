@@ -14,7 +14,7 @@ resources:
   - name: image_ubuntu2404_main
     type: registry-image
     source:
-      repository: eloqdata/eloq-ci-build-ubuntu2404
+      repository: eloqdata/eloq-dev-ci-ubuntu2404
 
   - name: logservice_src_main
     type: git
