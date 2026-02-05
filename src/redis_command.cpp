@@ -15471,14 +15471,23 @@ txservice::ExecResult DumpCommand::ExecuteOn(const txservice::TxObject &object)
     result_.str_.append(reinterpret_cast<const char *>(&obj_type_u8),
                         sizeof(uint8_t));
 
+    LOG(INFO) << "DumpCommand: ExecutOn: result str size = "
+              << result_.str_.size();
+
     eloq_obj.Serialize(result_.str_);
 
     result_.str_.append(reinterpret_cast<const char *>(&dump_version_),
                         sizeof(dump_version_));
 
+    LOG(INFO) << "DumpCommand: ExecutOn: result str size = "
+              << result_.str_.size();
+
     uint64_t crc64 =
         crc64speed_big(0, result_.str_.data(), result_.str_.size());
     result_.str_.append(reinterpret_cast<const char *>(&crc64), sizeof(crc64));
+
+    LOG(INFO) << "DumpCommand: ExecutOn: result str size = "
+              << result_.str_.size() << ", result = " << result_.str_;
 
     result_.err_code_ = RD_OK;
 
@@ -15520,6 +15529,9 @@ txservice::ExecResult RestoreCommand::ExecuteOn(
 txservice::TxObject *RestoreCommand::CommitOn(txservice::TxObject *obj_ptr)
 {
     RedisEloqObject *robj = nullptr;
+
+    LOG(INFO) << "RestoreCommand: CommitOn: result str size = " << value_.size()
+              << ", value = " << value_;
 
     const uint8_t *obj_type_ptr =
         reinterpret_cast<const uint8_t *>(value_.data());
