@@ -15626,9 +15626,6 @@ txservice::TxObject *RestoreCommand::CommitOn(txservice::TxObject *obj_ptr)
 
     // Set TTL if expire_when_ is specified (not UINT64_MAX)
     // This matches Redis semantics where RESTORE sets TTL via parameter
-    LOG(INFO) << "RestoreCommand: CommitOn: expire_when_ = " << expire_when_
-              << ", UINT64_MAX = " << UINT64_MAX << ", current_time_ms = "
-              << txservice::LocalCcShards::ClockTsInMillseconds();
     if (robj != nullptr && expire_when_ != UINT64_MAX)
     {
         RedisObjectType obj_type_after = robj->ObjectType();
