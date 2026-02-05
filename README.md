@@ -29,14 +29,14 @@ This repo contains the code for the pluggable Redis API layer. See [Architecture
 
 
 **Why Choose EloqKV Over Redis?**  
-| Feature                      | Redis                        | EloqKV                                        |
-| ---------------------------- | ---------------------------  | -----------------------------------------     |
-| **High Performance**         | Single-threaded              | Multi-threaded (1.6million QPS on c6g.8xlarge)|
-| **Transactions**             | `MULTI/EXEC` (No Rollback)   | Redis API plus `BEGIN/COMMIT/ROLLBACK` (ACID) |
-| **Distributed Transactions** | `CROSSSLOT` Error            | ACID distributed transactions                 |
-| **Data Durability**          | Limited, AOF/RDB snapshots   | Replicated WAL + Tiered Storage               |
-| **Cold Data**                | Must fit in memory           | Auto-tiering to disk                          |
-| **Client Transparency**      | Cluster needs specific client| Same client for a single server or a cluster  |
+| Feature                      | Redis                         | EloqKV                                         |
+| ---------------------------- | ----------------------------- | ---------------------------------------------- |
+| **High Performance**         | Single-threaded               | Multi-threaded (1.6million QPS on c6g.8xlarge) |
+| **Transactions**             | `MULTI/EXEC` (No Rollback)    | Redis API plus `BEGIN/COMMIT/ROLLBACK` (ACID)  |
+| **Distributed Transactions** | `CROSSSLOT` Error             | ACID distributed transactions                  |
+| **Data Durability**          | Limited, AOF/RDB snapshots    | Replicated WAL + Tiered Storage                |
+| **Cold Data**                | Must fit in memory            | Auto-tiering to disk                           |
+| **Client Transparency**      | Cluster needs specific client | Same client for a single server or a cluster   |
 
 
 ---
@@ -92,13 +92,43 @@ redis-cli -h eloqkv-server SET key "value"  # Works out of the box!
 ### Using Docker
 We recommend using Docker for a quick local try-out of EloqKV.
 
+
 **1. Start a Single Node using Docker:**  
+
+> **Note**: EloqKV enables `io_uring` by default for high performance. To avoid initialization errors on some platforms (e.g., macOS Docker), you must run with `--privileged` and set custom ulimits.
+
 ```bash  
 # Create subnet for containers.
 docker network create --subnet=172.20.0.0/16 eloqnet
 
-docker run -d --net eloqnet --ip 172.20.0.10 -p 6379:6379 --name=eloqkv eloqdata/eloqkv
-```  
+docker run -d --privileged --ulimit memlock=-1:-1 --net eloqnet --ip 172.20.0.10 -p 6379:6379 --name=eloqkv eloqdata/eloqkv
+``` 
+
+**Or using Docker Compose:**
+
+Create a `docker-compose.yml` file:
+
+```yaml
+services:
+  eloqkv:
+    image: eloqdata/eloqkv:latest
+    container_name: eloqkv
+    ports:
+      - "6379:6379"
+    command: -enable_wal=true
+    privileged: true
+    ulimits:
+      memlock: -1
+    volumes:
+      - ./data/EloqKv:/home/eloquser/EloqKV/eloq_data
+```
+
+Start the container:
+
+```bash
+docker-compose up -d
+```
+
 
 **2. Verify Installation:**  
 ```bash  
@@ -233,5 +263,4 @@ See the [LICENSE](./LICENSE) file for details.
 - [Watch: EloqKV at Monster Scale Summit](https://www.youtube.com/watch?v=XSuwjiNt0N4)
   
 [![GitHub Stars](https://img.shields.io/github/stars/eloqdata/eloqkv?style=social)](https://github.com/eloqdata/eloqkv/stargazers)
-**Star This Repo ⭐** to Support Our Journey — Every Star Helps Us Reach More Developers!  
-
+**Star This Repo ⭐** to Support Our Journey — Every Star Helps Us Reach More Developers!

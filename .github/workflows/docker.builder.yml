@@ -1,0 +1,27 @@
+name: Builder Docker
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "[0-9]+.[0-9]+.[0-9]+"
+    paths:
+      - "scripts/docker/builder.docker"
+      - ".github/workflows/docker.builder.yml"
+      - ".github/workflows/docker.template.yml"
+      - "scripts/dep/**"
+      - "scripts/install_dep*"
+
+permissions:
+  contents: read
+  id-token: write
+  attestations: write
+
+jobs:
+  builder:
+    uses: ./.github/workflows/docker.template.yml
+    with:
+      dockerfile: ./scripts/docker/builder.docker
+      image-name: eloqkv-builder
+      force-latest: true
+    secrets: inherit
