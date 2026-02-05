@@ -120,9 +120,6 @@ public:
 
         str.append(blob_len_ptr, sizeof(uint32_t));
         str.append(str_view.data(), blob_len);
-
-        LOG(INFO) << "Serialize: str size = " << str.size()
-                  << ", blob len = " << blob_len;
     }
 
     void Deserialize(const char *buf, size_t &offset) override
@@ -142,7 +139,6 @@ public:
         uint32_t len = *len_ptr;
         offset += sizeof(uint32_t);
 
-        LOG(INFO) << "offset = " << offset << ", len = " << len;
         str_obj_ = EloqString(buf + offset, len);
 
         offset += len;
@@ -354,9 +350,6 @@ public:
 
         str.append(blob_len_ptr, sizeof(uint32_t));
         str.append(str_view.data(), blob_len);
-
-        LOG(INFO) << "Serialize: str size = " << str.size()
-                  << ", blob len = " << blob_len;
     }
 
     void Deserialize(const char *buf, size_t &offset) override
