@@ -9,6 +9,8 @@ on:
       - "scripts/docker/builder.docker"
       - ".github/workflows/docker.builder.yml"
       - ".github/workflows/docker.template.yml"
+      - "scripts/dep/**"
+      - "scripts/install_dep*"
 
 permissions:
   contents: read
