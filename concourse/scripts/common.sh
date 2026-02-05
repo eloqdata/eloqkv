@@ -2703,10 +2703,6 @@ function run_eloq_test(){
   else
     mkdir /home/$current_user/workspace/eloq_test/runtime
   fi
-  if [[ "$kv_store_type" == "ELOQDSS_ELOQSTORE" ]]; then
-    echo "skip run_eloq_test for ELOQDSS_ELOQSTORE."
-    return 0
-  fi
 
   # generate cassandra keyspace name.
   local timestamp=$(($(date +%s%N)/1000000))
@@ -2793,7 +2789,7 @@ function run_eloq_test(){
     # rm -rf runtime/*
 
     # run standby tests.
-    python3 run_tests.py --dbtype redis --group standby --storage eloqdss-rocksdb-cloud-s3 --install_path ${eloqkv_install_path}
+    python3 run_tests.py --dbtype redis --group standby --storage eloqdss-rocksdb-cloud-s3 --install_path ${eloqkv_install_path} --bootstrap true
     rm -rf runtime/*
 
     # rm -rf runtime/*
@@ -2829,11 +2825,10 @@ function run_eloq_test(){
 
     # run single/multi test
     rm -rf runtime/*
-    python3 redis_test/multi_test/smoke_test.py --dbtype redis --storage eloqdss-eloqstore --install_path ${eloqkv_install_path}
+    python3 redis_test/multi_test/smoke_test.py --dbtype redis --storage eloqdss-eloqstore --install_path ${eloqkv_install_path} --bootstrap true
 
-    # disable unstable multi test
-    # python3 redis_test/multi_test/cluster_rolling_upgrade.py --dbtype redis --storage eloqdss-eloqstore --install_path ${eloqkv_install_path}
-    # python3 redis_test/multi_test/cluster_scale_test.py --dbtype redis --storage eloqdss-eloqstore --install_path ${eloqkv_install_path}
+    python3 redis_test/multi_test/cluster_rolling_upgrade.py --dbtype redis --storage eloqdss-eloqstore --install_path ${eloqkv_install_path} --bootstrap true
+    python3 redis_test/multi_test/cluster_scale_test.py --dbtype redis --storage eloqdss-eloqstore --install_path ${eloqkv_install_path} --bootstrap true
 
     # run log service scale test
     rm -rf runtime/*
