@@ -15536,7 +15536,7 @@ txservice::TxObject *RestoreCommand::CommitOn(txservice::TxObject *obj_ptr)
     const uint8_t *obj_type_ptr =
         reinterpret_cast<const uint8_t *>(value_.data());
     RedisObjectType obj_type = static_cast<RedisObjectType>(*obj_type_ptr);
-    size_t offset = 0;
+    size_t offset = 1;
 
     switch (obj_type)
     {
