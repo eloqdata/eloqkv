@@ -15471,7 +15471,66 @@ txservice::ExecResult DumpCommand::ExecuteOn(const txservice::TxObject &object)
     result_.str_.append(reinterpret_cast<const char *>(&obj_type_u8),
                         sizeof(uint8_t));
 
-    eloq_obj.Serialize(result_.str_);
+    // If object has TTL, serialize as base type (without TTL) for DUMP
+    // This matches Redis semantics where DUMP doesn't include TTL info
+    // We call the base class Serialize() method directly instead of creating
+    // a new object
+    if (eloq_obj.HasTTL())
+    {
+        // Cast to base class and call base class Serialize() method
+        // ObjectType() already returns the base class type, so we can safely
+        // cast to the corresponding base class
+        switch (obj_type)
+        {
+        case RedisObjectType::String:
+        {
+            // TTLString -> String: cast to base class and call base Serialize()
+            const RedisStringObject *base_obj =
+                static_cast<const RedisStringObject *>(&eloq_obj);
+            base_obj->RedisStringObject::Serialize(result_.str_);
+            break;
+        }
+        case RedisObjectType::List:
+        {
+            // TTLList -> List: cast to base class and call base Serialize()
+            const RedisListObject *base_obj =
+                static_cast<const RedisListObject *>(&eloq_obj);
+            base_obj->RedisListObject::Serialize(result_.str_);
+            break;
+        }
+        case RedisObjectType::Hash:
+        {
+            // TTLHash -> Hash: cast to base class and call base Serialize()
+            const RedisHashObject *base_obj =
+                static_cast<const RedisHashObject *>(&eloq_obj);
+            base_obj->RedisHashObject::Serialize(result_.str_);
+            break;
+        }
+        case RedisObjectType::Zset:
+        {
+            // TTLZset -> Zset: cast to base class and call base Serialize()
+            const RedisZsetObject *base_obj =
+                static_cast<const RedisZsetObject *>(&eloq_obj);
+            base_obj->RedisZsetObject::Serialize(result_.str_);
+            break;
+        }
+        case RedisObjectType::Set:
+        {
+            // TTLSet -> Set: cast to base class and call base Serialize()
+            const RedisHashSetObject *base_obj =
+                static_cast<const RedisHashSetObject *>(&eloq_obj);
+            base_obj->RedisHashSetObject::Serialize(result_.str_);
+            break;
+        }
+        default:
+            assert(false && "Unsupported object type for TTL serialization");
+            break;
+        }
+    }
+    else
+    {
+        eloq_obj.Serialize(result_.str_);
+    }
 
     result_.str_.append(reinterpret_cast<const char *>(&dump_version_),
                         sizeof(dump_version_));
@@ -15519,7 +15578,7 @@ txservice::ExecResult RestoreCommand::ExecuteOn(
 
 txservice::TxObject *RestoreCommand::CommitOn(txservice::TxObject *obj_ptr)
 {
-    RedisEloqObject *robj = nullptr;
+    std::unique_ptr<RedisEloqObject> robj;
 
     const uint8_t *obj_type_ptr =
         reinterpret_cast<const uint8_t *>(value_.data());
@@ -15529,23 +15588,23 @@ txservice::TxObject *RestoreCommand::CommitOn(txservice::TxObject *obj_ptr)
     switch (obj_type)
     {
     case RedisObjectType::String:
-        robj = new RedisStringObject();
+        robj = std::make_unique<RedisStringObject>();
         robj->Deserialize(value_.data(), offset);
         break;
     case RedisObjectType::List:
-        robj = new RedisListObject();
+        robj = std::make_unique<RedisListObject>();
         robj->Deserialize(value_.data(), offset);
         break;
     case RedisObjectType::Hash:
-        robj = new RedisHashObject();
+        robj = std::make_unique<RedisHashObject>();
         robj->Deserialize(value_.data(), offset);
         break;
     case RedisObjectType::Zset:
-        robj = new RedisZsetObject();
+        robj = std::make_unique<RedisZsetObject>();
         robj->Deserialize(value_.data(), offset);
         break;
     case RedisObjectType::Set:
-        robj = new RedisHashSetObject();
+        robj = std::make_unique<RedisHashSetObject>();
         robj->Deserialize(value_.data(), offset);
         break;
     default:
@@ -15553,7 +15612,64 @@ txservice::TxObject *RestoreCommand::CommitOn(txservice::TxObject *obj_ptr)
         break;
     }
 
-    return robj;
+    // Set TTL if expire_when_ is specified (not UINT64_MAX)
+    // This matches Redis semantics where RESTORE sets TTL via parameter
+    if (robj != nullptr && expire_when_ != UINT64_MAX)
+    {
+        RedisObjectType obj_type_after = robj->ObjectType();
+        std::unique_ptr<txservice::TxRecord> result_ttl_obj_uptr;
+
+        switch (obj_type_after)
+        {
+        case RedisObjectType::String:
+        {
+            RedisStringObject *str_obj =
+                static_cast<RedisStringObject *>(robj.get());
+            result_ttl_obj_uptr = str_obj->AddTTL(expire_when_);
+            break;
+        }
+        case RedisObjectType::List:
+        {
+            RedisListObject *list_obj =
+                static_cast<RedisListObject *>(robj.get());
+            result_ttl_obj_uptr = list_obj->AddTTL(expire_when_);
+            break;
+        }
+        case RedisObjectType::Hash:
+        {
+            RedisHashObject *hash_obj =
+                static_cast<RedisHashObject *>(robj.get());
+            result_ttl_obj_uptr = hash_obj->AddTTL(expire_when_);
+            break;
+        }
+        case RedisObjectType::Zset:
+        {
+            RedisZsetObject *zset_obj =
+                static_cast<RedisZsetObject *>(robj.get());
+            result_ttl_obj_uptr = zset_obj->AddTTL(expire_when_);
+            break;
+        }
+        case RedisObjectType::Set:
+        {
+            RedisHashSetObject *hashset_obj =
+                static_cast<RedisHashSetObject *>(robj.get());
+            result_ttl_obj_uptr = hashset_obj->AddTTL(expire_when_);
+            break;
+        }
+        default:
+            assert(false && "Unsupported object type for TTL");
+            break;
+        }
+
+        // Release ownership and return the new TTL object
+        // The old object (robj) will be automatically destroyed when unique_ptr
+        // goes out of scope
+        return static_cast<txservice::TxObject *>(
+            result_ttl_obj_uptr.release());
+    }
+
+    // Release ownership and return the object
+    return static_cast<txservice::TxObject *>(robj.release());
 }
 
 void RestoreCommand::Serialize(std::string &str) const
@@ -19461,17 +19577,14 @@ std::tuple<bool, EloqKey, RestoreCommand> ParseRestoreCommand(
 
     if (ttl && !absttl)
     {
-        ttl +=
-            std::chrono::duration_cast<std::chrono::milliseconds>(
-                std::chrono::microseconds(txservice::LocalCcShards::ClockTs()))
-                .count();
+        // ttl is in milliseconds, add current time in milliseconds
+        ttl += txservice::LocalCcShards::ClockTsInMillseconds();
     }
 
-    uint64_t expire_when =
-        ttl > 0 ? std::chrono::duration_cast<std::chrono::microseconds>(
-                      std::chrono::milliseconds(ttl))
-                      .count()
-                : UINT64_MAX;
+    // expire_when_ should be in milliseconds (same unit as
+    // ExpireCommand::expire_ts_) GetTTL() returns milliseconds, so we keep
+    // expire_when_ in milliseconds
+    uint64_t expire_when = (ttl > 0) ? ttl : UINT64_MAX;
     return {true,
             EloqKey(args[1]),
             RestoreCommand(args[3].data(),
