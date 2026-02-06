@@ -41,6 +41,7 @@
 #include <functional>
 #include <memory>
 #include <optional>
+#include <sstream>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -1849,11 +1850,35 @@ TxErrorCode RedisServiceImpl::MultiExec(
         return TxErrorCode::NO_ERROR;
     }
 
+    std::ostringstream cmd_args_stream;
+    cmd_args_stream << "[";
+    for (size_t i = 0; i < cmd_args.size(); ++i)
+    {
+        if (i > 0)
+        {
+            cmd_args_stream << ", ";
+        }
+        cmd_args_stream << "[";
+        for (size_t j = 0; j < cmd_args[i].size(); ++j)
+        {
+            if (j > 0)
+            {
+                cmd_args_stream << ", ";
+            }
+            cmd_args_stream << cmd_args[i][j];
+        }
+        cmd_args_stream << "]";
+    }
+    cmd_args_stream << "]";
+
     if (txm == nullptr)
     {
         // Init transaction state machine and execute the requests.
         txm = NewTxm(txn_isolation_level_, txn_protocol_);
     }
+
+    LOG(INFO) << "Entering MultiExec, txm: " << txm
+              << ", cmd_args: " << cmd_args_stream.str();
 
     std::vector<std::pair<std::variant<DirectRequest,
                                        ObjectCommandTxRequest,
@@ -2123,7 +2148,8 @@ TxErrorCode RedisServiceImpl::MultiExec(
     {
         LOG(WARNING) << "txn: " << txn
                      << " Error occurs in MultiExec, abort txn, "
-                     << TxErrorMessage(tx_err_code);
+                     << TxErrorMessage(tx_err_code)
+                     << ", MultiExec cmd_args: " << cmd_args_stream.str();
         // abort txn
         AbortTx(txm);
         // set nil
@@ -2136,10 +2162,14 @@ TxErrorCode RedisServiceImpl::MultiExec(
     if (!success)
     {
         LOG(WARNING) << "txn: " << txn
-                     << " MultiExec commit error: " << TxErrorMessage(err_code);
+                     << " MultiExec commit error: " << TxErrorMessage(err_code)
+                     << ", MultiExec cmd_args: " << cmd_args_stream.str();
         redis_reply.OnNil();
         return err_code;
     }
+
+    LOG(INFO) << "txn: " << txn
+              << " MultiExec success, cmd_args: " << cmd_args_stream.str();
 
     // Output the commands' result.
     redis_reply.OnArrayStart(cmd_reqs.size());
@@ -4206,12 +4236,28 @@ bool RedisServiceImpl::ExecuteTxRequest(
             RedisStats::IncrWriteCommand();
         }
     }
+    if (tx_req->auto_commit_)
+    {
+        LOG(INFO) << "txm: " << txm << ", potential txn: " << txm->TxNumber()
+                  << " SendTxRequestAndWaitResult...";
+    }
     bool success = SendTxRequestAndWaitResult(txm, tx_req, error);
 
     if (!success)
     {
+        if (tx_req->auto_commit_)
+        {
+            LOG(INFO) << "txm: " << txm
+                      << ", potential txn: " << txm->TxNumber() << " fails";
+        }
         // The output must have been set if it's not nullptr.
         return false;
+    }
+
+    if (tx_req->auto_commit_)
+    {
+        LOG(INFO) << "txm: " << txm << ", potential txn: " << txm->TxNumber()
+                  << " success";
     }
 
     assert(tx_req->Result() != txservice::RecordStatus::Unknown);
@@ -5645,6 +5691,21 @@ brpc::RedisCommandHandlerResult RedisServiceImpl::DispatchCommand(
         }
         else
         {
+            {
+                std::ostringstream args_stream;
+                args_stream << "[";
+                for (size_t i = 0; i < args.size(); ++i)
+                {
+                    if (i > 0)
+                    {
+                        args_stream << ", ";
+                    }
+                    args_stream << args[i].as_string();
+                }
+                args_stream << "]";
+                LOG(INFO) << "DispatchCommand single command args: "
+                          << args_stream.str();
+            }
             result = ch->Run(ctx, args, output, flush_batched);
             if (result == brpc::REDIS_CMD_CONTINUE)
             {

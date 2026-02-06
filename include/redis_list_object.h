@@ -41,7 +41,7 @@ public:
     RedisListObject();
     RedisListObject(const RedisListObject &);
     RedisListObject(RedisListObject &&rhs);
-    ~RedisListObject() override = default;
+    ~RedisListObject() override;
 
     RedisObjectType ObjectType() const override
     {

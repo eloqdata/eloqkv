@@ -23,6 +23,7 @@
 
 #include <redis_string_object.h>
 
+#include <boost/stacktrace/stacktrace.hpp>
 #include <string>
 #include <utility>
 
@@ -36,12 +37,17 @@ extern const uint64_t MAX_OBJECT_SIZE;
 
 RedisListObject::RedisListObject()
 {
+    LOG(INFO) << "RedisListObject default constructor: " << this
+              << boost::stacktrace::stacktrace();
     serialized_length_ = 1 + sizeof(uint32_t);
 }
 
 RedisListObject::RedisListObject(const RedisListObject &rhs)
     : serialized_length_(rhs.serialized_length_)
 {
+    LOG(INFO) << "RedisListObject copy constructor: " << this
+              << boost::stacktrace::stacktrace();
+
     for (const auto &str : rhs.list_object_)
     {
         // Deep copy the EloqString.
@@ -55,7 +61,16 @@ RedisListObject::RedisListObject(RedisListObject &&rhs)
       list_object_(std::move(rhs.list_object_)),
       serialized_length_(rhs.serialized_length_)
 {
+    LOG(INFO) << "RedisListObject move constructor: " << this
+              << boost::stacktrace::stacktrace();
+
     rhs.serialized_length_ = 1 + sizeof(uint32_t);
+}
+
+RedisListObject::~RedisListObject()
+{
+    LOG(INFO) << "RedisListObject destruct: " << this
+              << boost::stacktrace::stacktrace();
 }
 
 bool RedisListObject::ConvertListIndex(int64_t &index) const
@@ -641,6 +656,8 @@ void RedisListObject::CommitLInsert(bool is_before,
                                     EloqString &pivot,
                                     EloqString &element)
 {
+    LOG(INFO) << "CommitLInsert enter object=" << this
+              << " size=" << list_object_.size();
     auto iter = list_object_.begin();
     for (; iter != list_object_.end(); ++iter)
     {
@@ -667,10 +684,14 @@ void RedisListObject::CommitLInsert(bool is_before,
         // move EloqString for log replay commands and cloned commands
         list_object_.emplace(iter, std::move(element));
     }
+    LOG(INFO) << "CommitLInsert exit object=" << this
+              << " size=" << list_object_.size();
 }
 
 void RedisListObject::CommitLSet(int64_t index, EloqString &element)
 {
+    LOG(INFO) << "CommitLSet enter object=" << this
+              << " size=" << list_object_.size();
     if (index < 0)
     {
         ConvertListIndex(index);
@@ -692,10 +713,14 @@ void RedisListObject::CommitLSet(int64_t index, EloqString &element)
         // move EloqString for log replay commands and cloned commands
         *iter = std::move(element);
     }
+    LOG(INFO) << "CommitLSet exit object=" << this
+              << " size=" << list_object_.size();
 }
 
 void RedisListObject::CommitRPush(std::vector<EloqString> &elements)
 {
+    LOG(INFO) << "CommitRPush enter object=" << this
+              << " size=" << list_object_.size();
     for (auto &element : elements)
     {
         serialized_length_ += sizeof(uint32_t) + element.Length();
@@ -712,10 +737,14 @@ void RedisListObject::CommitRPush(std::vector<EloqString> &elements)
             list_object_.emplace_back(std::move(element));
         }
     }
+    LOG(INFO) << "CommitRPush exit object=" << this
+              << " size=" << list_object_.size();
 }
 
 void RedisListObject::CommitLPush(std::vector<EloqString> &elements)
 {
+    LOG(INFO) << "CommitLPush enter object=" << this
+              << " size=" << list_object_.size();
     for (auto &element : elements)
     {
         serialized_length_ += sizeof(uint32_t) + element.Length();
@@ -732,10 +761,14 @@ void RedisListObject::CommitLPush(std::vector<EloqString> &elements)
             list_object_.emplace_front(std::move(element));
         }
     }
+    LOG(INFO) << "CommitLPush exit object=" << this
+              << " size=" << list_object_.size();
 }
 
 bool RedisListObject::CommitLPop(int64_t count)
 {
+    LOG(INFO) << "CommitLPop enter object=" << this
+              << " size=" << list_object_.size();
     size_t pop_num = std::min(list_object_.size(), static_cast<size_t>(count));
     auto pop_end_it = list_object_.begin() + pop_num;
 
@@ -746,11 +779,16 @@ bool RedisListObject::CommitLPop(int64_t count)
     assert(serialized_length_ <= MAX_OBJECT_SIZE);
 
     list_object_.erase(list_object_.begin(), pop_end_it);
-    return list_object_.empty();
+    bool result = list_object_.empty();
+    LOG(INFO) << "CommitLPop exit object=" << this
+              << " size=" << list_object_.size();
+    return result;
 }
 
 bool RedisListObject::CommitRPop(int64_t count)
 {
+    LOG(INFO) << "CommitRPop enter object=" << this
+              << " size=" << list_object_.size();
     auto pop_begin = list_object_.rbegin();
     std::advance(pop_begin,
                  std::min(static_cast<size_t>(count), list_object_.size()));
@@ -762,15 +800,22 @@ bool RedisListObject::CommitRPop(int64_t count)
     assert(serialized_length_ <= MAX_OBJECT_SIZE);
 
     list_object_.erase(pop_begin.base(), list_object_.end());
-    return list_object_.empty();
+    bool result = list_object_.empty();
+    LOG(INFO) << "CommitRPop exit object=" << this
+              << " size=" << list_object_.size();
+    return result;
 }
 
 bool RedisListObject::CommitLMovePop(bool is_left)
 {
+    LOG(INFO) << "CommitLMovePop enter object=" << this
+              << " size=" << list_object_.size();
     if (list_object_.empty())
     {
         LOG(WARNING)
             << "CommitLMovePop invoked on an empty list. Skipping removal.";
+        LOG(INFO) << "CommitLMovePop exit object=" << this
+                  << " size=" << list_object_.size();
         assert(false);
         return true;
     }
@@ -785,13 +830,18 @@ bool RedisListObject::CommitLMovePop(bool is_left)
         serialized_length_ -= (sizeof(uint32_t) + list_object_.back().Length());
         list_object_.pop_back();
     }
-    return list_object_.empty();
+    bool result = list_object_.empty();
+    LOG(INFO) << "CommitLMovePop exit object=" << this
+              << " size=" << list_object_.size();
+    return result;
 }
 
 void RedisListObject::CommitLMovePush(bool is_left,
                                       EloqString &element,
                                       bool should_not_move_string)
 {
+    LOG(INFO) << "CommitLMovePush enter object=" << this
+              << " size=" << list_object_.size();
     serialized_length_ += sizeof(uint32_t) + element.Length();
     assert(serialized_length_ <= MAX_OBJECT_SIZE);
     if (is_left)
@@ -822,10 +872,14 @@ void RedisListObject::CommitLMovePush(bool is_left,
             list_object_.emplace_back(std::move(element));
         }
     }
+    LOG(INFO) << "CommitLMovePush exit object=" << this
+              << " size=" << list_object_.size();
 }
 
 bool RedisListObject::CommitLTrim(int64_t start, int64_t end)
 {
+    LOG(INFO) << "CommitLTrim enter object=" << this
+              << " size=" << list_object_.size();
     if (end + 1 < static_cast<int64_t>(list_object_.size()))
     {
         auto erase_begin = list_object_.begin() + end + 1;
@@ -849,11 +903,16 @@ bool RedisListObject::CommitLTrim(int64_t start, int64_t end)
     {
         assert(list_object_.empty());
     }
-    return list_object_.empty();
+    bool result = list_object_.empty();
+    LOG(INFO) << "CommitLTrim exit object=" << this
+              << " size=" << list_object_.size();
+    return result;
 }
 
 bool RedisListObject::CommitLRem(int64_t count, EloqString &element)
 {
+    LOG(INFO) << "CommitLRem enter object=" << this
+              << " size=" << list_object_.size();
     int to_be_removed_cnt = std::abs(count);
     int removed_cnt = 0;
     if (count > 0)
@@ -903,15 +962,22 @@ bool RedisListObject::CommitLRem(int64_t count, EloqString &element)
             }
         }
     }
-    return list_object_.empty();
+    bool result = list_object_.empty();
+    LOG(INFO) << "CommitLRem exit object=" << this
+              << " size=" << list_object_.size();
+    return result;
 }
 
 bool RedisListObject::CommitBlockPop(bool is_left, uint32_t count)
 {
+    LOG(INFO) << "CommitBlockPop enter object=" << this
+              << " size=" << list_object_.size();
     if (list_object_.empty())
     {
         LOG(WARNING)
             << "CommitBlockPop invoked on an empty list. Skipping removal.";
+        LOG(INFO) << "CommitBlockPop exit object=" << this
+                  << " size=" << list_object_.size();
         assert(false);
         return true;
     }
@@ -939,6 +1005,9 @@ bool RedisListObject::CommitBlockPop(bool is_left, uint32_t count)
 
     assert(serialized_length_ <= MAX_OBJECT_SIZE);
 
-    return !list_object_.empty();
+    bool result = !list_object_.empty();
+    LOG(INFO) << "CommitBlockPop exit object=" << this
+              << " size=" << list_object_.size();
+    return result;
 }
 }  // namespace EloqKV
