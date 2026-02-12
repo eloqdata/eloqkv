@@ -37,7 +37,7 @@
 #include "redis_service.h"
 
 DEFINE_string(config, "", "Configuration");
-constexpr char VERSION[] = "1.0.2";
+constexpr char VERSION[] = "1.2.0";
 
 // EloqKV flags - these are converted to tx flags
 DEFINE_string(ip, "127.0.0.1", "Redis IP");
