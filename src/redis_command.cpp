@@ -11099,6 +11099,11 @@ std::tuple<bool, EloqKey, BitFieldCommand> ParseBitFieldCommand(
     const std::vector<std::string_view> &args, OutputHandler *output)
 {
     assert(args[0] == "bitfield");
+    if (args.size() < 2)
+    {
+        output->OnError("ERR wrong number of arguments for 'bitfield' command");
+        return {false, EloqKey(), BitFieldCommand()};
+    }
 
     std::vector<BitFieldCommand::SubCommand> vct_cmd;
     BitFieldCommand::Overflow ovf = BitFieldCommand::Overflow::WRAP;
@@ -11257,6 +11262,12 @@ std::tuple<bool, EloqKey, BitFieldCommand> ParseBitFieldRoCommand(
     const std::vector<std::string_view> &args, OutputHandler *output)
 {
     assert(args[0] == "bitfield_ro");
+    if (args.size() < 5)
+    {
+        output->OnError(
+            "ERR wrong number of arguments for 'bitfield_ro' command");
+        return {false, EloqKey(), BitFieldCommand()};
+    }
 
     std::vector<BitFieldCommand::SubCommand> vct_cmd;
     for (size_t i = 2; i < args.size();)
