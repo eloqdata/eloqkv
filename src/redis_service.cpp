@@ -471,7 +471,7 @@ bool RedisServiceImpl::Start(brpc::Server &brpc_server)
         LOG(ERROR) << "Error: core_num is 0.";
         return false;
     }
-    node_memory_limit_mb_ = FLAGS_node_memory_limit_mb;
+    node_memory_limit_mb_ = ds.GetCoreConfig().node_memory_limit_mb;
     skip_kv_ = !ds.GetCoreConfig().enable_data_store;
     skip_wal_ = !ds.GetCoreConfig().enable_wal;
 
