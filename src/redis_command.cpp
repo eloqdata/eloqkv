@@ -11262,7 +11262,7 @@ std::tuple<bool, EloqKey, BitFieldCommand> ParseBitFieldRoCommand(
     const std::vector<std::string_view> &args, OutputHandler *output)
 {
     assert(args[0] == "bitfield_ro");
-    if (args.size() < 5)
+    if (args.size() < 2)
     {
         output->OnError(
             "ERR wrong number of arguments for 'bitfield_ro' command");
