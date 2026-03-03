@@ -27,23 +27,6 @@ if ! command -v curl >/dev/null; then
     sudo apt-get install -y curl
 fi
 
-# Use chsrc to select the fastest mirror automatically
-# Ref: https://github.com/RubyMetric/chsrc
-echo "Configuring fastest APT mirror using chsrc..."
-CHSRC_ARCH=$(uname -m)
-case $CHSRC_ARCH in
-    x86_64)  CHSRC_BIN="chsrc-x64-linux" ;;
-    aarch64) CHSRC_BIN="chsrc-aarch64-linux" ;;
-    *)       echo "Unsupported architecture for chsrc, skipping mirror config"; CHSRC_BIN="" ;;
-esac
-
-if [ -n "$CHSRC_BIN" ]; then
-    curl -L -o chsrc "https://gitee.com/RubyMetric/chsrc/releases/download/pre/${CHSRC_BIN}"
-    chmod +x ./chsrc
-    sudo ./chsrc set ubuntu
-    rm ./chsrc
-fi
-
 sudo apt-get update
 sudo apt-get install -y --no-install-recommends \
     jq sudo vim wget curl apt-utils python3 python3-dev python3-pip python3-venv \
