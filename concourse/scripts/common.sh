@@ -46,7 +46,7 @@ function wait_until_ready() {
 
 # Function to wait until server is finished
 function wait_until_finished() {
-  local timeout=120
+  local timeout=300
   local elapsed=0
   local interval=1
 
@@ -54,12 +54,89 @@ function wait_until_finished() {
     sleep $interval
     elapsed=$((elapsed + interval))
     if [ $elapsed -ge $timeout ]; then
-      echo "Timeout: Process still running after 20 seconds."
+      echo "Timeout: Process still running after $timeout seconds."
       # list eloqkv still alived
       ps aux | grep eloqkv | grep -v grep | grep -v launch_sv | grep -v dss_server
       return 1
     fi
   done
+  return 0
+}
+
+function setup_passwordless_ssh_for_eloq_test() {
+  local user_home="/home/$current_user"
+  local ssh_dir="${user_home}/.ssh"
+  local private_key="${ssh_dir}/id_ed25519"
+  local public_key="${private_key}.pub"
+  local authorized_keys="${ssh_dir}/authorized_keys"
+  local sshd_config="/etc/ssh/sshd_config"
+  local user_group
+
+  mkdir -p "${ssh_dir}"
+  chmod 700 "${ssh_dir}"
+
+  if [ ! -f "${private_key}" ]; then
+    ssh-keygen -q -t ed25519 -N "" -f "${private_key}"
+  elif [ ! -f "${public_key}" ]; then
+    ssh-keygen -y -f "${private_key}" > "${public_key}"
+  fi
+
+  touch "${authorized_keys}"
+  chmod 600 "${authorized_keys}"
+  if ! grep -qxF "$(cat "${public_key}")" "${authorized_keys}"; then
+    cat "${public_key}" >> "${authorized_keys}"
+    echo >> "${authorized_keys}"
+  fi
+
+  user_group=$(id -gn "${current_user}" 2>/dev/null || true)
+  if [ -n "${user_group}" ]; then
+    chown -R "${current_user}:${user_group}" "${ssh_dir}"
+  else
+    chown -R "${current_user}" "${ssh_dir}"
+  fi
+
+  if [ "$(id -u)" -eq 0 ]; then
+    if grep -qE '^[#[:space:]]*MaxStartups[[:space:]]+' "${sshd_config}"; then
+      sed -i 's/^[#[:space:]]*MaxStartups[[:space:]].*/MaxStartups 200/' "${sshd_config}"
+    else
+      printf '\nMaxStartups 200\n' >> "${sshd_config}"
+    fi
+
+    if grep -qE '^[#[:space:]]*PubkeyAuthentication[[:space:]]+' "${sshd_config}"; then
+      sed -i 's/^[#[:space:]]*PubkeyAuthentication[[:space:]].*/PubkeyAuthentication yes/' "${sshd_config}"
+    else
+      printf 'PubkeyAuthentication yes\n' >> "${sshd_config}"
+    fi
+  else
+    if sudo -n test -f "${sshd_config}"; then
+      if sudo -n grep -qE '^[#[:space:]]*MaxStartups[[:space:]]+' "${sshd_config}"; then
+        sudo -n sed -i 's/^[#[:space:]]*MaxStartups[[:space:]].*/MaxStartups 200/' "${sshd_config}"
+      else
+        printf '\nMaxStartups 200\n' | sudo -n tee -a "${sshd_config}" >/dev/null
+      fi
+
+      if sudo -n grep -qE '^[#[:space:]]*PubkeyAuthentication[[:space:]]+' "${sshd_config}"; then
+        sudo -n sed -i 's/^[#[:space:]]*PubkeyAuthentication[[:space:]].*/PubkeyAuthentication yes/' "${sshd_config}"
+      else
+        printf 'PubkeyAuthentication yes\n' | sudo -n tee -a "${sshd_config}" >/dev/null
+      fi
+    else
+      echo "sudo access is required to update ${sshd_config} and restart ssh."
+      return 1
+    fi
+  fi
+
+  if [ "$(id -u)" -eq 0 ]; then
+    systemctl restart ssh || service ssh restart
+  else
+    sudo -n systemctl restart ssh || sudo -n service ssh restart
+  fi
+
+  if [ $? -ne 0 ]; then
+    echo "Failed to restart ssh service."
+    return 1
+  fi
+
   return 0
 }
 
@@ -2194,6 +2271,8 @@ function run_eloq_test() {
     echo "/home/$current_user/workspace/eloq_test/ not exists, exit !!!"
   fi
 
+  setup_passwordless_ssh_for_eloq_test
+
   cd /home/$current_user/workspace/eloq_test
   ./setup
 
@@ -2277,7 +2356,7 @@ function run_eloq_test() {
     local rocksdb_cloud_object_path=${ROCKSDB_CLOUD_OBJECT_PATH}
     local txlog_rocksdb_cloud_object_path=${TXLOG_ROCKSDB_CLOUD_OBJECT_PATH}
     local eloqstore_cloud_store_path=${ELOQSTORE_BUCKET_NAME}
-    
+
     # rocksdb cloud s3 config for txlog
     echo "rocksdb_cloud_s3_endpoint_url: ${rocksdb_cloud_s3_endpoint_url}"
     sed -i "s/rocksdb_cloud_s3_endpoint_url.*=.\+/rocksdb_cloud_s3_endpoint_url=${rocksdb_cloud_s3_endpoint_url_escape}/g" ./storage.cnf
@@ -2285,14 +2364,23 @@ function run_eloq_test() {
     sed -i "s/aws_secret_key.*=.\+/aws_secret_key=${rocksdb_cloud_aws_secret_access_key}/g" ./storage.cnf
     sed -i "s/rocksdb_cloud_bucket_name.*=.\+/rocksdb_cloud_bucket_name=${rocksdb_cloud_bucket_name}/g" ./storage.cnf
 
-    sed -i "s/rocksdb_cloud_s3_endpoint_url.*=.\+/rocksdb_cloud_s3_endpoint_url=${rocksdb_cloud_s3_endpoint_url_escape}/g" ./bootstrap_cnf/*_eloqdss_eloqstore.cnf
-    sed -i "s/txlog_rocksdb_cloud_s3_endpoint_url.*=.\+/txlog_rocksdb_cloud_s3_endpoint_url=${rocksdb_cloud_s3_endpoint_url_escape}/g" ./bootstrap_cnf/*_eloqdss_eloqstore.cnf
-    sed -i "s/aws_access_key_id.*=.\+/aws_access_key_id=${rocksdb_cloud_aws_access_key_id}/g" ./bootstrap_cnf/*_eloqdss_eloqstore.cnf
-    sed -i "s/aws_secret_key.*=.\+/aws_secret_key=${rocksdb_cloud_aws_secret_access_key}/g" ./bootstrap_cnf/*_eloqdss_eloqstore.cnf
-    sed -i "s/rocksdb_cloud_bucket_name.*=.\+/rocksdb_cloud_bucket_name=${rocksdb_cloud_bucket_name}/g" ./bootstrap_cnf/*_eloqdss_eloqstore.cnf
-    sed -i "s/txlog_rocksdb_cloud_bucket_name.*=.\+/txlog_rocksdb_cloud_bucket_name=${rocksdb_cloud_bucket_name}/g" ./bootstrap_cnf/*_eloqdss_eloqstore.cnf
-    sed -i "s/rocksdb_cloud_object_path.*=.\+/rocksdb_cloud_object_path=${rocksdb_cloud_object_path}/g" ./bootstrap_cnf/*_eloqdss_eloqstore.cnf
-    sed -i "s/txlog_rocksdb_cloud_object_path.*=.\+/txlog_rocksdb_cloud_object_path=${txlog_rocksdb_cloud_object_path}/g" ./bootstrap_cnf/*_eloqdss_eloqstore.cnf
+    sed -i "s/rocksdb_cloud_s3_endpoint_url.*=.\+/rocksdb_cloud_s3_endpoint_url=${rocksdb_cloud_s3_endpoint_url_escape}/g" ./bootstrap_cnf/*_eloqdss_eloqstore_local.cnf
+    sed -i "s/txlog_rocksdb_cloud_s3_endpoint_url.*=.\+/txlog_rocksdb_cloud_s3_endpoint_url=${rocksdb_cloud_s3_endpoint_url_escape}/g" ./bootstrap_cnf/*_eloqdss_eloqstore_local.cnf
+    sed -i "s/aws_access_key_id.*=.\+/aws_access_key_id=${rocksdb_cloud_aws_access_key_id}/g" ./bootstrap_cnf/*_eloqdss_eloqstore_local.cnf
+    sed -i "s/aws_secret_key.*=.\+/aws_secret_key=${rocksdb_cloud_aws_secret_access_key}/g" ./bootstrap_cnf/*_eloqdss_eloqstore_local.cnf
+    sed -i "s/rocksdb_cloud_bucket_name.*=.\+/rocksdb_cloud_bucket_name=${rocksdb_cloud_bucket_name}/g" ./bootstrap_cnf/*_eloqdss_eloqstore_local.cnf
+    sed -i "s/txlog_rocksdb_cloud_bucket_name.*=.\+/txlog_rocksdb_cloud_bucket_name=${rocksdb_cloud_bucket_name}/g" ./bootstrap_cnf/*_eloqdss_eloqstore_local.cnf
+    sed -i "s/rocksdb_cloud_object_path.*=.\+/rocksdb_cloud_object_path=${rocksdb_cloud_object_path}/g" ./bootstrap_cnf/*_eloqdss_eloqstore_local.cnf
+    sed -i "s/txlog_rocksdb_cloud_object_path.*=.\+/txlog_rocksdb_cloud_object_path=${txlog_rocksdb_cloud_object_path}/g" ./bootstrap_cnf/*_eloqdss_eloqstore_local.cnf
+
+    sed -i "s/rocksdb_cloud_s3_endpoint_url.*=.\+/rocksdb_cloud_s3_endpoint_url=${rocksdb_cloud_s3_endpoint_url_escape}/g" ./bootstrap_cnf/*_eloqdss_eloqstore_cloud.cnf
+    sed -i "s/txlog_rocksdb_cloud_s3_endpoint_url.*=.\+/txlog_rocksdb_cloud_s3_endpoint_url=${rocksdb_cloud_s3_endpoint_url_escape}/g" ./bootstrap_cnf/*_eloqdss_eloqstore_cloud.cnf
+    sed -i "s/aws_access_key_id.*=.\+/aws_access_key_id=${rocksdb_cloud_aws_access_key_id}/g" ./bootstrap_cnf/*_eloqdss_eloqstore_cloud.cnf
+    sed -i "s/aws_secret_key.*=.\+/aws_secret_key=${rocksdb_cloud_aws_secret_access_key}/g" ./bootstrap_cnf/*_eloqdss_eloqstore_cloud.cnf
+    sed -i "s/rocksdb_cloud_bucket_name.*=.\+/rocksdb_cloud_bucket_name=${rocksdb_cloud_bucket_name}/g" ./bootstrap_cnf/*_eloqdss_eloqstore_cloud.cnf
+    sed -i "s/txlog_rocksdb_cloud_bucket_name.*=.\+/txlog_rocksdb_cloud_bucket_name=${rocksdb_cloud_bucket_name}/g" ./bootstrap_cnf/*_eloqdss_eloqstore_cloud.cnf
+    sed -i "s/rocksdb_cloud_object_path.*=.\+/rocksdb_cloud_object_path=${rocksdb_cloud_object_path}/g" ./bootstrap_cnf/*_eloqdss_eloqstore_cloud.cnf
+    sed -i "s/txlog_rocksdb_cloud_object_path.*=.\+/txlog_rocksdb_cloud_object_path=${txlog_rocksdb_cloud_object_path}/g" ./bootstrap_cnf/*_eloqdss_eloqstore_cloud.cnf
 
     sed -i "s/rocksdb_cloud_s3_endpoint_url.*=.\+/rocksdb_cloud_s3_endpoint_url=${rocksdb_cloud_s3_endpoint_url_escape}/g" ./bootstrap_cnf/eloqdss_server.cnf
     sed -i "s/txlog_rocksdb_cloud_s3_endpoint_url.*=.\+/txlog_rocksdb_cloud_s3_endpoint_url=${rocksdb_cloud_s3_endpoint_url_escape}/g" ./bootstrap_cnf/eloqdss_server.cnf
@@ -2301,32 +2389,38 @@ function run_eloq_test() {
     sed -i "s/rocksdb_cloud_bucket_name.*=.\+/rocksdb_cloud_bucket_name=${rocksdb_cloud_bucket_name}/g" ./bootstrap_cnf/eloqdss_server.cnf
     sed -i "s/txlog_rocksdb_cloud_bucket_name.*=.\+/txlog_rocksdb_cloud_bucket_name=${rocksdb_cloud_bucket_name}/g" ./bootstrap_cnf/eloqdss_server.cnf
     echo "rocksdb_cloud_s3_endpoint_url: ${rocksdb_cloud_s3_endpoint_url}"
-    
+
     # eloqstore config
     sed -i "s/eloq_store_cloud_endpoint.*=.\+/eloq_store_cloud_endpoint=${rocksdb_cloud_s3_endpoint_url_escape}/g" ./storage.cnf
     sed -i "s/eloq_store_cloud_access_key.*=.\+/eloq_store_cloud_access_key=${rocksdb_cloud_aws_access_key_id}/g" ./storage.cnf
     sed -i "s/eloq_store_cloud_secret_key.*=.\+/eloq_store_cloud_secret_key=${rocksdb_cloud_aws_secret_access_key}/g" ./storage.cnf
     sed -i "s/eloq_store_cloud_store_path.*=.\+/eloq_store_cloud_store_path=${eloqstore_cloud_store_path}/g" ./storage.cnf
-    
-    sed -i "s/eloq_store_cloud_endpoint.*=.\+/eloq_store_cloud_endpoint=${rocksdb_cloud_s3_endpoint_url_escape}/g" ./bootstrap_cnf/*_eloqdss_eloqstore.cnf
-    sed -i "s/eloq_store_cloud_access_key.*=.\+/eloq_store_cloud_access_key=${rocksdb_cloud_aws_access_key_id}/g" ./bootstrap_cnf/*_eloqdss_eloqstore.cnf
-    sed -i "s/eloq_store_cloud_secret_key.*=.\+/eloq_store_cloud_secret_key=${rocksdb_cloud_aws_secret_access_key}/g" ./bootstrap_cnf/*_eloqdss_eloqstore.cnf
-    sed -i "s/eloq_store_cloud_store_path.*=.\+/eloq_store_cloud_store_path=${eloqstore_cloud_store_path}/g" ./bootstrap_cnf/*_eloqdss_eloqstore.cnf
+
+    sed -i "s/eloq_store_cloud_endpoint.*=.\+/eloq_store_cloud_endpoint=${rocksdb_cloud_s3_endpoint_url_escape}/g" ./bootstrap_cnf/*_eloqdss_eloqstore_local.cnf
+    sed -i "s/eloq_store_cloud_access_key.*=.\+/eloq_store_cloud_access_key=${rocksdb_cloud_aws_access_key_id}/g" ./bootstrap_cnf/*_eloqdss_eloqstore_local.cnf
+    sed -i "s/eloq_store_cloud_secret_key.*=.\+/eloq_store_cloud_secret_key=${rocksdb_cloud_aws_secret_access_key}/g" ./bootstrap_cnf/*_eloqdss_eloqstore_local.cnf
+
+    sed -i "s/eloq_store_cloud_endpoint.*=.\+/eloq_store_cloud_endpoint=${rocksdb_cloud_s3_endpoint_url_escape}/g" ./bootstrap_cnf/*_eloqdss_eloqstore_cloud.cnf
+    sed -i "s/eloq_store_cloud_access_key.*=.\+/eloq_store_cloud_access_key=${rocksdb_cloud_aws_access_key_id}/g" ./bootstrap_cnf/*_eloqdss_eloqstore_cloud.cnf
+    sed -i "s/eloq_store_cloud_secret_key.*=.\+/eloq_store_cloud_secret_key=${rocksdb_cloud_aws_secret_access_key}/g" ./bootstrap_cnf/*_eloqdss_eloqstore_cloud.cnf
+    sed -i "s/eloq_store_cloud_store_path.*=.\+/eloq_store_cloud_store_path=${eloqstore_cloud_store_path}/g" ./bootstrap_cnf/*_eloqdss_eloqstore_cloud.cnf
 
     # run single/multi test
     rm -rf runtime/*
-    python3 redis_test/multi_test/smoke_test.py --dbtype redis --storage eloqdss-eloqstore --install_path ${eloqkv_install_path} --bootstrap true
+    python3 redis_test/multi_test/smoke_test.py --dbtype redis --storage eloqdss-eloqstore-cloud --install_path ${eloqkv_install_path} --bootstrap true
 
-    python3 redis_test/multi_test/cluster_rolling_upgrade.py --dbtype redis --storage eloqdss-eloqstore --install_path ${eloqkv_install_path} --bootstrap true
-    python3 redis_test/multi_test/cluster_scale_test.py --dbtype redis --storage eloqdss-eloqstore --install_path ${eloqkv_install_path} --bootstrap true
+    python3 redis_test/multi_test/cluster_rolling_upgrade.py --dbtype redis --storage eloqdss-eloqstore-cloud --install_path ${eloqkv_install_path} --bootstrap true
+    python3 redis_test/multi_test/cluster_scale_test.py --dbtype redis --storage eloqdss-eloqstore-cloud --install_path ${eloqkv_install_path} --bootstrap true
 
     # run log service scale test
     rm -rf runtime/*
-    python3 redis_test/log_service_test/log_service_scale_test.py --dbtype redis --storage eloqdss-eloqstore --install_path ${eloqkv_install_path}
+    python3 redis_test/log_service_test/log_service_scale_test.py --dbtype redis --storage eloqdss-eloqstore-cloud --install_path ${eloqkv_install_path}
 
     # run standby test
     rm -rf runtime/*
-    python3 run_tests.py --dbtype redis --group standby --storage eloqdss-eloqstore --install_path ${eloqkv_install_path} --bootstrap true
+    python3 run_tests.py --dbtype redis --group standby --storage eloqdss-eloqstore-local --install_path ${eloqkv_install_path} --bootstrap true
+    rm -rf runtime/*
+    python3 run_tests.py --dbtype redis --group standby --storage eloqdss-eloqstore-cloud --install_path ${eloqkv_install_path} --bootstrap true
     rm -rf runtime/*
     # rm -rf runtime/*
     # python3 redis_test/standby_test/test_with_kv.py --dbtype redis --storage eloqdss-eloqstore --install_path ${eloqkv_install_path}
