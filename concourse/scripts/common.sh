@@ -2277,7 +2277,7 @@ function run_eloq_test() {
     local rocksdb_cloud_object_path=${ROCKSDB_CLOUD_OBJECT_PATH}
     local txlog_rocksdb_cloud_object_path=${TXLOG_ROCKSDB_CLOUD_OBJECT_PATH}
     local eloqstore_cloud_store_path=${ELOQSTORE_BUCKET_NAME}
-    
+
     # rocksdb cloud s3 config for txlog
     echo "rocksdb_cloud_s3_endpoint_url: ${rocksdb_cloud_s3_endpoint_url}"
     sed -i "s/rocksdb_cloud_s3_endpoint_url.*=.\+/rocksdb_cloud_s3_endpoint_url=${rocksdb_cloud_s3_endpoint_url_escape}/g" ./storage.cnf
@@ -2301,13 +2301,13 @@ function run_eloq_test() {
     sed -i "s/rocksdb_cloud_bucket_name.*=.\+/rocksdb_cloud_bucket_name=${rocksdb_cloud_bucket_name}/g" ./bootstrap_cnf/eloqdss_server.cnf
     sed -i "s/txlog_rocksdb_cloud_bucket_name.*=.\+/txlog_rocksdb_cloud_bucket_name=${rocksdb_cloud_bucket_name}/g" ./bootstrap_cnf/eloqdss_server.cnf
     echo "rocksdb_cloud_s3_endpoint_url: ${rocksdb_cloud_s3_endpoint_url}"
-    
+
     # eloqstore config
     sed -i "s/eloq_store_cloud_endpoint.*=.\+/eloq_store_cloud_endpoint=${rocksdb_cloud_s3_endpoint_url_escape}/g" ./storage.cnf
     sed -i "s/eloq_store_cloud_access_key.*=.\+/eloq_store_cloud_access_key=${rocksdb_cloud_aws_access_key_id}/g" ./storage.cnf
     sed -i "s/eloq_store_cloud_secret_key.*=.\+/eloq_store_cloud_secret_key=${rocksdb_cloud_aws_secret_access_key}/g" ./storage.cnf
     sed -i "s/eloq_store_cloud_store_path.*=.\+/eloq_store_cloud_store_path=${eloqstore_cloud_store_path}/g" ./storage.cnf
-    
+
     sed -i "s/eloq_store_cloud_endpoint.*=.\+/eloq_store_cloud_endpoint=${rocksdb_cloud_s3_endpoint_url_escape}/g" ./bootstrap_cnf/*_eloqdss_eloqstore.cnf
     sed -i "s/eloq_store_cloud_access_key.*=.\+/eloq_store_cloud_access_key=${rocksdb_cloud_aws_access_key_id}/g" ./bootstrap_cnf/*_eloqdss_eloqstore.cnf
     sed -i "s/eloq_store_cloud_secret_key.*=.\+/eloq_store_cloud_secret_key=${rocksdb_cloud_aws_secret_access_key}/g" ./bootstrap_cnf/*_eloqdss_eloqstore.cnf
@@ -2327,7 +2327,9 @@ function run_eloq_test() {
     # run standby test
     rm -rf runtime/*
     python3 run_tests.py --dbtype redis --group standby --storage eloqdss-eloqstore --install_path ${eloqkv_install_path} --bootstrap true
+
     rm -rf runtime/*
+    python3 run_tests.py --dbtype redis --group single --storage eloqdss-eloqstore --install_path ${eloqkv_install_path}
     # rm -rf runtime/*
     # python3 redis_test/standby_test/test_with_kv.py --dbtype redis --storage eloqdss-eloqstore --install_path ${eloqkv_install_path}
     # sleep 1
