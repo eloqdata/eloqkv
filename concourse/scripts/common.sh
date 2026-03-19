@@ -2405,6 +2405,9 @@ function run_eloq_test() {
     sed -i "s/eloq_store_cloud_secret_key.*=.\+/eloq_store_cloud_secret_key=${rocksdb_cloud_aws_secret_access_key}/g" ./bootstrap_cnf/*_eloqdss_eloqstore_cloud.cnf
     sed -i "s/eloq_store_cloud_store_path.*=.\+/eloq_store_cloud_store_path=${eloqstore_cloud_store_path}/g" ./bootstrap_cnf/*_eloqdss_eloqstore_cloud.cnf
 
+    rm -rf runtime/*
+    python3 run_tests.py --dbtype redis --group single --storage eloqdss-eloqstore --install_path ${eloqkv_install_path}
+
     # run single/multi test
     rm -rf runtime/*
     python3 redis_test/multi_test/smoke_test.py --dbtype redis --storage eloqdss-eloqstore-cloud --install_path ${eloqkv_install_path} --bootstrap true
