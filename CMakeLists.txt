@@ -76,6 +76,16 @@ option(ABSL_PROPAGATE_CXX_STD "ABSL PROPAGATE CXX STD" ON)
 option(WITH_ASAN "Enable memory sanitize" OFF)
 message(NOTICE "WITH ASAN: ${WITH_ASAN}")
 
+option(WITH_BOOST_STACKTRACE "With boost stack trace." OFF)
+message("WITH_BOOST_STACKTRACE: " ${WITH_BOOST_STACKTRACE})
+
+if(WITH_BOOST_STACKTRACE)
+    # Must be visible before add_subdirectory(data_substrate), otherwise
+    # stacktrace call sites inside txservice fall back to header-only unwind
+    # path and lose source line info.
+    add_compile_definitions(BOOST_STACKTRACE_LINK)
+endif()
+
 option(WITH_LOG_SERVICE "Compile with log service or not." ON)
 message("WITH_LOG_SERVICE: " ${WITH_LOG_SERVICE})
 
@@ -436,15 +446,18 @@ if(NOT BUILD_ELOQKV_AS_LIBRARY)
     target_link_libraries(eloqkv ${DYNAMIC_LIB} ${RESELOQ_LIBRARY} ${ABSEIL} lua fpconv)
 endif()
 
-option(WITH_BOOST_STACKTRACE "With boost stack trace." OFF)
-message("WITH_BOOST_STACKTRACE: " ${WITH_BOOST_STACKTRACE})
-
 if(WITH_BOOST_STACKTRACE)
-    target_compile_options(eloqkv PRIVATE -fno-pie)
-    target_link_options(eloqkv PRIVATE -no-pie)
-    find_library(BOOST_STACKTRACE_LIB boost_stacktrace_backtrace)
-    target_link_libraries(eloqkv ${BOOST_STACKTRACE_LIB})
-    add_compile_definitions(BOOST_STACKTRACE_LINK)
+    find_library(BOOST_STACKTRACE_LIB boost_stacktrace_backtrace REQUIRED)
+
+    if(TARGET eloqkv)
+        target_compile_options(eloqkv PRIVATE -fno-pie)
+        target_link_options(eloqkv PRIVATE -no-pie)
+        target_link_libraries(eloqkv ${BOOST_STACKTRACE_LIB})
+    endif()
+
+    if(TARGET eloqkv_lib)
+        target_link_libraries(eloqkv_lib ${BOOST_STACKTRACE_LIB})
+    endif()
 endif()
 
 if(WITH_DATA_STORE STREQUAL "ROCKSDB" AND NOT BUILD_ELOQKV_AS_LIBRARY)
