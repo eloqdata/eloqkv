@@ -464,6 +464,11 @@ bool RedisServiceImpl::Init(brpc::Server &brpc_server)
                 ? FLAGS_tls_key_file
                 : config_reader.GetString("local", "tls_key_file", "");
 
+        GFLAGS_NAMESPACE::SetCommandLineOption("enable_io_uring", "false");
+        GFLAGS_NAMESPACE::SetCommandLineOption("use_io_uring", "false");
+        LOG(WARNING) << "TLS is enabled; forcing enable_io_uring=false "
+                        "because brpc SSL does not support io_uring.";
+
         // Validate that both certificate and key files are specified (required
         // when TLS is enabled)
         if (tls_cert_file_.empty() || tls_key_file_.empty())

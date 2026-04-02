@@ -219,9 +219,18 @@ public:
                            RedisCommandHandler *handler);
 
     // TLS configuration accessors
-    bool IsTlsEnabled() const { return enable_tls_; }
-    const std::string& GetTlsCertFile() const { return tls_cert_file_; }
-    const std::string& GetTlsKeyFile() const { return tls_key_file_; }
+    bool IsTlsEnabled() const
+    {
+        return enable_tls_;
+    }
+    const std::string &GetTlsCertFile() const
+    {
+        return tls_cert_file_;
+    }
+    const std::string &GetTlsKeyFile() const
+    {
+        return tls_key_file_;
+    }
 
     // This function should not be touched by user and used by brpc deverloper
     // only.
