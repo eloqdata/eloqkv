@@ -119,7 +119,7 @@ start_server {tags {"dump"}} {
         r del ttl_set
         r restore ttl_set 2569591501 $encoded
         set ttl [r pttl ttl_set]
-        assert_range $ttl (2569591501-3000) 2569591501
+        assert_range $ttl [expr {2569591501-3000}] 2569591501
         assert_equal {m1 m2 m3} [lsort [r smembers ttl_set]]
     }
 
