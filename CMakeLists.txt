@@ -358,6 +358,7 @@ SET(RESELOQ_RESOURCES
     src/redis_string_match.cpp
     src/redis_connection_context.cpp
     src/redis_stats.cpp
+    src/redis_rdb_restore.cpp
 )
 
 if(VECTOR_INDEX_ENABLED)
