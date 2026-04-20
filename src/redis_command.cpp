@@ -62,6 +62,7 @@
 #include "redis_hash_object.h"
 #include "redis_list_object.h"
 #include "redis_object.h"
+#include "redis_rdb_restore.h"
 #include "redis_service.h"
 #include "redis_set_object.h"
 #include "redis_string_match.h"
@@ -15581,6 +15582,12 @@ std::unique_ptr<txservice::TxRecord> RestoreCommand::CreateObject(
 txservice::ExecResult RestoreCommand::ExecuteOn(
     const txservice::TxObject &object)
 {
+    if (!payload_valid_)
+    {
+        result_.err_code_ = RD_ERR_SYNTAX;
+        return ExecResult::Fail;
+    }
+
     result_.err_code_ = RD_OK;
     // If the RESTORE command does not modify the object, it won't proceed to
     // ExecuteOn.
@@ -15700,6 +15707,13 @@ void RestoreCommand::Serialize(std::string &str) const
     str.append(reinterpret_cast<const char *>(&idle_time_sec_),
                sizeof(uint64_t));
     str.append(reinterpret_cast<const char *>(&frequency_), sizeof(uint64_t));
+
+    uint8_t payload_valid = static_cast<uint8_t>(payload_valid_);
+    str.append(reinterpret_cast<const char *>(&payload_valid), sizeof(uint8_t));
+
+    uint32_t err_len = payload_error_message_.size();
+    str.append(reinterpret_cast<const char *>(&err_len), sizeof(uint32_t));
+    str.append(payload_error_message_.data(), payload_error_message_.size());
 }
 
 void RestoreCommand::Deserialize(std::string_view cmd_image)
@@ -15721,6 +15735,14 @@ void RestoreCommand::Deserialize(std::string_view cmd_image)
 
     frequency_ = *reinterpret_cast<const uint64_t *>(ptr);
     ptr += sizeof(uint64_t);
+
+    payload_valid_ = static_cast<bool>(*reinterpret_cast<const uint8_t *>(ptr));
+    ptr += sizeof(uint8_t);
+
+    uint32_t err_len = *reinterpret_cast<const uint32_t *>(ptr);
+    ptr += sizeof(uint32_t);
+    payload_error_message_ = std::string(ptr, err_len);
+    ptr += err_len;
 }
 
 void RestoreCommand::OutputResult(OutputHandler *reply) const
@@ -15729,31 +15751,90 @@ void RestoreCommand::OutputResult(OutputHandler *reply) const
     {
         reply->OnStatus(redis_get_error_messages(RD_OK));
     }
+    else if (!payload_valid_ && result_.err_code_ != RD_ERR_BUSY_KEY_EXIST &&
+             !payload_error_message_.empty())
+    {
+        reply->OnError(payload_error_message_);
+    }
     else
     {
         reply->OnError(redis_get_error_messages(result_.err_code_));
     }
 }
 
-bool RestoreCommand::VerifyDumpPayload(std::string_view dump_payload)
+bool RestoreCommand::VerifyDumpPayload(std::string_view dump_payload,
+                                       RestorePayloadFormat *payload_format)
 {
     if (dump_payload.size() < 10)
     {
+        LOG(WARNING) << "RESTORE payload too short, size="
+                     << dump_payload.size();
         return false;
     }
 
-    uint16_t dump_version = *(reinterpret_cast<const uint16_t *>(
-        dump_payload.data() + dump_payload.size() - 10));
-    if (dump_version > DumpCommand::dump_version_)
+    const unsigned char *payload =
+        reinterpret_cast<const unsigned char *>(dump_payload.data());
+    const unsigned char *footer = payload + dump_payload.size() - 10;
+    uint16_t dump_version = static_cast<uint16_t>(footer[0]) |
+                            (static_cast<uint16_t>(footer[1]) << 8);
+
+    if (dump_version == DumpCommand::dump_version_)
     {
-        return false;
+        if (payload_format != nullptr)
+        {
+            *payload_format = RestorePayloadFormat::EloqKV;
+        }
+
+        uint64_t crc64_val = 0;
+        std::memcpy(&crc64_val,
+                    dump_payload.data() + dump_payload.size() - 8,
+                    sizeof(crc64_val));
+        uint64_t actual_crc64 =
+            crc64speed_big(0, dump_payload.data(), dump_payload.size() - 8);
+        if (crc64_val != actual_crc64)
+        {
+            LOG(WARNING) << "RESTORE payload checksum mismatch, size="
+                         << dump_payload.size() << ", version=" << dump_version
+                         << ", expected_crc=" << std::hex << crc64_val
+                         << ", actual_crc=" << actual_crc64 << std::dec;
+            return false;
+        }
+
+        DLOG(INFO) << "RESTORE payload verified, size=" << dump_payload.size()
+                   << ", version=" << dump_version;
+        return true;
     }
 
-    uint64_t crc64_val = *(reinterpret_cast<const uint64_t *>(
-        dump_payload.data() + dump_payload.size() - 8));
+    if (dump_version == 4 || dump_version == 10)
+    {
+        if (payload_format != nullptr)
+        {
+            *payload_format = RestorePayloadFormat::RedisRdb;
+        }
 
-    return crc64_val ==
-           crc64speed_big(0, dump_payload.data(), dump_payload.size() - 8);
+        uint64_t crc = crc64(0, payload, dump_payload.size() - 8);
+#if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+        crc = __builtin_bswap64(crc);
+#endif
+        if (std::memcmp(&crc, footer + 2, sizeof(crc)) != 0)
+        {
+            uint64_t expected_crc = 0;
+            std::memcpy(&expected_crc, footer + 2, sizeof(expected_crc));
+            LOG(WARNING) << "RESTORE payload checksum mismatch, size="
+                         << dump_payload.size() << ", version=" << dump_version
+                         << ", expected_crc=" << std::hex << expected_crc
+                         << ", actual_crc=" << crc << std::dec;
+            return false;
+        }
+
+        DLOG(INFO) << "RESTORE redis payload verified, size="
+                   << dump_payload.size() << ", version=" << dump_version;
+        return true;
+    }
+
+    LOG(WARNING) << "RESTORE payload rejected by version, size="
+                 << dump_payload.size() << ", version=" << dump_version;
+    return false;
 }
 
 #ifdef WITH_FAULT_INJECT
@@ -19580,11 +19661,9 @@ std::tuple<bool, EloqKey, RestoreCommand> ParseRestoreCommand(
         return {false, EloqKey(), RestoreCommand()};
     }
 
-    if (!RestoreCommand::VerifyDumpPayload(args[3]))
-    {
-        output->OnError("DUMP payload version or checksum are wrong");
-        return {false, EloqKey(), RestoreCommand()};
-    }
+    RestorePayloadFormat payload_format = RestorePayloadFormat::EloqKV;
+    bool payload_valid =
+        RestoreCommand::VerifyDumpPayload(args[3], &payload_format);
 
     if (ttl && !absttl)
     {
@@ -19596,13 +19675,52 @@ std::tuple<bool, EloqKey, RestoreCommand> ParseRestoreCommand(
     // ExpireCommand::expire_ts_) GetTTL() returns milliseconds, so we keep
     // expire_when_ in milliseconds
     uint64_t expire_when = (ttl > 0) ? ttl : UINT64_MAX;
+    size_t object_payload_size =
+        args[3].size() - sizeof(DumpCommand::dump_version_) - sizeof(uint64_t);
+
+    if (!payload_valid)
+    {
+        if (replace)
+        {
+            output->OnError("DUMP payload version or checksum are wrong");
+            return {false, EloqKey(), RestoreCommand()};
+        }
+
+        RestoreCommand cmd("", 0, expire_when, replace);
+        cmd.payload_valid_ = false;
+        cmd.payload_error_message_ =
+            "DUMP payload version or checksum are wrong";
+        return {true, EloqKey(args[1]), std::move(cmd)};
+    }
+
+    if (payload_format == RestorePayloadFormat::EloqKV)
+    {
+        return {true,
+                EloqKey(args[1]),
+                RestoreCommand(
+                    args[3].data(), object_payload_size, expire_when, replace)};
+    }
+
+    std::string converted_payload;
+    if (!ConvertRedisDumpPayloadToEloqPayload(
+            std::string_view(args[3].data(), object_payload_size),
+            converted_payload))
+    {
+        if (replace)
+        {
+            output->OnError("DUMP payload format is not supported");
+            return {false, EloqKey(), RestoreCommand()};
+        }
+
+        RestoreCommand cmd("", 0, expire_when, replace);
+        cmd.payload_valid_ = false;
+        cmd.payload_error_message_ = "DUMP payload format is not supported";
+        return {true, EloqKey(args[1]), std::move(cmd)};
+    }
+
     return {true,
             EloqKey(args[1]),
-            RestoreCommand(args[3].data(),
-                           args[3].size() - sizeof(DumpCommand::dump_version_) -
-                               sizeof(uint64_t),
-                           expire_when,
-                           replace)};
+            RestoreCommand(std::move(converted_payload), expire_when, replace)};
 }
 
 bool ParseFlushDBCommand(const std::vector<std::string_view> &args,

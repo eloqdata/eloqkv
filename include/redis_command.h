@@ -45,6 +45,7 @@
 #include "output_handler.h"
 #include "redis_errors.h"
 #include "redis_object.h"
+#include "redis_rdb_restore.h"
 #include "redis_replier.h"
 #include "tx_command.h"
 #include "tx_key.h"
@@ -7225,6 +7226,11 @@ struct RestoreCommand : public RedisCommand
     {
     }
 
+    RestoreCommand(std::string value, uint64_t expire_when, bool replace)
+        : value_(std::move(value)), expire_when_(expire_when), replace_(replace)
+    {
+    }
+
     RestoreCommand(RestoreCommand &&rhs) = default;
     RestoreCommand(const RestoreCommand &rhs) = default;
     RestoreCommand &operator=(RestoreCommand &&rhs) = delete;
@@ -7284,7 +7290,8 @@ struct RestoreCommand : public RedisCommand
 
     void OutputResult(OutputHandler *reply) const override;
 
-    static bool VerifyDumpPayload(std::string_view dump_payload);
+    static bool VerifyDumpPayload(std::string_view dump_payload,
+                                  RestorePayloadFormat *payload_format);
 
     std::string value_;
     uint64_t expire_when_{0};
@@ -7295,6 +7302,8 @@ struct RestoreCommand : public RedisCommand
     bool replace_{false};
     uint64_t idle_time_sec_{0};  // unsupport
     uint64_t frequency_{0};      // unsupport
+    bool payload_valid_{true};
+    std::string payload_error_message_{};
 
     // Set result_ defaults to RD_OK, instead of RD_NIl. When replace_ is not
     // set and old key exists, ExecuteOn won't be called.
