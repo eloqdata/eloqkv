@@ -147,6 +147,8 @@ public:
     void Deserialize(const char *buf, size_t &offset) override
     {
         size_t init_off = offset;
+        hash_map_.clear();
+        serialized_length_ = 0;
         // Check the object type.
         RedisObjectType obj_type =
             static_cast<RedisObjectType>(*(buf + offset));
@@ -363,6 +365,8 @@ public:
     void Deserialize(const char *buf, size_t &offset) override
     {
         size_t init_off = offset;
+        hash_map_.clear();
+        serialized_length_ = 0;
         // Check the object type.
         RedisObjectType obj_type =
             static_cast<RedisObjectType>(*(buf + offset));

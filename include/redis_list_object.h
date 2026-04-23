@@ -118,6 +118,7 @@ public:
 
     void Deserialize(const char *buf, size_t &offset) override
     {
+        list_object_.clear();
         serialized_length_ = 1 + sizeof(uint32_t);
         // Check the object type.
         RedisObjectType obj_type =
@@ -341,6 +342,7 @@ struct RedisListTTLObject : public RedisListObject
 
     void Deserialize(const char *buf, size_t &offset) override
     {
+        list_object_.clear();
         serialized_length_ = 1 + sizeof(uint32_t);
         // Check the object type.
         RedisObjectType obj_type =

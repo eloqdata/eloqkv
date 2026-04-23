@@ -490,6 +490,8 @@ void RedisHashSetObject::Serialize(std::string &str) const
 void RedisHashSetObject::Deserialize(const char *buf, size_t &offset)
 {
     size_t init_off = offset;
+    hash_set_.clear();
+    serialized_length_ = 0;
     // Check the object type.
     RedisObjectType obj_type = static_cast<RedisObjectType>(*(buf + offset));
     assert(obj_type == RedisObjectType::Set);
@@ -498,7 +500,6 @@ void RedisHashSetObject::Deserialize(const char *buf, size_t &offset)
     (void) obj_type;
     offset += 1;
 
-    assert(hash_set_.size() == 0);
     uint32_t ele_num = *reinterpret_cast<const uint32_t *>(buf + offset);
     offset += sizeof(uint32_t);
 
@@ -607,6 +608,8 @@ void RedisHashSetTTLObject::Serialize(std::string &str) const
 void RedisHashSetTTLObject::Deserialize(const char *buf, size_t &offset)
 {
     size_t init_off = offset;
+    hash_set_.clear();
+    serialized_length_ = 0;
     // Check the object type.
     RedisObjectType obj_type = static_cast<RedisObjectType>(*(buf + offset));
     assert(obj_type == RedisObjectType::TTLSet);
@@ -617,7 +620,6 @@ void RedisHashSetTTLObject::Deserialize(const char *buf, size_t &offset)
     ttl_ = *ttl_ptr;
     offset += sizeof(uint64_t);
 
-    assert(hash_set_.size() == 0);
     uint32_t ele_num = *reinterpret_cast<const uint32_t *>(buf + offset);
     offset += sizeof(uint32_t);
 

@@ -7201,6 +7201,19 @@ txservice::TxObject *RecoverObjectCommand::CommitOn(
     size_t offset = 0;
 
     txservice::TxObject *result_ttl_obj = obj_ptr;
+    auto recover_into = [&](auto *typed_obj)
+    {
+        using T = std::remove_pointer_t<decltype(typed_obj)>;
+        T *typed = dynamic_cast<T *>(obj);
+        if (typed == nullptr)
+        {
+            obj_ptr = static_cast<TxObject *>(CreateObject(nullptr).release());
+            typed = static_cast<T *>(obj_ptr);
+        }
+        assert(typed->HasTTL());
+        typed->Deserialize(result_.data(), offset);
+        result_ttl_obj = typed;
+    };
 
     switch (obj_type)
     {
@@ -7211,38 +7224,19 @@ txservice::TxObject *RecoverObjectCommand::CommitOn(
     }
     case RedisObjectType::String:
     {
-        RedisStringTTLObject *str_ttl_obj =
-            dynamic_cast<RedisStringTTLObject *>(obj);
-
-        if (str_ttl_obj == nullptr)
-        {
-            // Create Object directly since the old object here could be of any
-            // type(list, zset, string without ttl, ...)
-            obj_ptr = static_cast<TxObject *>(CreateObject(nullptr).release());
-            str_ttl_obj = static_cast<RedisStringTTLObject *>(obj_ptr);
-        }
-
-        assert(str_ttl_obj->HasTTL());
-        str_ttl_obj->Deserialize(result_.data(), offset);
-        result_ttl_obj = str_ttl_obj;
+        recover_into(static_cast<RedisStringTTLObject *>(nullptr));
         DLOG(INFO) << "RecoverObjectCommand::CommitOn ttl string";
         break;
     }
     case RedisObjectType::List:
     {
-        RedisListTTLObject *list_obj = static_cast<RedisListTTLObject *>(obj);
-        assert(list_obj->HasTTL());
-        list_obj->Deserialize(result_.data(), offset);
-        result_ttl_obj = list_obj;
+        recover_into(static_cast<RedisListTTLObject *>(nullptr));
         DLOG(INFO) << "RecoverObjectCommand::CommitOn ttl list";
         break;
     }
     case RedisObjectType::Hash:
     {
-        RedisHashTTLObject *hash_obj = static_cast<RedisHashTTLObject *>(obj);
-        assert(hash_obj->HasTTL());
-        hash_obj->Deserialize(result_.data(), offset);
-        result_ttl_obj = hash_obj;
+        recover_into(static_cast<RedisHashTTLObject *>(nullptr));
         DLOG(INFO) << "RecoverObjectCommand::CommitOn ttl hash";
         break;
     }
@@ -7253,20 +7247,13 @@ txservice::TxObject *RecoverObjectCommand::CommitOn(
     }
     case RedisObjectType::Zset:
     {
-        RedisZsetTTLObject *zset_obj = static_cast<RedisZsetTTLObject *>(obj);
-        assert(zset_obj->HasTTL());
-        zset_obj->Deserialize(result_.data(), offset);
-        result_ttl_obj = zset_obj;
+        recover_into(static_cast<RedisZsetTTLObject *>(nullptr));
         DLOG(INFO) << "RecoverObjectCommand::CommitOn ttl zset";
         break;
     }
     case RedisObjectType::Set:
     {
-        RedisHashSetTTLObject *hashset_obj =
-            static_cast<RedisHashSetTTLObject *>(obj);
-        assert(hashset_obj->HasTTL());
-        hashset_obj->Deserialize(result_.data(), offset);
-        result_ttl_obj = hashset_obj;
+        recover_into(static_cast<RedisHashSetTTLObject *>(nullptr));
         DLOG(INFO) << "RecoverObjectCommand::CommitOn ttl set";
         break;
     }
