@@ -7231,7 +7231,8 @@ txservice::TxObject *RecoverObjectCommand::CommitOn(
     case RedisObjectType::List:
     {
         obj_ptr = static_cast<TxObject *>(CreateObject(nullptr).release());
-        RedisListTTLObject *list_obj = static_cast<RedisListTTLObject *>(obj_ptr);
+        RedisListTTLObject *list_obj =
+            static_cast<RedisListTTLObject *>(obj_ptr);
 
         assert(list_obj->HasTTL());
         list_obj->Deserialize(result_.data(), offset);
@@ -7242,7 +7243,8 @@ txservice::TxObject *RecoverObjectCommand::CommitOn(
     case RedisObjectType::Hash:
     {
         obj_ptr = static_cast<TxObject *>(CreateObject(nullptr).release());
-        RedisHashTTLObject *hash_obj = static_cast<RedisHashTTLObject *>(obj_ptr);
+        RedisHashTTLObject *hash_obj =
+            static_cast<RedisHashTTLObject *>(obj_ptr);
 
         assert(hash_obj->HasTTL());
         hash_obj->Deserialize(result_.data(), offset);
@@ -7258,7 +7260,8 @@ txservice::TxObject *RecoverObjectCommand::CommitOn(
     case RedisObjectType::Zset:
     {
         obj_ptr = static_cast<TxObject *>(CreateObject(nullptr).release());
-        RedisZsetTTLObject *zset_obj = static_cast<RedisZsetTTLObject *>(obj_ptr);
+        RedisZsetTTLObject *zset_obj =
+            static_cast<RedisZsetTTLObject *>(obj_ptr);
 
         assert(zset_obj->HasTTL());
         zset_obj->Deserialize(result_.data(), offset);
