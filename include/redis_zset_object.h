@@ -126,6 +126,8 @@ public:
 
     void Deserialize(const char *buf, size_t &offset) override
     {
+        z_ordered_set_.clear();
+        z_hash_map_.clear();
         serialized_length_ = 1 + sizeof(uint32_t);
         // Check the object type.
         RedisObjectType obj_type =
@@ -465,6 +467,8 @@ public:
 
     void Deserialize(const char *buf, size_t &offset) override
     {
+        z_ordered_set_.clear();
+        z_hash_map_.clear();
         serialized_length_ = 1 + sizeof(uint32_t);
         // Check the object type.
         RedisObjectType obj_type =
