@@ -318,6 +318,8 @@ enum struct RedisCommandType
     ELOQVEC_DELETE,
     ELOQVEC_SEARCH,
 #endif
+
+    UNLINK,
 };
 
 enum RedisResultType
@@ -3099,6 +3101,10 @@ struct TypeCommand : public RedisCommand
 
 struct DelCommand : public RedisCommand
 {
+    explicit DelCommand(bool lazy_delete = false) : lazy_delete_(lazy_delete)
+    {
+    }
+
     std::unique_ptr<TxCommand> Clone() override
     {
         return std::make_unique<DelCommand>(*this);
@@ -3123,6 +3129,11 @@ struct DelCommand : public RedisCommand
     bool IsDelete() const override
     {
         return true;
+    }
+
+    bool IsLazyDelete() const override
+    {
+        return lazy_delete_;
     }
 
     bool ProceedOnNonExistentObject() const override
@@ -3157,6 +3168,7 @@ struct DelCommand : public RedisCommand
     void OutputResult(OutputHandler *reply) const override;
 
     RedisIntResult result_;
+    bool lazy_delete_{false};
 };
 
 struct ExistsCommand : public RedisCommand

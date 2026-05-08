@@ -1467,6 +1467,7 @@ void RedisServiceImpl::AddHandlers()
 
     auto &del_hd = hd_vec_.emplace_back(std::make_unique<DelHandler>(this));
     AddCommandHandler("del", del_hd.get());
+    AddCommandHandler("unlink", del_hd.get());
 
     auto &exists_hd =
         hd_vec_.emplace_back(std::make_unique<ExistsHandler>(this));
@@ -3589,6 +3590,7 @@ void RedisServiceImpl::GenericCommand(RedisConnectionContext *ctx,
         break;
     }
     case RedisCommandType::DEL:
+    case RedisCommandType::UNLINK:
     {
         auto [success, cmd] = ParseDelCommand(cmd_arg_list, output);
         if (success)

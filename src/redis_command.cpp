@@ -146,6 +146,7 @@ const std::vector<std::pair<const char *, RedisCommandType>> command_types{{
     {"decrby", RedisCommandType::DECRBY},
     {"type", RedisCommandType::TYPE},
     {"del", RedisCommandType::DEL},
+    {"unlink", RedisCommandType::UNLINK},
     {"exists", RedisCommandType::EXISTS},
     {"zadd", RedisCommandType::ZADD},
     {"zcount", RedisCommandType::ZCOUNT},
@@ -5614,7 +5615,8 @@ txservice::TxObject *DelCommand::CommitOn(txservice::TxObject *obj_ptr)
 
 void DelCommand::Serialize(std::string &str) const
 {
-    uint8_t cmd_type = static_cast<uint8_t>(RedisCommandType::DEL);
+    uint8_t cmd_type = static_cast<uint8_t>(
+        lazy_delete_ ? RedisCommandType::UNLINK : RedisCommandType::DEL);
     str.append(reinterpret_cast<const char *>(&cmd_type), sizeof(uint8_t));
 }
 
@@ -8680,6 +8682,7 @@ ParseMultiCommand(RedisServiceImpl *redis_impl,
                     txm)};
     }
     case RedisCommandType::DEL:
+    case RedisCommandType::UNLINK:
     {
         auto [success, cmd] = ParseDelCommand(args, output);
         if (!success)
@@ -17194,10 +17197,14 @@ std::tuple<bool, ZInterCardCommand> ParseZInterCardCommand(
 std::pair<bool, MDelCommand> ParseDelCommand(
     const std::vector<std::string_view> &args, OutputHandler *output)
 {
-    assert(args[0] == "del");
+    assert(args[0] == "del" || args[0] == "unlink");
+    bool lazy_delete = args[0] == "unlink";
     if (args.size() < 2)
     {
-        output->OnError("ERR wrong number of arguments for 'del' command");
+        std::string error = "ERR wrong number of arguments for '";
+        error.append(args[0]);
+        error.append("' command");
+        output->OnError(error);
         return {false, MDelCommand()};
     }
 
@@ -17213,7 +17220,7 @@ std::pair<bool, MDelCommand> ParseDelCommand(
         {
             s.insert(*it);
             vct_key.emplace_back(*it);
-            vct_cmd.emplace_back();
+            vct_cmd.emplace_back(lazy_delete);
         }
     }
 

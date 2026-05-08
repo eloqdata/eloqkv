@@ -194,6 +194,9 @@ std::unique_ptr<txservice::TxCommand> RedisTableSchema::CreateTxCommand(
     case RedisCommandType::DEL:
         cmd = std::make_unique<DelCommand>();
         break;
+    case RedisCommandType::UNLINK:
+        cmd = std::make_unique<DelCommand>(true);
+        break;
     case RedisCommandType::ZADD:
         cmd = std::make_unique<ZAddCommand>();
         cmd->Deserialize({cmd_image.data() + sizeof(cmd_type),
