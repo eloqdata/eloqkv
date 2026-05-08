@@ -2178,6 +2178,13 @@ brpc::RedisCommandHandlerResult DelHandler::Run(
     bool)
 {
     assert(!args.empty() && (args[0] == "del" || args[0] == "unlink"));
+    if (args.empty())
+    {
+        output->SetError(
+            "ERR wrong number of arguments for 'del|unlink' command");
+        return brpc::REDIS_CMD_HANDLED;
+    }
+
     if (args.size() < 2)
     {
         std::string error = "ERR wrong number of arguments for '";
