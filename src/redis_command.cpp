@@ -99,6 +99,9 @@ const std::vector<std::pair<const char *, RedisCommandType>> command_types{{
     {"info", RedisCommandType::INFO},
     {"cluster", RedisCommandType::CLUSTER},
     {"dbsize", RedisCommandType::DBSIZE},
+#ifdef ELOQKV_WITH_DSS_ROCKSDB_CLOUD
+    {"compact", RedisCommandType::COMPACT},
+#endif
     {"time", RedisCommandType::TIME},
     {"slowlog", RedisCommandType::SLOWLOG},
     {"select", RedisCommandType::SELECT},
@@ -1584,6 +1587,7 @@ void InfoCommand::Execute(RedisServiceImpl *redis_impl,
         //  cmds_per_sec_ = RedisStats::GetCommandsPerSecond();
     }
 
+#ifdef ELOQKV_WITH_DSS_ROCKSDB_CLOUD
     if (set_section_.size() == 0 ||
         set_section_.find("keyspace") != set_section_.end())
     {
@@ -1597,8 +1601,33 @@ void InfoCommand::Execute(RedisServiceImpl *redis_impl,
         }
 
         dbsizes_ = DBSizeCommand::FetchDBSize(std::move(table_names));
+        auto *store_hd = redis_impl->GetStoreHandler();
+        store_disk_keys_ =
+            store_hd == nullptr ? 0 : store_hd->ApproxStoreKeyCount();
+    }
+#endif
+}
+
+#ifdef ELOQKV_WITH_DSS_ROCKSDB_CLOUD
+void CompactCommand::Execute(RedisServiceImpl *redis_impl,
+                             RedisConnectionContext *ctx)
+{
+    auto *store_hd = redis_impl->GetStoreHandler();
+    success_ = store_hd != nullptr && store_hd->CompactStore();
+}
+
+void CompactCommand::OutputResult(OutputHandler *reply) const
+{
+    if (success_)
+    {
+        reply->OnStatus(redis_get_error_messages(RD_OK));
+    }
+    else
+    {
+        reply->OnError("ERR failed to compact data store");
     }
 }
+#endif
 
 void ClusterCommand::Execute(RedisServiceImpl *redis_impl,
                              RedisConnectionContext *ctx)
@@ -2282,6 +2311,7 @@ void InfoCommand::OutputResult(OutputHandler *reply) const
         }
     }
 
+#ifdef ELOQKV_WITH_DSS_ROCKSDB_CLOUD
     if (set_section_.size() == 0 ||
         set_section_.find("keyspace") != set_section_.end())
     {
@@ -2299,7 +2329,9 @@ void InfoCommand::OutputResult(OutputHandler *reply) const
                           ":keys=" + std::to_string(dbsizes_[idx]);
             }
         }
+        result += "\r\nstore:disk_keys=" + std::to_string(store_disk_keys_);
     }
+#endif
 
     result += "\r\n";
     reply->OnString(result);
@@ -8034,6 +8066,19 @@ ParseMultiCommand(RedisServiceImpl *redis_impl,
             success,
             DirectRequest(ctx, std::make_unique<InfoCommand>(std::move(cmd)))};
     }
+#ifdef ELOQKV_WITH_DSS_ROCKSDB_CLOUD
+    case RedisCommandType::COMPACT:
+    {
+        auto [success, cmd] = ParseCompactCommand(args, output);
+        if (!success)
+        {
+            return {false, DirectRequest{}};
+        }
+        return {success,
+                DirectRequest(
+                    ctx, std::make_unique<CompactCommand>(std::move(cmd)))};
+    }
+#endif
     case RedisCommandType::CLUSTER:
     {
         auto [success, cmd] = ParseClusterCommand(args, output);
@@ -10286,6 +10331,20 @@ std::tuple<bool, InfoCommand> ParseInfoCommand(
 
     return {true, InfoCommand(std::move(set_sct))};
 }
+
+#ifdef ELOQKV_WITH_DSS_ROCKSDB_CLOUD
+std::tuple<bool, CompactCommand> ParseCompactCommand(
+    const std::vector<std::string_view> &args, OutputHandler *output)
+{
+    if (args.size() != 1)
+    {
+        output->OnError("ERR wrong number of arguments for 'compact' command");
+        return {false, CompactCommand()};
+    }
+
+    return {true, CompactCommand()};
+}
+#endif
 
 std::tuple<bool, std::unique_ptr<CommandCommand>> ParseCommandCommand(
     const std::vector<std::string_view> &args, OutputHandler *output)

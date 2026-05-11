@@ -629,6 +629,28 @@ brpc::RedisCommandHandlerResult InfoCommandHandler::Run(
     return brpc::REDIS_CMD_HANDLED;
 }
 
+#ifdef ELOQKV_WITH_DSS_ROCKSDB_CLOUD
+brpc::RedisCommandHandlerResult CompactCommandHandler::Run(
+    RedisConnectionContext *ctx,
+    const std::vector<butil::StringPiece> &args,
+    brpc::RedisReply *output,
+    bool /*flush_batched*/)
+{
+    assert(args[0] == "compact");
+
+    RedisReplier reply(output);
+    std::vector<std::string_view> cmd_arg_list = Transform(args);
+
+    auto [success, cmd] = ParseCompactCommand(cmd_arg_list, &reply);
+    if (success)
+    {
+        redis_impl_->ExecuteCommand(ctx, &cmd, &reply);
+    }
+
+    return brpc::REDIS_CMD_HANDLED;
+}
+#endif
+
 brpc::RedisCommandHandlerResult FlushDBCommandHandler::Run(
     RedisConnectionContext *ctx,
     const std::vector<butil::StringPiece> &args,
