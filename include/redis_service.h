@@ -265,6 +265,11 @@ public:
                  const std::vector<butil::StringPiece> &args,
                  brpc::RedisReply *output);
 
+    store::DataStoreHandler *GetStoreHandler() const
+    {
+        return store_hd_;
+    }
+
     void GenericCommand(RedisConnectionContext *ctx,
                         TransactionExecution *txm,
                         const std::vector<std::string> &cmd_arg_list,
