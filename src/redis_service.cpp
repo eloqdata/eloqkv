@@ -1271,6 +1271,12 @@ void RedisServiceImpl::AddHandlers()
         hd_vec_.emplace_back(std::make_unique<InfoCommandHandler>(this));
     AddCommandHandler("info", info_hd.get());
 
+#ifdef ELOQKV_WITH_DSS_ROCKSDB_CLOUD
+    auto &compact_hd =
+        hd_vec_.emplace_back(std::make_unique<CompactCommandHandler>(this));
+    AddCommandHandler("compact", compact_hd.get());
+#endif
+
     auto &command_hd =
         hd_vec_.emplace_back(std::make_unique<CommandCommandHandler>(this));
     AddCommandHandler("command", command_hd.get());
