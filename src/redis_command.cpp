@@ -1624,7 +1624,9 @@ void CompactCommand::OutputResult(OutputHandler *reply) const
     }
     else
     {
-        reply->OnError("ERR failed to compact data store");
+        reply->OnError(
+            "ERR failed to schedule compact data store or compact already "
+            "running");
     }
 }
 #endif
