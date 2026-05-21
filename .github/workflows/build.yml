@@ -155,31 +155,32 @@ jobs:
 
           cp eloqkv_src/eloqkv.ini $DEST_DIR/conf/
 
-          cat > $DEST_DIR/LICENSE.txt << 'EOF'
-License
-
-Copyright (c) 2024 EloqData
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to use,
-copy, modify, and distribute the Software, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT. IN NO EVENT SHALL ELOQDATA
-OR ITS CONTRIBUTORS BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER LIABILITY, WHETHER
-IN AN ACTION OF CONTRACT, TORT, OR OTHERWISE, ARISING FROM, OUT OF, OR IN
-CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-
-IMPORTANT: By using this software, you acknowledge that EloqData shall not be
-liable for any loss or damage, including but not limited to loss of data, arising
-from the use of the software. The responsibility for backing up any data, checking
-the software's appropriateness for your needs, and using it within the bounds of
-the law lies entirely with you.
-EOF
+          # Write LICENSE.txt (same content as original build_tarball.bash)
+          printf '%s\n' \
+            'License' \
+            '' \
+            'Copyright (c) 2024 EloqData' \
+            '' \
+            'Permission is hereby granted, free of charge, to any person obtaining a copy' \
+            'of this software and associated documentation files (the "Software"), to use,' \
+            'copy, modify, and distribute the Software, subject to the following conditions:' \
+            '' \
+            'The above copyright notice and this permission notice shall be included in all' \
+            'copies or substantial portions of the Software.' \
+            '' \
+            'THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR' \
+            'IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,' \
+            'FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT. IN NO EVENT SHALL ELOQDATA' \
+            'OR ITS CONTRIBUTORS BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER LIABILITY, WHETHER' \
+            'IN AN ACTION OF CONTRACT, TORT, OR OTHERWISE, ARISING FROM, OUT OF, OR IN' \
+            'CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.' \
+            '' \
+            'IMPORTANT: By using this software, you acknowledge that EloqData shall not be' \
+            'liable for any loss or damage, including but not limited to loss of data, arising' \
+            'from the use of the software. The responsibility for backing up any data, checking' \
+            'the software''s appropriateness for your needs, and using it within the bounds of' \
+            'the law lies entirely with you.' \
+            > $DEST_DIR/LICENSE.txt
 
           tar -czvf $GITHUB_WORKSPACE/eloqkv-$TAGGED-${{ inputs.data_store_id }}-${{ inputs.os_id }}-amd64.tar.gz -C $HOME EloqKV
 
