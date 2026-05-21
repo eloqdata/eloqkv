@@ -1,0 +1,139 @@
+name: Test Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      test_tag:
+        description: 'Test version (e.g. 0.0.0-test)'
+        required: true
+        default: '0.0.0-test'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: eloqdata/eloq-dev-ci-ubuntu2404:latest
+      options: --user root
+    env:
+      DATA_STORE_TYPE: ROCKSDB
+      LOG_STATE_TYPE: ROCKSDB
+      BUILD_TYPE: RelWithDebInfo
+      BUILD_LOG_SRV: "true"
+      DATA_STORE_ID: rocksdb
+      TAGGED: ${{ github.event.inputs.test_tag }}
+
+    steps:
+      # 1. SSH for private repos
+      - uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      # 2. Checkout eloqkv source
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          path: eloqkv_src
+
+      # 3. Clone private deps + symlink
+      - name: Setup private dependencies
+        run: |
+          git config --global --add safe.directory '*'
+          cd $GITHUB_WORKSPACE
+          git clone git@github.com:eloqdata/eloq_log_service.git logservice_src
+          git clone git@github.com:eloqdata/raft_host_manager.git raft_host_manager_src
+
+          ln -s $GITHUB_WORKSPACE/logservice_src \
+                $GITHUB_WORKSPACE/eloqkv_src/data_substrate/eloq_log_service
+          ln -s $GITHUB_WORKSPACE/raft_host_manager_src \
+                $GITHUB_WORKSPACE/eloqkv_src/data_substrate/tx_service/raft_host_manager
+
+      # 4. Install build deps
+      - name: Install dependencies
+        run: |
+          apt-get update -qq
+          DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+            postgresql-client rsync patchelf
+
+      # 5. Download eloqkv-cli from CDN (public, no credentials needed)
+      - name: Download eloqkv-cli
+        run: |
+          curl -fSL -o redis-cli \
+            "https://download.eloqdata.com/eloqkv/client/eloqkv-cli-7.2.5-ubuntu24-amd64"
+          chmod +x redis-cli
+
+      # 6. CMake build
+      - name: Build eloqkv
+        working-directory: ${{ github.workspace }}/eloqkv_src
+        run: |
+          mkdir -p build && cd build
+          cmake .. \
+            -DCMAKE_BUILD_TYPE=$BUILD_TYPE \
+            -DWITH_DATA_STORE=$DATA_STORE_TYPE \
+            -DWITH_LOG_SERVICE=ON \
+            -DWITH_LOG_STATE=$LOG_STATE_TYPE \
+            -DDISABLE_CKPT_REPORT=ON \
+            -DDISABLE_CODE_LINE_IN_LOG=ON \
+            -DWITH_ASAN=OFF \
+            -DOPEN_LOG_SERVICE=OFF \
+            -DFORK_HM_PROCESS=ON
+          cmake --build . -j$(nproc)
+
+      # 7. Package
+      - name: Package tarball
+        run: |
+          DEST_DIR=$HOME/EloqKV
+          mkdir -p $DEST_DIR/bin $DEST_DIR/lib $DEST_DIR/conf
+
+          # Copy binaries
+          cp eloqkv_src/build/eloqkv $DEST_DIR/bin/
+          cp eloqkv_src/build/host_manager $DEST_DIR/bin/
+          cp redis-cli $DEST_DIR/bin/eloqkv-cli
+
+          # Build log service
+          cd eloqkv_src/data_substrate/eloq_log_service
+          mkdir -p build && cd build
+          cmake .. -DCMAKE_BUILD_TYPE=$BUILD_TYPE
+          cmake --build . -j$(nproc)
+          cp launch_sv $DEST_DIR/bin/
+
+          # Copy non-system libs
+          for bin in $DEST_DIR/bin/*; do
+            ldd "$bin" 2>/dev/null | grep -oP '/[^ ]+' | while read lib; do
+              case "$lib" in
+                /lib/*|/usr/lib/*|/usr/local/lib/*) ;;
+                *) cp -n "$lib" $DEST_DIR/lib/ 2>/dev/null || true ;;
+              esac
+            done
+          done
+
+          # Fix RPATH
+          find $DEST_DIR/lib \
+            -name 'libbrpc*' -o -name 'libbraft*' \
+            -o -name 'libleveldb*' -o -name 'librocksdb*' | while read f; do
+            patchelf --set-rpath '$ORIGIN' "$f" 2>/dev/null || true
+          done
+
+          OS_ID=ubuntu24
+          ARCH=amd64
+          TX_TARBALL="eloqkv-${TAGGED}-${DATA_STORE_ID}-${OS_ID}-${ARCH}.tar.gz"
+          LOG_TARBALL="log-service-${TAGGED}-${DATA_STORE_ID}-${OS_ID}-${ARCH}.tar.gz"
+
+          tar -czvf $TX_TARBALL -C $HOME EloqKV
+          tar -czvf $LOG_TARBALL -C $HOME LogServer
+
+          echo "tx_tarball=$TX_TARBALL" >> $GITHUB_OUTPUT
+          echo "log_tarball=$LOG_TARBALL" >> $GITHUB_OUTPUT
+        id: package
+
+      # 8. Upload to draft release
+      - name: Create Release and Upload Assets
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.test_tag }}
+          name: ${{ github.event.inputs.test_tag }}
+          files: |
+            ${{ github.workspace }}/eloqkv-${{ github.event.inputs.test_tag }}-rocksdb-ubuntu24-amd64.tar.gz
+            ${{ github.workspace }}/log-service-${{ github.event.inputs.test_tag }}-rocksdb-ubuntu24-amd64.tar.gz
+          draft: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
