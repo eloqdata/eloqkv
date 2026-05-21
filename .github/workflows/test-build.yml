@@ -91,7 +91,7 @@ jobs:
           cp redis-cli $DEST_DIR/bin/eloqkv-cli
 
           for bin in $DEST_DIR/bin/*; do
-            ldd "$bin" 2>/dev/null | grep -oP '/[^ ]+' | while read lib; do
+            ldd "$bin" 2>/dev/null | awk '/=> \// {print $3}' | while read lib; do
               case "$lib" in
                 /lib/*|/usr/lib/*|/usr/local/lib/*) ;;
                 *) cp -n "$lib" $DEST_DIR/lib/ 2>/dev/null || true ;;
@@ -118,9 +118,9 @@ jobs:
           cmake .. -DCMAKE_BUILD_TYPE=$BUILD_TYPE -DWITH_LOG_STATE=${LOG_STATE_TYPE} -DDISABLE_CODE_LINE_IN_LOG=ON
           cmake --build . -j$(nproc)
 
-          mv build/launch_sv $LOG_SRC/LogServer/bin/
+          mv launch_sv $LOG_SRC/LogServer/bin/
 
-          for lib in $(ldd $LOG_SRC/LogServer/bin/launch_sv | grep -oP '/[^ ]+' || true); do
+          ldd $LOG_SRC/LogServer/bin/launch_sv 2>/dev/null | awk '/=> \// {print $3}' | while read lib; do
             case "$lib" in
               /lib/*|/usr/lib/*|/usr/local/lib/*) ;;
               *) cp -n "$lib" $LOG_SRC/LogServer/lib/ 2>/dev/null || true ;;
