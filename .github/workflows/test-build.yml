@@ -93,11 +93,14 @@ jobs:
           for bin in $DEST_DIR/bin/*; do
             ldd "$bin" 2>/dev/null | awk '/=> \// {print $3}' | while read lib; do
               case "$lib" in
-                /lib/*|/usr/lib/*|/usr/local/lib/*) ;;
+                /lib/*|/usr/lib/*) ;;
                 *) cp -n "$lib" $DEST_DIR/lib/ 2>/dev/null || true ;;
               esac
             done
           done
+
+          echo "=== libs copied ==="
+          ls -la $DEST_DIR/lib/
 
           find $DEST_DIR/lib \
             -name 'libbrpc*' -o -name 'libbraft*' \
@@ -105,7 +108,7 @@ jobs:
             patchelf --set-rpath '$ORIGIN' "$f" 2>/dev/null || true
           done
 
-          tar -czvf eloqkv-${TAGGED}-${DATA_STORE_ID}-ubuntu24-amd64.tar.gz -C $HOME EloqKV
+          tar -czvf $GITHUB_WORKSPACE/eloqkv-${TAGGED}-${DATA_STORE_ID}-ubuntu24-amd64.tar.gz -C $HOME EloqKV
 
       # 8. Build and package log-service tarball (LogServer/{bin,lib}, independent)
       - name: Package log-service tarball
@@ -122,12 +125,15 @@ jobs:
 
           ldd $LOG_SRC/LogServer/bin/launch_sv 2>/dev/null | awk '/=> \// {print $3}' | while read lib; do
             case "$lib" in
-              /lib/*|/usr/lib/*|/usr/local/lib/*) ;;
+              /lib/*|/usr/lib/*) ;;
               *) cp -n "$lib" $LOG_SRC/LogServer/lib/ 2>/dev/null || true ;;
             esac
           done
 
-          tar -czvf log-service-${TAGGED}-${DATA_STORE_ID}-ubuntu24-amd64.tar.gz -C $LOG_SRC LogServer
+          echo "=== log libs copied ==="
+          ls -la $LOG_SRC/LogServer/lib/
+
+          tar -czvf $GITHUB_WORKSPACE/log-service-${TAGGED}-${DATA_STORE_ID}-ubuntu24-amd64.tar.gz -C $LOG_SRC LogServer
 
       # 9. Upload to draft release
       - name: Create Release and Upload Assets
