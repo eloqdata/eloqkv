@@ -91,7 +91,7 @@ jobs:
           cp redis-cli $DEST_DIR/bin/eloqkv-cli
 
           for bin in $DEST_DIR/bin/*; do
-            ldd "$bin" 2>/dev/null | awk '/=> \// {print $3}' | while read lib; do
+            ldd "$bin" 2>/dev/null | awk 'NF==4 {print $(NF-1)}' | while read lib; do
               case "$lib" in
                 /lib/*|/usr/lib/*) ;;
                 *) cp -n "$lib" $DEST_DIR/lib/ 2>/dev/null || true ;;
@@ -123,7 +123,7 @@ jobs:
 
           mv launch_sv $LOG_SRC/LogServer/bin/
 
-          ldd $LOG_SRC/LogServer/bin/launch_sv 2>/dev/null | awk '/=> \// {print $3}' | while read lib; do
+          ldd $LOG_SRC/LogServer/bin/launch_sv 2>/dev/null | awk 'NF==4 {print $(NF-1)}' | while read lib; do
             case "$lib" in
               /lib/*|/usr/lib/*) ;;
               *) cp -n "$lib" $LOG_SRC/LogServer/lib/ 2>/dev/null || true ;;
