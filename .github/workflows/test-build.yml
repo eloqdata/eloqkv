@@ -80,25 +80,16 @@ jobs:
             -DFORK_HM_PROCESS=ON
           cmake --build . -j$(nproc)
 
-      # 7. Package
-      - name: Package tarball
+      # 7. Package eloqkv tarball (EloqKV/{bin,lib,conf})
+      - name: Package eloqkv tarball
         run: |
           DEST_DIR=$HOME/EloqKV
           mkdir -p $DEST_DIR/bin $DEST_DIR/lib $DEST_DIR/conf
 
-          # Copy binaries
           cp eloqkv_src/build/eloqkv $DEST_DIR/bin/
           cp eloqkv_src/build/data_substrate/host_manager $DEST_DIR/bin/
           cp redis-cli $DEST_DIR/bin/eloqkv-cli
 
-          # Build log service
-          cd eloqkv_src/data_substrate/eloq_log_service
-          mkdir -p build && cd build
-          cmake .. -DCMAKE_BUILD_TYPE=$BUILD_TYPE
-          cmake --build . -j$(nproc)
-          cp launch_sv $DEST_DIR/bin/
-
-          # Copy non-system libs
           for bin in $DEST_DIR/bin/*; do
             ldd "$bin" 2>/dev/null | grep -oP '/[^ ]+' | while read lib; do
               case "$lib" in
@@ -108,34 +99,45 @@ jobs:
             done
           done
 
-          # Fix RPATH
           find $DEST_DIR/lib \
             -name 'libbrpc*' -o -name 'libbraft*' \
             -o -name 'libleveldb*' -o -name 'librocksdb*' | while read f; do
             patchelf --set-rpath '$ORIGIN' "$f" 2>/dev/null || true
           done
 
-          OS_ID=ubuntu24
-          ARCH=amd64
-          TX_TARBALL="eloqkv-${TAGGED}-${DATA_STORE_ID}-${OS_ID}-${ARCH}.tar.gz"
-          LOG_TARBALL="log-service-${TAGGED}-${DATA_STORE_ID}-${OS_ID}-${ARCH}.tar.gz"
+          tar -czvf eloqkv-${TAGGED}-${DATA_STORE_ID}-ubuntu24-amd64.tar.gz -C $HOME EloqKV
 
-          tar -czvf $TX_TARBALL -C $HOME EloqKV
-          tar -czvf $LOG_TARBALL -C $HOME LogServer
+      # 8. Build and package log-service tarball (LogServer/{bin,lib}, independent)
+      - name: Package log-service tarball
+        run: |
+          LOG_SRC=$GITHUB_WORKSPACE/eloqkv_src/data_substrate/eloq_log_service
+          mkdir -p $LOG_SRC/LogServer/bin $LOG_SRC/LogServer/lib
 
-          echo "tx_tarball=$TX_TARBALL" >> $GITHUB_OUTPUT
-          echo "log_tarball=$LOG_TARBALL" >> $GITHUB_OUTPUT
-        id: package
+          cd $LOG_SRC
+          mkdir -p build && cd build
+          cmake .. -DCMAKE_BUILD_TYPE=$BUILD_TYPE -DWITH_LOG_STATE=${LOG_STATE_TYPE} -DDISABLE_CODE_LINE_IN_LOG=ON
+          cmake --build . -j$(nproc)
 
-      # 8. Upload to draft release
+          mv build/launch_sv $LOG_SRC/LogServer/bin/
+
+          for lib in $(ldd $LOG_SRC/LogServer/bin/launch_sv | grep -oP '/[^ ]+' || true); do
+            case "$lib" in
+              /lib/*|/usr/lib/*|/usr/local/lib/*) ;;
+              *) cp -n "$lib" $LOG_SRC/LogServer/lib/ 2>/dev/null || true ;;
+            esac
+          done
+
+          tar -czvf log-service-${TAGGED}-${DATA_STORE_ID}-ubuntu24-amd64.tar.gz -C $LOG_SRC LogServer
+
+      # 9. Upload to draft release
       - name: Create Release and Upload Assets
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.event.inputs.test_tag }}
           name: ${{ github.event.inputs.test_tag }}
           files: |
-            ${{ github.workspace }}/eloqkv-${{ github.event.inputs.test_tag }}-rocksdb-ubuntu24-amd64.tar.gz
-            ${{ github.workspace }}/log-service-${{ github.event.inputs.test_tag }}-rocksdb-ubuntu24-amd64.tar.gz
+            eloqkv-${{ github.event.inputs.test_tag }}-rocksdb-ubuntu24-amd64.tar.gz
+            log-service-${{ github.event.inputs.test_tag }}-rocksdb-ubuntu24-amd64.tar.gz
           draft: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
