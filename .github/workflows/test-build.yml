@@ -34,14 +34,10 @@ jobs:
           submodules: recursive
           path: eloqkv_src
 
-      # 3. Trust GitHub host key (container has no known_hosts)
-      - name: Add GitHub to known_hosts
-        run: |
-          mkdir -p ~/.ssh
-          ssh-keyscan github.com >> ~/.ssh/known_hosts
-
-      # 4. Clone private deps + symlink
+      # 3. Clone private deps + symlink
       - name: Setup private dependencies
+        env:
+          GIT_SSH_COMMAND: "ssh -o StrictHostKeyChecking=accept-new"
         run: |
           git config --global --add safe.directory '*'
           cd $GITHUB_WORKSPACE
