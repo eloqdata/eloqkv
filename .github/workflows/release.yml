@@ -31,49 +31,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # ---- ubuntu20.04 ----
-          - os_id: ubuntu20
-            container: eloqdata/eloq-build-ubuntu2004:latest
-            pkg: apt
-            data_store_type: ROCKSDB
-            log_state_type: ROCKSDB
-            data_store_id: rocksdb
-            build_dss: false
-            build_rocksdb_tools: true
-            cmake_extra: ''
-
-          - os_id: ubuntu20
-            container: eloqdata/eloq-build-ubuntu2004:latest
-            pkg: apt
-            data_store_type: ELOQDSS_ROCKSDB_CLOUD_S3
-            log_state_type: ROCKSDB_CLOUD_S3
-            data_store_id: rocks_s3
-            build_dss: true
-            build_rocksdb_tools: false
-            cmake_extra: '-DWITH_CLOUD_AZ_INFO=ON'
-
-          # ---- ubuntu22.04 ----
-          - os_id: ubuntu22
-            container: eloqdata/eloq-build-ubuntu2204:latest
-            pkg: apt
-            data_store_type: ROCKSDB
-            log_state_type: ROCKSDB
-            data_store_id: rocksdb
-            build_dss: false
-            build_rocksdb_tools: true
-            cmake_extra: ''
-
-          - os_id: ubuntu22
-            container: eloqdata/eloq-build-ubuntu2204:latest
-            pkg: apt
-            data_store_type: ELOQDSS_ROCKSDB_CLOUD_S3
-            log_state_type: ROCKSDB_CLOUD_S3
-            data_store_id: rocks_s3
-            build_dss: true
-            build_rocksdb_tools: false
-            cmake_extra: '-DWITH_CLOUD_AZ_INFO=ON'
-
-          # ---- ubuntu24.04 ----
+          # ---- ubuntu24.04 only ----
           - os_id: ubuntu24
             container: eloqdata/eloq-dev-ci-ubuntu2404:latest
             pkg: apt
