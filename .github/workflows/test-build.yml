@@ -88,7 +88,7 @@ jobs:
 
           # Copy binaries
           cp eloqkv_src/build/eloqkv $DEST_DIR/bin/
-          cp eloqkv_src/build/host_manager $DEST_DIR/bin/
+          cp eloqkv_src/build/data_substrate/host_manager $DEST_DIR/bin/
           cp redis-cli $DEST_DIR/bin/eloqkv-cli
 
           # Build log service
