@@ -1,40 +1,60 @@
-name: Test Build
+name: Build
 
 on:
-  workflow_dispatch:
+  workflow_call:
     inputs:
-      test_tag:
-        description: 'Test version (e.g. 0.0.0-test)'
+      tag_name:
+        type: string
         required: true
-        default: '0.0.0-test'
+      os_id:
+        type: string
+        required: true
+      package_manager:
+        type: string
+        required: true
+        description: 'apt, dnf, or yum'
+      data_store_type:
+        type: string
+        required: true
+      log_state_type:
+        type: string
+        required: true
+      data_store_id:
+        type: string
+        required: true
+      cmake_extra:
+        type: string
+        default: ''
+      build_dss:
+        type: boolean
+        default: false
+      build_rocksdb_tools:
+        type: boolean
+        default: false
+      container_image:
+        type: string
+        required: true
 
 jobs:
   build:
     runs-on: ubuntu-latest
     container:
-      image: eloqdata/eloq-dev-ci-ubuntu2404:latest
+      image: ${{ inputs.container_image }}
       options: --user root
+    name: ${{ inputs.tag_name }}-${{ inputs.data_store_id }}-${{ inputs.os_id }}
     env:
-      DATA_STORE_TYPE: ROCKSDB
-      LOG_STATE_TYPE: ROCKSDB
-      BUILD_TYPE: RelWithDebInfo
-      BUILD_LOG_SRV: "true"
-      DATA_STORE_ID: rocksdb
-      TAGGED: ${{ github.event.inputs.test_tag }}
+      TAGGED: ${{ inputs.tag_name }}
 
     steps:
-      # 1. SSH for private repos
       - uses: webfactory/ssh-agent@v0.9.0
         with:
           ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
 
-      # 2. Checkout eloqkv source
       - uses: actions/checkout@v4
         with:
           submodules: recursive
           path: eloqkv_src
 
-      # 3. Clone private deps + symlink
       - name: Setup private dependencies
         env:
           GIT_SSH_COMMAND: "ssh -o StrictHostKeyChecking=accept-new"
@@ -44,43 +64,51 @@ jobs:
           git clone --recurse-submodules git@github.com:eloqdata/eloq_log_service.git logservice_src
           git clone git@github.com:eloqdata/raft_host_manager.git raft_host_manager_src
 
+          rm -rf eloqkv_src/data_substrate/eloq_log_service
+          rm -rf eloqkv_src/data_substrate/tx_service/raft_host_manager
           ln -s $GITHUB_WORKSPACE/logservice_src \
                 $GITHUB_WORKSPACE/eloqkv_src/data_substrate/eloq_log_service
           ln -s $GITHUB_WORKSPACE/raft_host_manager_src \
                 $GITHUB_WORKSPACE/eloqkv_src/data_substrate/tx_service/raft_host_manager
 
-      # 4. Install build deps
-      - name: Install dependencies
+      - name: Install build dependencies
         run: |
-          apt-get update -qq
-          DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
-            postgresql-client rsync patchelf
+          case "${{ inputs.package_manager }}" in
+            apt)
+              apt-get update -qq
+              DEBIAN_FRONTEND=noninteractive apt-get install -y -qq postgresql-client rsync patchelf
+              ;;
+            dnf)
+              dnf install -y postgresql-devel rsync patchelf
+              ;;
+            yum)
+              yum install -y postgresql-devel rsync patchelf
+              ;;
+          esac
 
-      # 5. Download eloqkv-cli from CDN (public, no credentials needed)
       - name: Download eloqkv-cli
         run: |
           curl -fSL -o redis-cli \
-            "https://download.eloqdata.com/eloqkv/client/eloqkv-cli-7.2.5-ubuntu24-amd64"
+            "https://download.eloqdata.com/eloqkv/client/eloqkv-cli-7.2.5-${{ inputs.os_id }}-amd64"
           chmod +x redis-cli
 
-      # 6. CMake build
       - name: Build eloqkv
         working-directory: ${{ github.workspace }}/eloqkv_src
         run: |
           mkdir -p build && cd build
           cmake .. \
-            -DCMAKE_BUILD_TYPE=$BUILD_TYPE \
-            -DWITH_DATA_STORE=$DATA_STORE_TYPE \
+            -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            -DWITH_DATA_STORE=${{ inputs.data_store_type }} \
+            -DWITH_LOG_STATE=${{ inputs.log_state_type }} \
             -DWITH_LOG_SERVICE=ON \
-            -DWITH_LOG_STATE=$LOG_STATE_TYPE \
             -DDISABLE_CKPT_REPORT=ON \
             -DDISABLE_CODE_LINE_IN_LOG=ON \
             -DWITH_ASAN=OFF \
             -DOPEN_LOG_SERVICE=OFF \
-            -DFORK_HM_PROCESS=ON
+            -DFORK_HM_PROCESS=ON \
+            ${{ inputs.cmake_extra }}
           cmake --build . -j$(nproc)
 
-      # 7. Package eloqkv tarball (EloqKV/{bin,lib,conf})
       - name: Package eloqkv tarball
         run: |
           DEST_DIR=$HOME/EloqKV
@@ -90,7 +118,23 @@ jobs:
           cp eloqkv_src/build/data_substrate/host_manager $DEST_DIR/bin/
           cp redis-cli $DEST_DIR/bin/eloqkv-cli
 
+          if [[ "${{ inputs.build_rocksdb_tools }}" == "true" ]]; then
+            cp eloqkv_src/build/eloqkv_to_aof $DEST_DIR/bin/
+            cp eloqkv_src/build/eloqkv_to_rdb $DEST_DIR/bin/
+          fi
+
+          if [[ "${{ inputs.build_dss }}" == "true" ]]; then
+            DSS_SRC=$GITHUB_WORKSPACE/eloqkv_src/data_substrate/store_handler/eloq_data_store_service
+            cd $DSS_SRC
+            mkdir -p build && cd build
+            cmake .. -DCMAKE_BUILD_TYPE=RelWithDebInfo -DWITH_DATA_STORE=${{ inputs.data_store_type }}
+            cmake --build . -j$(nproc)
+            cp dss_server $DEST_DIR/bin/
+          fi
+
           # Exact copy_libraries() logic from concourse/scripts/build_tarball.bash
+          # Skips libc, libm, libpthread, libdl, librt, libanl, libresolv,
+          # libutil, libnsl, ld-linux — bundles everything else
           for bin in $DEST_DIR/bin/*; do
             ldd "$bin" 2>/dev/null | awk 'NF==4 {print $(NF-1)}' | while read lib; do
               [ -e "$lib" ] || continue
@@ -103,18 +147,16 @@ jobs:
             done
           done
 
-          echo "=== libs copied ==="
-          ls -la $DEST_DIR/lib/
-
           find $DEST_DIR/lib \
             -name 'libbrpc*' -o -name 'libbraft*' \
             -o -name 'libleveldb*' -o -name 'librocksdb*' | while read f; do
             patchelf --set-rpath '$ORIGIN' "$f" 2>/dev/null || true
           done
 
-          tar -czvf $GITHUB_WORKSPACE/eloqkv-${TAGGED}-${DATA_STORE_ID}-ubuntu24-amd64.tar.gz -C $HOME EloqKV
+          cp eloqkv_src/eloqkv.ini $DEST_DIR/conf/
 
-      # 8. Build and package log-service tarball (LogServer/{bin,lib}, independent)
+          tar -czvf $GITHUB_WORKSPACE/eloqkv-$TAGGED-${{ inputs.data_store_id }}-${{ inputs.os_id }}-amd64.tar.gz -C $HOME EloqKV
+
       - name: Package log-service tarball
         run: |
           LOG_SRC=$GITHUB_WORKSPACE/eloqkv_src/data_substrate/eloq_log_service
@@ -122,7 +164,12 @@ jobs:
 
           cd $LOG_SRC
           mkdir -p build && cd build
-          cmake .. -DCMAKE_BUILD_TYPE=$BUILD_TYPE -DWITH_LOG_STATE=${LOG_STATE_TYPE} -DDISABLE_CODE_LINE_IN_LOG=ON
+          cmake .. \
+            -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            -DWITH_LOG_STATE=${{ inputs.log_state_type }} \
+            -DWITH_ASAN=OFF \
+            -DDISABLE_CODE_LINE_IN_LOG=ON \
+            ${{ inputs.cmake_extra }}
           cmake --build . -j$(nproc)
 
           mv launch_sv $LOG_SRC/LogServer/bin/
@@ -137,20 +184,15 @@ jobs:
             esac
           done
 
-          echo "=== log libs copied ==="
-          ls -la $LOG_SRC/LogServer/lib/
+          tar -czvf $GITHUB_WORKSPACE/log-service-$TAGGED-${{ inputs.data_store_id }}-${{ inputs.os_id }}-amd64.tar.gz -C $LOG_SRC LogServer
 
-          tar -czvf $GITHUB_WORKSPACE/log-service-${TAGGED}-${DATA_STORE_ID}-ubuntu24-amd64.tar.gz -C $LOG_SRC LogServer
-
-      # 9. Upload to draft release
-      - name: Create Release and Upload Assets
+      - name: Upload assets to release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.event.inputs.test_tag }}
-          name: ${{ github.event.inputs.test_tag }}
+          tag_name: ${{ inputs.tag_name }}
+          name: ${{ inputs.tag_name }}
           files: |
-            eloqkv-${{ github.event.inputs.test_tag }}-rocksdb-ubuntu24-amd64.tar.gz
-            log-service-${{ github.event.inputs.test_tag }}-rocksdb-ubuntu24-amd64.tar.gz
-          draft: true
+            ${{ github.workspace }}/eloqkv-${{ inputs.tag_name }}-${{ inputs.data_store_id }}-${{ inputs.os_id }}-amd64.tar.gz
+            ${{ github.workspace }}/log-service-${{ inputs.tag_name }}-${{ inputs.data_store_id }}-${{ inputs.os_id }}-amd64.tar.gz
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
