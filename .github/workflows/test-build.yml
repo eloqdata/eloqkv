@@ -41,7 +41,7 @@ jobs:
         run: |
           git config --global --add safe.directory '*'
           cd $GITHUB_WORKSPACE
-          git clone git@github.com:eloqdata/eloq_log_service.git logservice_src
+          git clone --recurse-submodules git@github.com:eloqdata/eloq_log_service.git logservice_src
           git clone git@github.com:eloqdata/raft_host_manager.git raft_host_manager_src
 
           ln -s $GITHUB_WORKSPACE/logservice_src \
