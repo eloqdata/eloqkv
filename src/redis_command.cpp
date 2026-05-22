@@ -33,6 +33,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <fstream>
 #include <limits>
 #include <memory>
 #include <nlohmann/json.hpp>
@@ -1572,6 +1573,9 @@ void InfoCommand::Execute(RedisServiceImpl *redis_impl,
 
     event_dispatcher_num_ = redis_impl->GetEventDispatcherNum();
     version_ = redis_impl->GetVersion();
+    os_info_ = redis_impl->GetOsInfo();
+    executable_path_ = redis_impl->GetExecutablePath();
+    total_system_memory_kb_ = redis_impl->GetTotalSystemMemoryKB();
     max_connection_count_ = redis_impl->MaxConnectionCount();
 
     if (redis_impl->IsEnableRedisStats())
@@ -2126,36 +2130,21 @@ void PingCommand::OutputResult(OutputHandler *reply) const
     reply->OnString(reply_value_.StringView());
 }
 
-std::string ExecCommand(const std::string &cmd)
+static uint64_t GetProcessVmRSSKb(pid_t pid)
 {
-    char line[1024];
-    FILE *fp;
-    const char *sysCommand = cmd.data();
-    if ((fp = popen(sysCommand, "r")) == NULL)
-    {
-        return "Failed to execute command '" + cmd + "'!";
-    }
+    std::ifstream file("/proc/" + std::to_string(pid) + "/status");
+    std::string key;
+    uint64_t value = 0;
+    std::string unit;
 
-    std::string rst;
-    while (fgets(line, sizeof(line) - 1, fp) != NULL)
+    while (file >> key >> value >> unit)
     {
-        if (rst.size() > 0 && *rst.rbegin() != '\n')
+        if (key == "VmRSS:")
         {
-            rst += "\n";
+            return value;
         }
-
-        rst += line;
     }
-    pclose(fp);
-
-    if (*rst.rbegin() == '\n')
-    {
-        return rst.substr(0, rst.size() - 1);
-    }
-    else
-    {
-        return rst;
-    }
+    return 0;
 }
 
 void InfoCommand::OutputResult(OutputHandler *reply) const
@@ -2172,14 +2161,13 @@ void InfoCommand::OutputResult(OutputHandler *reply) const
         result += "\r\neloqkv_mode:";
         result += (node_count_ == 1 ? "standalone" : "cluster");
         result += "\r\nmultiplexing_api:epoll";
-        result += "\r\nos:" + ExecCommand("uname -srm");
+        result += "\r\nos:" + os_info_;
         result += "\r\nprocess_id:" + pid;
         result += "\r\ntcp_port:" + std::to_string(tcp_port_);
         result += "\r\nuptime_in_seconds:" + std::to_string(uptime_in_secs_);
         result += "\r\nuptime_in_days:" +
                   std::to_string(uptime_in_secs_ / (3600 * 24));
-        result += "\r\nexecutable:" + ExecCommand("ls -l /proc/" + pid +
-                                                  "/exe | awk '{print $11}'");
+        result += "\r\nexecutable:" + executable_path_;
         result += "\r\nconfig_file:" + config_file_;
         result += "\r\nbrpc_io_threads_active:" +
                   std::to_string(event_dispatcher_num_);
@@ -2213,11 +2201,9 @@ void InfoCommand::OutputResult(OutputHandler *reply) const
 
         result += "# Memory";
         result += "\r\nused_memory_rss:" +
-                  ExecCommand("cat /proc/" + pid +
-                              "/status | grep VmRSS | awk '{print $2}'") +
-                  " kb";
+                  std::to_string(GetProcessVmRSSKb(getpid())) + " kb";
         result += "\r\ntotal_system_memory:" +
-                  ExecCommand("free  | grep Mem | awk '{print $2}'") + " kb";
+                  std::to_string(total_system_memory_kb_) + " kb";
         result += "\r\ndata_memory_allocated:" +
                   std::to_string(data_memory_allocated_) + " kb";
         result += "\r\ndata_memory_committed:" +
