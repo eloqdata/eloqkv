@@ -171,7 +171,6 @@ std::string ExecCommand(const std::string &cmd)
     }
 }
 
-
 namespace EloqKV
 {
 const auto NUM_VCPU = std::thread::hardware_concurrency();
