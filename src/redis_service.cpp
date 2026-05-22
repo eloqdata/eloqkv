@@ -139,6 +139,39 @@ DEFINE_bool(enable_tls, false, "Enable TLS for brpc RPC connections");
 DEFINE_string(tls_cert_file, "", "Path to TLS certificate file (PEM format)");
 DEFINE_string(tls_key_file, "", "Path to TLS private key file (PEM format)");
 
+std::string ExecCommand(const std::string &cmd)
+{
+    char line[1024];
+    FILE *fp;
+    const char *sysCommand = cmd.data();
+    if ((fp = popen(sysCommand, "r")) == NULL)
+    {
+        return "Failed to execute command '" + cmd + "'!";
+    }
+
+    std::string rst;
+    while (fgets(line, sizeof(line) - 1, fp) != NULL)
+    {
+        if (rst.size() > 0 && *rst.rbegin() != '\n')
+        {
+            rst += "\n";
+        }
+
+        rst += line;
+    }
+    pclose(fp);
+
+    if (*rst.rbegin() == '\n')
+    {
+        return rst.substr(0, rst.size() - 1);
+    }
+    else
+    {
+        return rst;
+    }
+}
+
+
 namespace EloqKV
 {
 const auto NUM_VCPU = std::thread::hardware_concurrency();
@@ -522,6 +555,31 @@ bool RedisServiceImpl::Init(brpc::Server &brpc_server)
             return false;
         }
     }
+
+    // Capture static system info at startup (avoid fork/exec on every INFO).
+    os_info_ = ExecCommand("uname -srm");
+    {
+        char buf[4096];
+        ssize_t len = readlink("/proc/self/exe", buf, sizeof(buf) - 1);
+        if (len > 0)
+        {
+            buf[len] = '\0';
+            executable_path_ = buf;
+        }
+    }
+    {
+        long total_mem_kb = 0;
+        try
+        {
+            std::string s = ExecCommand("free | grep Mem | awk '{print $2}'");
+            total_mem_kb = std::stol(s);
+        }
+        catch (...)
+        {
+        }
+        total_system_memory_kb_ = static_cast<int64_t>(total_mem_kb);
+    }
+    event_dispatcher_num_ = brpc::FLAGS_event_dispatcher_num;
 
     return true;
 }

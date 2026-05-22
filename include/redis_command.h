@@ -800,6 +800,9 @@ struct InfoCommand : public DirectCommand
     int64_t data_memory_committed_{0};
     uint64_t last_ckpt_ts_{0};
     int event_dispatcher_num_{0};
+    std::string os_info_;
+    std::string executable_path_;
+    int64_t total_system_memory_kb_{0};
     const char *version_{nullptr};
 
     int64_t conn_received_count_{0};
