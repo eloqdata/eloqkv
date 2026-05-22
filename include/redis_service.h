@@ -475,6 +475,18 @@ public:
     {
         return event_dispatcher_num_;
     }
+    const std::string &GetOsInfo() const
+    {
+        return os_info_;
+    }
+    const std::string &GetExecutablePath() const
+    {
+        return executable_path_;
+    }
+    int64_t GetTotalSystemMemoryKB() const
+    {
+        return total_system_memory_kb_;
+    }
     TxService *GetTxService()
     {
         return tx_service_;
@@ -575,6 +587,9 @@ private:
     std::string config_file_;
     uint32_t node_memory_limit_mb_;
     int event_dispatcher_num_;
+    std::string os_info_;
+    std::string executable_path_;
+    int64_t total_system_memory_kb_{0};
     const char *version_;
     // Isolation level and concurrency control protocol of MULTI/EXEC or lua
     // transactions. ReadCommitted and OccRead are always used for simple
