@@ -1,0 +1,83 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - '[0-9]+.[0-9]+.[0-9]+'
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: 'Version tag (e.g. 1.2.3)'
+        required: true
+        type: string
+
+jobs:
+  call-build:
+    name: ${{ matrix.os_id }}-${{ matrix.data_store_id }}
+    uses: ./.github/workflows/build.yml
+    with:
+      tag_name: ${{ github.event.inputs.tag_name || github.ref_name }}
+      os_id: ${{ matrix.os_id }}
+      package_manager: ${{ matrix.pkg }}
+      container_image: ${{ matrix.container }}
+      data_store_type: ${{ matrix.data_store_type }}
+      log_state_type: ${{ matrix.log_state_type }}
+      data_store_id: ${{ matrix.data_store_id }}
+      cmake_extra: ${{ matrix.cmake_extra }}
+      build_dss: ${{ matrix.build_dss }}
+      build_rocksdb_tools: ${{ matrix.build_rocksdb_tools }}
+    secrets: inherit
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # ---- ubuntu24.04 only ----
+          - os_id: ubuntu24
+            container: eloqdata/eloq-dev-ci-ubuntu2404:latest
+            pkg: apt
+            data_store_type: ROCKSDB
+            log_state_type: ROCKSDB
+            data_store_id: rocksdb
+            build_dss: false
+            build_rocksdb_tools: true
+            cmake_extra: ''
+
+          - os_id: ubuntu24
+            container: eloqdata/eloq-dev-ci-ubuntu2404:latest
+            pkg: apt
+            data_store_type: ELOQDSS_ROCKSDB_CLOUD_S3
+            log_state_type: ROCKSDB_CLOUD_S3
+            data_store_id: rocks_s3
+            build_dss: true
+            build_rocksdb_tools: false
+            cmake_extra: '-DWITH_CLOUD_AZ_INFO=ON'
+
+          - os_id: ubuntu24
+            container: eloqdata/eloq-dev-ci-ubuntu2404:latest
+            pkg: apt
+            data_store_type: ELOQDSS_ELOQSTORE
+            log_state_type: ROCKSDB
+            data_store_id: eloqstore_local
+            build_dss: true
+            build_rocksdb_tools: false
+            cmake_extra: ''
+
+          - os_id: ubuntu24
+            container: eloqdata/eloq-dev-ci-ubuntu2404:latest
+            pkg: apt
+            data_store_type: ELOQDSS_ELOQSTORE
+            log_state_type: ROCKSDB_CLOUD_S3
+            data_store_id: eloqstore_s3
+            build_dss: true
+            build_rocksdb_tools: false
+            cmake_extra: ''
+
+          - os_id: ubuntu24
+            container: eloqdata/eloq-dev-ci-ubuntu2404:latest
+            pkg: apt
+            data_store_type: ELOQDSS_ELOQSTORE
+            log_state_type: ROCKSDB_CLOUD_GCS
+            data_store_id: eloqstore_gcs
+            build_dss: true
+            build_rocksdb_tools: false
+            cmake_extra: ''

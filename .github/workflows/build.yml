@@ -1,0 +1,225 @@
+name: Build
+
+on:
+  workflow_call:
+    inputs:
+      tag_name:
+        type: string
+        required: true
+      os_id:
+        type: string
+        required: true
+      package_manager:
+        type: string
+        required: true
+        description: 'apt, dnf, or yum'
+      data_store_type:
+        type: string
+        required: true
+      log_state_type:
+        type: string
+        required: true
+      data_store_id:
+        type: string
+        required: true
+      cmake_extra:
+        type: string
+        default: ''
+      build_dss:
+        type: boolean
+        default: false
+      build_rocksdb_tools:
+        type: boolean
+        default: false
+      container_image:
+        type: string
+        required: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: ${{ inputs.container_image }}
+      options: --user root
+    name: ${{ inputs.tag_name }}-${{ inputs.data_store_id }}-${{ inputs.os_id }}
+    env:
+      TAGGED: ${{ inputs.tag_name }}
+
+    steps:
+      - uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          path: eloqkv_src
+
+      - name: Setup private dependencies
+        env:
+          GIT_SSH_COMMAND: "ssh -o StrictHostKeyChecking=accept-new"
+        run: |
+          git config --global --add safe.directory '*'
+          cd $GITHUB_WORKSPACE
+          git clone --recurse-submodules git@github.com:eloqdata/eloq_log_service.git logservice_src
+          git clone git@github.com:eloqdata/raft_host_manager.git raft_host_manager_src
+
+          rm -rf eloqkv_src/data_substrate/eloq_log_service
+          rm -rf eloqkv_src/data_substrate/tx_service/raft_host_manager
+          ln -s $GITHUB_WORKSPACE/logservice_src \
+                $GITHUB_WORKSPACE/eloqkv_src/data_substrate/eloq_log_service
+          ln -s $GITHUB_WORKSPACE/raft_host_manager_src \
+                $GITHUB_WORKSPACE/eloqkv_src/data_substrate/tx_service/raft_host_manager
+
+      - name: Install build dependencies
+        run: |
+          case "${{ inputs.package_manager }}" in
+            apt)
+              apt-get update -qq
+              DEBIAN_FRONTEND=noninteractive apt-get install -y -qq postgresql-client rsync patchelf
+              ;;
+            dnf)
+              dnf install -y postgresql-devel rsync patchelf
+              ;;
+            yum)
+              yum install -y postgresql-devel rsync patchelf
+              ;;
+          esac
+
+      - name: Download eloqkv-cli
+        run: |
+          curl -fSL -o redis-cli \
+            "https://download.eloqdata.com/eloqkv/client/eloqkv-cli-7.2.5-${{ inputs.os_id }}-amd64"
+          chmod +x redis-cli
+
+      - name: Build eloqkv
+        working-directory: ${{ github.workspace }}/eloqkv_src
+        run: |
+          mkdir -p build && cd build
+          cmake .. \
+            -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            -DWITH_DATA_STORE=${{ inputs.data_store_type }} \
+            -DWITH_LOG_STATE=${{ inputs.log_state_type }} \
+            -DWITH_LOG_SERVICE=ON \
+            -DDISABLE_CKPT_REPORT=ON \
+            -DDISABLE_CODE_LINE_IN_LOG=ON \
+            -DWITH_ASAN=OFF \
+            -DOPEN_LOG_SERVICE=OFF \
+            -DFORK_HM_PROCESS=ON \
+            ${{ inputs.cmake_extra }}
+          cmake --build . -j$(nproc)
+
+      - name: Package eloqkv tarball
+        run: |
+          DEST_DIR=$HOME/EloqKV
+          mkdir -p $DEST_DIR/bin $DEST_DIR/lib $DEST_DIR/conf
+
+          cp eloqkv_src/build/eloqkv $DEST_DIR/bin/
+          cp eloqkv_src/build/data_substrate/host_manager $DEST_DIR/bin/
+          cp redis-cli $DEST_DIR/bin/eloqkv-cli
+
+          if [[ "${{ inputs.build_rocksdb_tools }}" == "true" ]]; then
+            cp eloqkv_src/build/eloqkv_to_aof $DEST_DIR/bin/
+            cp eloqkv_src/build/eloqkv_to_rdb $DEST_DIR/bin/
+          fi
+
+          if [[ "${{ inputs.build_dss }}" == "true" ]]; then
+            DSS_SRC=$GITHUB_WORKSPACE/eloqkv_src/data_substrate/store_handler/eloq_data_store_service
+            cd $DSS_SRC
+            mkdir -p build && cd build
+            cmake .. -DCMAKE_BUILD_TYPE=RelWithDebInfo -DWITH_DATA_STORE=${{ inputs.data_store_type }}
+            cmake --build . -j$(nproc)
+            cp dss_server $DEST_DIR/bin/
+          fi
+
+          # Exact copy_libraries() logic from concourse/scripts/build_tarball.bash
+          # Skips libc, libm, libpthread, libdl, librt, libanl, libresolv,
+          # libutil, libnsl, ld-linux — bundles everything else
+          for bin in $DEST_DIR/bin/*; do
+            ldd "$bin" 2>/dev/null | awk 'NF==4 {print $(NF-1)}' | while read lib; do
+              [ -e "$lib" ] || continue
+              lib_name=$(basename "$lib")
+              case "$lib_name" in
+                libc.so*|libm.so*|libpthread.so*|libdl.so*|librt.so*|libanl.so*|libresolv.so*|libutil.so*|libnsl.so*|ld-linux*.so*)
+                  continue ;;
+                *) cp -n "$lib" $DEST_DIR/lib/ 2>/dev/null || true ;;
+              esac
+            done
+          done
+
+          find $DEST_DIR/lib \
+            -name 'libbrpc*' -o -name 'libbraft*' \
+            -o -name 'libleveldb*' -o -name 'librocksdb*' | while read f; do
+            patchelf --set-rpath '$ORIGIN' "$f" 2>/dev/null || true
+          done
+
+          cp eloqkv_src/eloqkv.ini $DEST_DIR/conf/
+
+          # Write LICENSE.txt (same content as original build_tarball.bash)
+          printf '%s\n' \
+            'License' \
+            '' \
+            'Copyright (c) 2024-2026 EloqData' \
+            '' \
+            'Permission is hereby granted, free of charge, to any person obtaining a copy' \
+            'of this software and associated documentation files (the "Software"), to use,' \
+            'copy, modify, and distribute the Software, subject to the following conditions:' \
+            '' \
+            'The above copyright notice and this permission notice shall be included in all' \
+            'copies or substantial portions of the Software.' \
+            '' \
+            'THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR' \
+            'IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,' \
+            'FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT. IN NO EVENT SHALL ELOQDATA' \
+            'OR ITS CONTRIBUTORS BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER LIABILITY, WHETHER' \
+            'IN AN ACTION OF CONTRACT, TORT, OR OTHERWISE, ARISING FROM, OUT OF, OR IN' \
+            'CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.' \
+            '' \
+            'IMPORTANT: By using this software, you acknowledge that EloqData shall not be' \
+            'liable for any loss or damage, including but not limited to loss of data, arising' \
+            'from the use of the software. The responsibility for backing up any data, checking' \
+            'the software''s appropriateness for your needs, and using it within the bounds of' \
+            'the law lies entirely with you.' \
+            > $DEST_DIR/LICENSE.txt
+
+          tar -czvf $GITHUB_WORKSPACE/eloqkv-$TAGGED-${{ inputs.data_store_id }}-${{ inputs.os_id }}-amd64.tar.gz -C $HOME EloqKV
+
+      - name: Package log-service tarball
+        run: |
+          LOG_SRC=$GITHUB_WORKSPACE/eloqkv_src/data_substrate/eloq_log_service
+          mkdir -p $LOG_SRC/LogServer/bin $LOG_SRC/LogServer/lib
+
+          cd $LOG_SRC
+          mkdir -p build && cd build
+          cmake .. \
+            -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            -DWITH_LOG_STATE=${{ inputs.log_state_type }} \
+            -DWITH_ASAN=OFF \
+            -DDISABLE_CODE_LINE_IN_LOG=ON \
+            ${{ inputs.cmake_extra }}
+          cmake --build . -j$(nproc)
+
+          mv launch_sv $LOG_SRC/LogServer/bin/
+
+          ldd $LOG_SRC/LogServer/bin/launch_sv 2>/dev/null | awk 'NF==4 {print $(NF-1)}' | while read lib; do
+            [ -e "$lib" ] || continue
+            lib_name=$(basename "$lib")
+            case "$lib_name" in
+              libc.so*|libm.so*|libpthread.so*|libdl.so*|librt.so*|libanl.so*|libresolv.so*|libutil.so*|libnsl.so*|ld-linux*.so*)
+                continue ;;
+              *) cp -n "$lib" $LOG_SRC/LogServer/lib/ 2>/dev/null || true ;;
+            esac
+          done
+
+          tar -czvf $GITHUB_WORKSPACE/log-service-$TAGGED-${{ inputs.data_store_id }}-${{ inputs.os_id }}-amd64.tar.gz -C $LOG_SRC LogServer
+
+      - name: Upload assets to release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.tag_name }}
+          name: ${{ inputs.tag_name }}
+          files: |
+            eloqkv-${{ inputs.tag_name }}-${{ inputs.data_store_id }}-${{ inputs.os_id }}-amd64.tar.gz
+            log-service-${{ inputs.tag_name }}-${{ inputs.data_store_id }}-${{ inputs.os_id }}-amd64.tar.gz
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
