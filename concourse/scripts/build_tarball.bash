@@ -70,7 +70,7 @@ arm64 | aarch64) ARCH=arm64 ;;
 esac
 
 if [ -n "${TAGGED}" ]; then
-    TAGGED=$(git tag --sort=-v:refname | head -n 1)
+    TAGGED=$(git describe --exact-match --tags HEAD)
     if [ -z "${TAGGED}" ]; then
         exit 1
     fi
