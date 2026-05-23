@@ -55,7 +55,6 @@
 #include "eloqkv_key.h"
 #include "local_cc_shards.h"
 #include "output_handler.h"
-#include "redis/commands.h"
 #include "redis/server.h"
 #include "redis_connection_context.h"
 #include "redis_errors.h"
