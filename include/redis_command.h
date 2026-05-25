@@ -276,9 +276,6 @@ enum struct RedisCommandType
     CONFIG,
     CLUSTER,
     FAILOVER,
-#ifdef ELOQKV_WITH_DSS_ROCKSDB_CLOUD
-    COMPACT,
-#endif
     FLUSHDB,
     FLUSHALL,
     READONLY,
@@ -328,6 +325,9 @@ enum struct RedisCommandType
 #endif
 
     UNLINK,
+#ifdef ELOQKV_WITH_DSS_ROCKSDB_CLOUD
+    COMPACT,
+#endif
 };
 
 enum RedisResultType
