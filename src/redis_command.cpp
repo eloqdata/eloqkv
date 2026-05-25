@@ -2101,16 +2101,27 @@ void PingCommand::OutputResult(OutputHandler *reply) const
 static uint64_t GetProcessVmRSSKb(pid_t pid)
 {
     std::ifstream file("/proc/" + std::to_string(pid) + "/status");
-    std::string key;
-    uint64_t value = 0;
-    std::string unit;
-
-    while (file >> key >> value >> unit)
+    if (!file.is_open())
     {
-        if (key == "VmRSS:")
+        return 0;
+    }
+
+    std::string line;
+    while (std::getline(file, line))
+    {
+        if (line.rfind("VmRSS:", 0) != 0)
+        {
+            continue;
+        }
+        std::istringstream iss(line);
+        std::string key;
+        uint64_t value = 0;
+        std::string unit;
+        if (iss >> key >> value >> unit)
         {
             return value;
         }
+        return 0;
     }
     return 0;
 }

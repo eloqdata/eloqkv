@@ -31,6 +31,7 @@
 #include <sys/resource.h>
 #include <sys/sysinfo.h>
 #include <sys/types.h>
+#include <sys/utsname.h>
 
 #include <algorithm>
 #include <atomic>
@@ -38,10 +39,12 @@
 #include <charconv>
 #include <cstddef>
 #include <cstdint>
+#include <fstream>
 #include <filesystem>
 #include <functional>
 #include <memory>
 #include <optional>
+#include <sstream>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -161,14 +164,11 @@ std::string ExecCommand(const std::string &cmd)
     }
     pclose(fp);
 
-    if (*rst.rbegin() == '\n')
+    if (!rst.empty() && rst.back() == '\n')
     {
         return rst.substr(0, rst.size() - 1);
     }
-    else
-    {
-        return rst;
-    }
+    return rst;
 }
 
 namespace EloqKV
@@ -556,7 +556,14 @@ bool RedisServiceImpl::Init(brpc::Server &brpc_server)
     }
 
     // Capture static system info at startup (avoid fork/exec on every INFO).
-    os_info_ = ExecCommand("uname -srm");
+    {
+        struct utsname uts;
+        if (uname(&uts) == 0)
+        {
+            os_info_ = std::string(uts.sysname) + " " + uts.release + " " +
+                       uts.machine;
+        }
+    }
     {
         char buf[4096];
         ssize_t len = readlink("/proc/self/exe", buf, sizeof(buf) - 1);
@@ -568,13 +575,26 @@ bool RedisServiceImpl::Init(brpc::Server &brpc_server)
     }
     {
         long total_mem_kb = 0;
-        try
+        std::ifstream file("/proc/meminfo");
+        if (file.is_open())
         {
-            std::string s = ExecCommand("free | grep Mem | awk '{print $2}'");
-            total_mem_kb = std::stol(s);
-        }
-        catch (...)
-        {
+            std::string line;
+            while (std::getline(file, line))
+            {
+                if (line.rfind("MemTotal:", 0) != 0)
+                {
+                    continue;
+                }
+                std::istringstream iss(line);
+                std::string key;
+                uint64_t value = 0;
+                std::string unit;
+                if (iss >> key >> value >> unit)
+                {
+                    total_mem_kb = static_cast<long>(value);
+                }
+                break;
+            }
         }
         total_system_memory_kb_ = static_cast<int64_t>(total_mem_kb);
     }
