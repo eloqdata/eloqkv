@@ -97,7 +97,7 @@
 #define SLOWLOG_RESET (1 << 1)
 #define SLOWLOG_LEN (1 << 2)
 
-#if defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB_CLOUD_S3) ||                      \
+#if defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB_CLOUD_S3) ||                       \
     defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB_CLOUD_GCS)
 #define ELOQKV_WITH_DSS_ROCKSDB_CLOUD 1
 #endif
