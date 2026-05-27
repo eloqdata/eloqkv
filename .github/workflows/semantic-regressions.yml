@@ -1,0 +1,128 @@
+name: Semantic Regressions
+
+on:
+  pull_request:
+    paths:
+      - 'include/redis_command.h'
+      - 'src/redis_command.cpp'
+      - 'tests/unit/eloq/**'
+      - 'tests/integration/**'
+      - '.github/workflows/semantic-regressions.yml'
+  workflow_dispatch:
+
+jobs:
+  semantic-regressions:
+    runs-on: ubuntu-latest
+    container:
+      image: eloqdata/eloq-dev-ci-ubuntu2404:latest
+      options: --user root
+
+    steps:
+      - uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          path: eloqkv_src
+
+      - name: Setup private dependencies
+        env:
+          GIT_SSH_COMMAND: "ssh -o StrictHostKeyChecking=accept-new"
+        run: |
+          git config --global --add safe.directory '*'
+          cd "$GITHUB_WORKSPACE"
+          git clone --recurse-submodules git@github.com:eloqdata/eloq_log_service.git logservice_src
+          git clone git@github.com:eloqdata/raft_host_manager.git raft_host_manager_src
+
+          rm -rf eloqkv_src/data_substrate/eloq_log_service
+          rm -rf eloqkv_src/data_substrate/tx_service/raft_host_manager
+          ln -s "$GITHUB_WORKSPACE/logservice_src" \
+                "$GITHUB_WORKSPACE/eloqkv_src/data_substrate/eloq_log_service"
+          ln -s "$GITHUB_WORKSPACE/raft_host_manager_src" \
+                "$GITHUB_WORKSPACE/eloqkv_src/data_substrate/tx_service/raft_host_manager"
+
+      - name: Install dependencies
+        run: |
+          apt-get update -qq
+          DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+            postgresql-client rsync patchelf tcl
+
+      - name: Download eloqkv-cli
+        working-directory: ${{ github.workspace }}/eloqkv_src
+        run: |
+          curl -fSL -o redis-cli \
+            "https://download.eloqdata.com/eloqkv/client/eloqkv-cli-7.2.5-ubuntu24-amd64"
+          chmod +x redis-cli
+
+      - name: Build eloqkv
+        working-directory: ${{ github.workspace }}/eloqkv_src
+        run: |
+          mkdir -p build && cd build
+          cmake .. \
+            -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            -DWITH_DATA_STORE=ROCKSDB \
+            -DWITH_LOG_SERVICE=ON \
+            -DWITH_LOG_STATE=ROCKSDB \
+            -DDISABLE_CKPT_REPORT=ON \
+            -DDISABLE_CODE_LINE_IN_LOG=ON \
+            -DWITH_ASAN=OFF \
+            -DOPEN_LOG_SERVICE=OFF \
+            -DFORK_HM_PROCESS=ON
+          cmake --build . -j$(nproc)
+
+      - name: Run unit regression tests
+        working-directory: ${{ github.workspace }}/eloqkv_src
+        run: |
+          mkdir -p tests/tmp/semantic-unit
+          cat > tests/tmp/semantic-unit/eloqkv.ini <<EOF
+          [local]
+          bind_all=true
+          ip=127.0.0.1
+          port=6379
+          eloq_data_path=${GITHUB_WORKSPACE}/eloqkv_src/tests/tmp/semantic-unit/runtime
+          core_number=2
+          event_dispatcher_num=1
+          bootstrap=true
+          enable_data_store=false
+          enable_wal=off
+          enable_io_uring=false
+          auto_redirect=true
+          maxclients=100000
+
+          [cluster]
+          ip_port_list=127.0.0.1:6379
+          txlog_group_replica_num=1
+          EOF
+
+          ./build/eloqkv --config=tests/tmp/semantic-unit/eloqkv.ini >/tmp/eloqkv-bootstrap.log 2>&1 || true
+          sed -i 's/bootstrap=true/bootstrap=false/' tests/tmp/semantic-unit/eloqkv.ini
+          ./build/eloqkv --config=tests/tmp/semantic-unit/eloqkv.ini >/tmp/eloqkv-unit.log 2>&1 &
+          SERVER_PID=$!
+          trap 'kill ${SERVER_PID} >/dev/null 2>&1 || true; wait ${SERVER_PID} >/dev/null 2>&1 || true' EXIT
+
+          for _ in $(seq 1 30); do
+            if ./redis-cli -p 6379 ping >/dev/null 2>&1; then
+              break
+            fi
+            sleep 1
+          done
+
+          tclsh tests/test_helper.tcl \
+            --host 127.0.0.1 \
+            --port 6379 \
+            --tags -needs:repl \
+            --tags -needs:config-maxmemory \
+            --tags -needs:debug \
+            --tags -needs:redis_config \
+            --tags -needs:redis_expire \
+            --tags -needs:slow_test \
+            --tags -needs:support_cmd_later \
+            --single /unit/eloq/regression_semantics
+
+      - name: Run integration regression tests
+        working-directory: ${{ github.workspace }}/eloqkv_src
+        run: |
+          chmod +x tests/integration/semantic_regressions.sh
+          tests/integration/semantic_regressions.sh
