@@ -14,6 +14,27 @@ start_server {tags {"dump"}} {
         assert_equal $stringval [r get stringobj]
     }
 
+    test {dump produces redis rdb version 10 payload} {
+        r set dump_version value
+        set dumpval [r dump dump_version]
+        binary scan [string range $dumpval end-9 end-8] H* version
+        assert_equal 0a00 $version
+    }
+
+    test {dump restore preserves binary and numeric-looking strings} {
+        r del binary_string numeric_string
+        set binaryval [binary format H* "0030303100ff"]
+        r set binary_string $binaryval
+        r set numeric_string "001"
+        set binarydump [r dump binary_string]
+        set numericdump [r dump numeric_string]
+        r del binary_string numeric_string
+        r restore binary_string 0 $binarydump
+        r restore numeric_string 0 $numericdump
+        assert_equal $binaryval [r get binary_string]
+        assert_equal "001" [r get numeric_string]
+    }
+
     test {dump restore hash} {
         r del hashobj
         r hset hashobj k1 v1 k2 v2 k3 v3
@@ -35,11 +56,12 @@ start_server {tags {"dump"}} {
 
     test {dump restore zset} {
         r del zsetobj
-        r zadd zsetobj 1 k1 2 k2 3 k3
+        r zadd zsetobj 1 k1 2.123456789012345 k2 3 k3
         set dumpval [r dump zsetobj]
         r del zsetobj
         r restore zsetobj 0 $dumpval
         assert_equal {k1 k2 k3} [r zrange zsetobj 0 -1]
+        assert_equal 2.123456789012345 [r zscore zsetobj k2]
     }
 
     test {RESTORE are able to serialize / unserialize a simple key} {
@@ -58,6 +80,15 @@ start_server {tags {"dump"}} {
         assert_range $ttl 3000 5500
         r get foo
     } {bar}
+
+    test {DUMP does not carry the source ttl} {
+        r set ttl_source value px 5000
+        set encoded [r dump ttl_source]
+        r del ttl_source
+        r restore ttl_source 0 $encoded
+        assert_equal -1 [r pttl ttl_source]
+        assert_equal value [r get ttl_source]
+    }
 
     test {RESTORE can set an expire that overflows a 32 bit integer} {
         r set foo bar
