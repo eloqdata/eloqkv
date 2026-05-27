@@ -5100,7 +5100,7 @@ struct SRemCommand : public HashSetCommand
 
     bool ProceedOnNonExistentObject() const override
     {
-        return true;
+        return false;
     }
 
     bool ProceedOnExistentObject() const override
@@ -5118,7 +5118,7 @@ struct SRemCommand : public HashSetCommand
 
     void OutputResult(OutputHandler *reply) const override
     {
-        if (result_.err_code_ == RD_OK)
+        if (result_.err_code_ == RD_OK || result_.err_code_ == RD_NIL)
         {
             reply->OnInt(result_.ret_);
         }
@@ -5918,6 +5918,13 @@ public:
     void OutputResult(OutputHandler *reply) const override;
     bool IsPassed() const override
     {
+        if (curr_step_ == 0)
+        {
+            return cmd_src_->result_.err_code_ == RD_NIL ||
+                   (cmd_src_->result_.err_code_ == RD_OK &&
+                    cmd_src_->result_.ret_ == 0);
+        }
+
         if (cmd_src_->result_.err_code_ != RD_OK ||
             cmd_dst_->result_.err_code_ != RD_OK)
         {

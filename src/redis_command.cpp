@@ -6525,14 +6525,14 @@ bool SMoveCommand::HandleMiddleResult()
         return false;
     }
 
-    if (cmd_src_->result_.ret_ == 1)
+    if (cmd_src_->result_.err_code_ != RD_OK || cmd_src_->result_.ret_ != 1)
     {
-        // the EloqString in cmd_src_->vct_paras_ is of string_view type
-        // pointing to the string in SMOVE command, so the string_view will
-        // always be valid until the end of transaction.
-        cmd_dst_->vct_paras_.emplace_back(cmd_src_->vct_paras_[0].StringView());
+        return false;
     }
 
+    // The source member existed and was removed. Only now should we touch the
+    // destination key.
+    cmd_dst_->vct_paras_.emplace_back(cmd_src_->vct_paras_[0].StringView());
     return true;
 }
 
@@ -6542,7 +6542,7 @@ void SMoveCommand::OutputResult(OutputHandler *reply) const
     {
         if (cmd_dst_->result_.err_code_ == RD_OK)
         {
-            reply->OnInt(cmd_dst_->result_.ret_);
+            reply->OnInt(cmd_src_->result_.ret_);
         }
         else
         {
@@ -6552,8 +6552,17 @@ void SMoveCommand::OutputResult(OutputHandler *reply) const
     }
     else
     {
-        assert(cmd_src_->result_.err_code_ != RD_OK);
-        reply->OnError(redis_get_error_messages(cmd_src_->result_.err_code_));
+        if (cmd_src_->result_.err_code_ == RD_NIL ||
+            (cmd_src_->result_.err_code_ == RD_OK &&
+             cmd_src_->result_.ret_ == 0))
+        {
+            reply->OnInt(0);
+        }
+        else
+        {
+            reply->OnError(
+                redis_get_error_messages(cmd_src_->result_.err_code_));
+        }
     }
 }
 
