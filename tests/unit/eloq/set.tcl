@@ -1187,6 +1187,15 @@ foreach type {single multiple single_multiple} {
         assert_encoding intset myset3{t}
     }
 
+    test "SMOVE returns one when destination already contains the member" {
+        r del srcset{t} dstset{t}
+        r sadd srcset{t} a b
+        r sadd dstset{t} a c
+        assert_equal 1 [r smove srcset{t} dstset{t} a]
+        assert_equal {b} [lsort [r smembers srcset{t}]]
+        assert_equal {a c} [lsort [r smembers dstset{t}]]
+    }
+
     test "SMOVE wrong src key type" {
         r set x{t} 10
         assert_error "WRONGTYPE*" {r smove x{t} myset2{t} foo}
@@ -1332,4 +1341,3 @@ test "SMOVE bug" {
     r smove myset myset a
     r srandmember myset
 }}
-

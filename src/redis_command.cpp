@@ -6550,7 +6550,9 @@ void SMoveCommand::OutputResult(OutputHandler *reply) const
     {
         if (cmd_dst_->result_.err_code_ == RD_OK)
         {
-            reply->OnInt(cmd_dst_->result_.ret_);
+            // SMOVE reports whether the member existed in the source. The
+            // destination may already contain it, making SADD a no-op.
+            reply->OnInt(cmd_src_->result_.ret_);
         }
         else
         {
