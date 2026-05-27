@@ -71,6 +71,62 @@ constexpr uint8_t kQuickListNodeContainerPacked = 2;
 constexpr size_t kMaxLzfDecodedLength = 64ULL * 1024ULL * 1024ULL;
 constexpr size_t kMaxCollectionEntries = 1ULL << 20;
 
+void AppendBE32(uint32_t value, std::string &output)
+{
+    output.push_back(static_cast<char>((value >> 24) & 0xFF));
+    output.push_back(static_cast<char>((value >> 16) & 0xFF));
+    output.push_back(static_cast<char>((value >> 8) & 0xFF));
+    output.push_back(static_cast<char>(value & 0xFF));
+}
+
+void AppendBE64(uint64_t value, std::string &output)
+{
+    for (int shift = 56; shift >= 0; shift -= 8)
+    {
+        output.push_back(static_cast<char>((value >> shift) & 0xFF));
+    }
+}
+
+void AppendRdbLen(uint64_t length, std::string &output)
+{
+    if (length < (1ULL << 6))
+    {
+        output.push_back(static_cast<char>(length));
+    }
+    else if (length < (1ULL << 14))
+    {
+        output.push_back(static_cast<char>(0x40 | (length >> 8)));
+        output.push_back(static_cast<char>(length & 0xFF));
+    }
+    else if (length <= std::numeric_limits<uint32_t>::max())
+    {
+        output.push_back(static_cast<char>(0x80));
+        AppendBE32(static_cast<uint32_t>(length), output);
+    }
+    else
+    {
+        output.push_back(static_cast<char>(0x81));
+        AppendBE64(length, output);
+    }
+}
+
+void AppendRdbString(std::string_view value, std::string &output)
+{
+    AppendRdbLen(value.size(), output);
+    output.append(value.data(), value.size());
+}
+
+void AppendLEDouble(double value, std::string &output)
+{
+    uint64_t bits = 0;
+    static_assert(sizeof(bits) == sizeof(value));
+    std::memcpy(&bits, &value, sizeof(bits));
+    for (size_t i = 0; i < sizeof(bits); ++i)
+    {
+        output.push_back(static_cast<char>((bits >> (i * 8)) & 0xFF));
+    }
+}
+
 void PrefixEloqOuterType(RedisObjectType type, std::string &payload)
 {
     uint8_t obj_type = static_cast<uint8_t>(type);
@@ -1363,5 +1419,72 @@ bool ConvertRedisDumpPayloadToEloqPayload(std::string_view dump_payload,
 {
     eloq_payload.clear();
     return DecodeRedisObjectPayload(dump_payload, eloq_payload);
+}
+
+bool ConvertEloqObjectToRedisDumpPayload(const RedisEloqObject &object,
+                                         std::string &dump_payload)
+{
+    dump_payload.clear();
+
+    switch (object.ObjectType())
+    {
+    case RedisObjectType::String:
+    {
+        const auto &string_object =
+            static_cast<const RedisStringObject &>(object);
+        dump_payload.push_back(static_cast<char>(kRdbTypeString));
+        AppendRdbString(string_object.StringView(), dump_payload);
+        return true;
+    }
+    case RedisObjectType::List:
+    {
+        const auto &list_object = static_cast<const RedisListObject &>(object);
+        dump_payload.push_back(static_cast<char>(kRdbTypeList));
+        AppendRdbLen(list_object.Elements().size(), dump_payload);
+        for (const auto &element : list_object.Elements())
+        {
+            AppendRdbString(element.StringView(), dump_payload);
+        }
+        return true;
+    }
+    case RedisObjectType::Set:
+    {
+        const auto &set_object =
+            static_cast<const RedisHashSetObject &>(object);
+        dump_payload.push_back(static_cast<char>(kRdbTypeSet));
+        AppendRdbLen(set_object.Elements().size(), dump_payload);
+        for (const auto &element : set_object.Elements())
+        {
+            AppendRdbString(element.StringView(), dump_payload);
+        }
+        return true;
+    }
+    case RedisObjectType::Hash:
+    {
+        const auto &hash_object = static_cast<const RedisHashObject &>(object);
+        dump_payload.push_back(static_cast<char>(kRdbTypeHash));
+        AppendRdbLen(hash_object.Elements().size(), dump_payload);
+        for (const auto &[field, value] : hash_object.Elements())
+        {
+            AppendRdbString(field.StringView(), dump_payload);
+            AppendRdbString(value.StringView(), dump_payload);
+        }
+        return true;
+    }
+    case RedisObjectType::Zset:
+    {
+        const auto &zset_object = static_cast<const RedisZsetObject &>(object);
+        dump_payload.push_back(static_cast<char>(kRdbTypeZSet2));
+        AppendRdbLen(zset_object.Elements().size(), dump_payload);
+        for (const auto &[member, score] : zset_object.Elements())
+        {
+            AppendRdbString(member, dump_payload);
+            AppendLEDouble(score, dump_payload);
+        }
+        return true;
+    }
+    default:
+        return false;
+    }
 }
 }  // namespace EloqKV

@@ -15508,93 +15508,27 @@ void ScanCommand::OutputResult(OutputHandler *reply,
     }
 }
 
-/**
- * +-----------+--------------------------+-------------------+------------+
- * |1 byte type|Serialized RedisEloqObject|2 byte MONO version|8 byte CRC64|
- * +-----------+--------------------------+-------------------+------------+
- *
- * MONO version and CRC are both in big endian.
- */
 txservice::ExecResult DumpCommand::ExecuteOn(const txservice::TxObject &object)
 {
     const RedisEloqObject &eloq_obj =
         dynamic_cast<const RedisEloqObject &>(object);
 
-    RedisObjectType obj_type = eloq_obj.ObjectType();
-    assert(obj_type != RedisObjectType::Unknown &&
-           obj_type != RedisObjectType::Del);
-
-    uint8_t obj_type_u8 = static_cast<uint8_t>(obj_type);
-    result_.str_.append(reinterpret_cast<const char *>(&obj_type_u8),
-                        sizeof(uint8_t));
-
-    // If object has TTL, serialize as base type (without TTL) for DUMP
-    // This matches Redis semantics where DUMP doesn't include TTL info
-    // We call the base class Serialize() method directly instead of creating
-    // a new object
-    if (eloq_obj.HasTTL())
+    if (!ConvertEloqObjectToRedisDumpPayload(eloq_obj, result_.str_))
     {
-        // Cast to base class and call base class Serialize() method
-        // ObjectType() already returns the base class type, so we can safely
-        // cast to the corresponding base class
-        switch (obj_type)
-        {
-        case RedisObjectType::String:
-        {
-            // TTLString -> String: cast to base class and call base Serialize()
-            const RedisStringObject *base_obj =
-                static_cast<const RedisStringObject *>(&eloq_obj);
-            base_obj->RedisStringObject::Serialize(result_.str_);
-            break;
-        }
-        case RedisObjectType::List:
-        {
-            // TTLList -> List: cast to base class and call base Serialize()
-            const RedisListObject *base_obj =
-                static_cast<const RedisListObject *>(&eloq_obj);
-            base_obj->RedisListObject::Serialize(result_.str_);
-            break;
-        }
-        case RedisObjectType::Hash:
-        {
-            // TTLHash -> Hash: cast to base class and call base Serialize()
-            const RedisHashObject *base_obj =
-                static_cast<const RedisHashObject *>(&eloq_obj);
-            base_obj->RedisHashObject::Serialize(result_.str_);
-            break;
-        }
-        case RedisObjectType::Zset:
-        {
-            // TTLZset -> Zset: cast to base class and call base Serialize()
-            const RedisZsetObject *base_obj =
-                static_cast<const RedisZsetObject *>(&eloq_obj);
-            base_obj->RedisZsetObject::Serialize(result_.str_);
-            break;
-        }
-        case RedisObjectType::Set:
-        {
-            // TTLSet -> Set: cast to base class and call base Serialize()
-            const RedisHashSetObject *base_obj =
-                static_cast<const RedisHashSetObject *>(&eloq_obj);
-            base_obj->RedisHashSetObject::Serialize(result_.str_);
-            break;
-        }
-        default:
-            assert(false && "Unsupported object type for TTL serialization");
-            break;
-        }
-    }
-    else
-    {
-        eloq_obj.Serialize(result_.str_);
+        result_.err_code_ = RD_ERR_SYNTAX;
+        return txservice::ExecResult::Read;
     }
 
-    result_.str_.append(reinterpret_cast<const char *>(&dump_version_),
-                        sizeof(dump_version_));
+    result_.str_.append(
+        reinterpret_cast<const char *>(&redis_dump_version_),
+        sizeof(redis_dump_version_));
 
-    uint64_t crc64 =
-        crc64speed_big(0, result_.str_.data(), result_.str_.size());
-    result_.str_.append(reinterpret_cast<const char *>(&crc64), sizeof(crc64));
+    uint64_t checksum = crc64(0, result_.str_.data(), result_.str_.size());
+#if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+    checksum = __builtin_bswap64(checksum);
+#endif
+    result_.str_.append(reinterpret_cast<const char *>(&checksum),
+                        sizeof(checksum));
 
     result_.err_code_ = RD_OK;
 

@@ -7250,7 +7250,9 @@ struct DumpCommand : public RedisCommand
 
     RedisStringResult result_;
 
+    // Retained for accepting payloads produced before Redis DUMP compatibility.
     static constexpr inline uint16_t dump_version_{0};
+    static constexpr inline uint16_t redis_dump_version_{10};
 };
 
 struct RestoreCommand : public RedisCommand
