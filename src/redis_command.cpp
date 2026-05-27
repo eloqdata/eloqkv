@@ -15521,9 +15521,8 @@ txservice::ExecResult DumpCommand::ExecuteOn(const txservice::TxObject &object)
         return txservice::ExecResult::Read;
     }
 
-    result_.str_.append(
-        reinterpret_cast<const char *>(&redis_dump_version_),
-        sizeof(redis_dump_version_));
+    result_.str_.append(reinterpret_cast<const char *>(&redis_dump_version_),
+                        sizeof(redis_dump_version_));
 
     uint64_t checksum = crc64(0, result_.str_.data(), result_.str_.size());
 #if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
