@@ -2894,7 +2894,13 @@ public:
             return false;
         }
 
-        return txservice::LocalCcShards::ClockTs() > ts_expired_;
+        auto clock_ts = txservice::LocalCcShards::ClockTs();
+        if (clock_ts > ts_expired_)
+        {
+            DLOG(INFO) << "BLMPopCommand, expired, ClockTs: " << clock_ts
+                       << ", ts_expired: " << ts_expired_;
+        }
+        return clock_ts > ts_expired_;
     }
 
     uint32_t NumOfFinishBlockCommands() const override
