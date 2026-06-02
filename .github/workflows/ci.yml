@@ -1,4 +1,4 @@
-name: Enterprise CI
+name: CI
 
 on:
   push:
@@ -8,7 +8,40 @@ on:
     branches: [main]
 
 jobs:
-  compile-test:
+  # Quick smoke test — build + TCL tests (fast feedback)
+  smoke:
+    runs-on: ubuntu-latest
+    container:
+      image: eloqdata/eloq-dev-ci-ubuntu2404:latest
+      options: --user root --security-opt seccomp=unconfined
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          path: eloqkv
+
+      - name: Build
+        working-directory: eloqkv
+        run: |
+          cmake -B build -DCMAKE_BUILD_TYPE=Debug
+          cmake --build build -j$(nproc)
+
+      - name: Run TCL tests
+        shell: bash
+        working-directory: eloqkv
+        run: |
+          source .github/scripts/common.sh
+
+          ./build/eloqkv --port 6379 --eloq_store_buffer_pool_size=1MB --eloq_store_open_files_limit=512 --logtostderr > /tmp/eloqkv.log 2>&1 &
+          wait_until_ready || { cat /tmp/eloqkv.log; exit 1; }
+
+          run_tcl_tests all Debug
+
+          kill $(jobs -p) 2>/dev/null || true
+
+  # Enterprise CI matrix — full build + test suite across build types and KV stores
+  ent-ci:
     concurrency:
       group: ent-ci-${{ github.event.pull_request.number || github.ref }}-${{ matrix.build_type }}-${{ matrix.kv_store_type }}
       cancel-in-progress: true
@@ -34,7 +67,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
-          path: ${{ github.event_name == 'push' && 'redis_src' || 'redis_pr' }}
+          path: eloqkv
           ref: ${{ github.event.pull_request.head.sha || '' }}
 
       - name: Clone private dependencies
@@ -48,7 +81,7 @@ jobs:
 
       - name: Run CI (${{ matrix.build_type }}, ${{ matrix.kv_store_type }})
         env:
-          MINIO_ENDPOINT: http://127.0.0.1:9000
+          MINIO_ENDPOINT: http://127.0.0.1:9900
           MINIO_ACCESS_KEY: minioadmin
           MINIO_SECRET_KEY: minioadmin
           BUILD_TYPE: ${{ matrix.build_type }}
@@ -58,7 +91,7 @@ jobs:
           PR_BRANCH_NAME: ${{ github.head_ref || '' }}
           SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
         run: |
-          bash ./redis_${{ github.event_name == 'push' && 'src' || 'pr' }}/.github/scripts/gh_ci_entry.sh \
+          bash ./eloqkv/.github/scripts/gh_ci_entry.sh \
             "$MINIO_ENDPOINT" \
             "$MINIO_ACCESS_KEY" \
             "$MINIO_SECRET_KEY" \

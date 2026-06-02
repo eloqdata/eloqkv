@@ -17,12 +17,10 @@ BUILD_TYPE=${BUILD_TYPE:?BUILD_TYPE env var not set}
 CI_MODE=${CI_MODE:-pr}             # "pr" or "main"
 PR_BRANCH_NAME=${PR_BRANCH_NAME:-}
 
-# Determine checkout dir based on CI mode
-if [ "$CI_MODE" == "main" ]; then
-  CHECKOUT_DIR="redis_src"
-else
-  CHECKOUT_DIR="redis_pr"
-fi
+# The main repo is now checked out to GITHUB_WORKSPACE/eloqkv.
+# All auxiliary repos are cloned alongside it under GITHUB_WORKSPACE/.
+export ELOQKV_BASE_PATH="${GITHUB_WORKSPACE}/eloqkv"
+export ELOQ_TEST_PATH="${GITHUB_WORKSPACE}/eloq_test_src"
 
 # Compute txlog_log_state from kv_store_type (same as pr.ent.bash)
 if [ "$KV_STORE_TYPE" == "ELOQDSS_ROCKSDB_CLOUD_S3" ]; then
@@ -62,12 +60,12 @@ wget -q https://dl.min.io/server/minio/release/linux-amd64/minio
 chmod +x minio
 mkdir -p /tmp/minio_data
 MINIO_ROOT_USER=$MINIO_ACCESS_KEY MINIO_ROOT_PASSWORD=$MINIO_SECRET_KEY \
-  ./minio server /tmp/minio_data --address :9000 --console-address :9001 > /tmp/minio.log 2>&1 &
+  ./minio server /tmp/minio_data --address :9900 --console-address :9901 > /tmp/minio.log 2>&1 &
 MINIO_PID=$!
 
 echo "Waiting for Minio to be ready..."
 for i in $(seq 1 30); do
-  if curl -sf http://localhost:9000/minio/health/live > /dev/null 2>&1; then
+  if curl -sf http://localhost:9900/minio/health/live > /dev/null 2>&1; then
     echo "Minio is ready."
     break
   fi
@@ -79,7 +77,7 @@ for i in $(seq 1 30); do
   sleep 1
 done
 
-if ! curl -sf http://localhost:9000/minio/health/live > /dev/null 2>&1; then
+if ! curl -sf http://localhost:9900/minio/health/live > /dev/null 2>&1; then
   echo "Minio failed to start after 30s. Log:"
   cat /tmp/minio.log
   exit 1
@@ -90,41 +88,28 @@ echo "Downloading and configuring mc..."
 wget -q https://dl.min.io/client/mc/release/linux-amd64/mc
 chmod +x mc
 mv mc /usr/local/bin/mc
-mc alias set local http://localhost:9000 $MINIO_ACCESS_KEY $MINIO_SECRET_KEY
+mc alias set local http://localhost:9900 $MINIO_ACCESS_KEY $MINIO_SECRET_KEY
 
 # --- Workspace setup ---
-cd $WORKSPACE
-whoami
-pwd
-ls
-current_user=$(whoami)
-chown -R $current_user $PWD
-
-
-mkdir -p /home/$current_user/workspace
-chown -R $current_user /home/$current_user/workspace
-cd /home/$current_user/workspace
-ln -sf $WORKSPACE/$CHECKOUT_DIR eloqkv
-ln -sf $WORKSPACE/eloq_test_src eloq_test
+# All repos live under GITHUB_WORKSPACE.
+# Symlink auxiliary repos into their expected locations within the main repo.
+cd ${ELOQKV_BASE_PATH}
 
 # --- Submodule init ---
-cd eloqkv
 git submodule sync
 git submodule update --init --recursive
-cd ..
 
 # --- PR branch matching for eloq_test (PR mode only) ---
-cd eloq_test
+cd ${ELOQ_TEST_PATH}
 if [ -n "$PR_BRANCH_NAME" ] && git ls-remote --exit-code --heads origin "$PR_BRANCH_NAME" > /dev/null 2>&1; then
   git fetch origin "${PR_BRANCH_NAME}:refs/remotes/origin/${PR_BRANCH_NAME}"
   git checkout -b ${PR_BRANCH_NAME} origin/${PR_BRANCH_NAME}
   git submodule update --init --recursive
 fi
-cd ..
 
 # --- Setup log service symlink and branch matching ---
-cd eloqkv
-ln -sf $WORKSPACE/logservice_src data_substrate/eloq_log_service
+cd ${ELOQKV_BASE_PATH}
+ln -sf ${GITHUB_WORKSPACE}/logservice_src data_substrate/eloq_log_service
 cd data_substrate/eloq_log_service
 if [ -n "$PR_BRANCH_NAME" ] && git ls-remote --exit-code --heads origin "$PR_BRANCH_NAME" > /dev/null 2>&1; then
   git fetch origin "${PR_BRANCH_NAME}:refs/remotes/origin/${PR_BRANCH_NAME}"
@@ -133,18 +118,17 @@ if [ -n "$PR_BRANCH_NAME" ] && git ls-remote --exit-code --heads origin "$PR_BRA
 fi
 
 # --- Setup raft_host_manager symlink and branch matching ---
-cd /home/$current_user/workspace/eloqkv/data_substrate/tx_service
-ln -sf $WORKSPACE/raft_host_manager_src raft_host_manager
+cd ${ELOQKV_BASE_PATH}/data_substrate/tx_service
+ln -sf ${GITHUB_WORKSPACE}/raft_host_manager_src raft_host_manager
 cd raft_host_manager
 if [ -n "$PR_BRANCH_NAME" ] && git ls-remote --exit-code --heads origin "$PR_BRANCH_NAME" > /dev/null 2>&1; then
   git fetch origin "${PR_BRANCH_NAME}:refs/remotes/origin/${PR_BRANCH_NAME}"
   git checkout -b ${PR_BRANCH_NAME} origin/${PR_BRANCH_NAME}
   git submodule update --init --recursive
 fi
-cd ..
 
 # --- CMake version check ---
-cd /home/$current_user/workspace/eloqkv
+cd ${ELOQKV_BASE_PATH}
 
 cmake_version=$(cmake --version 2>&1)
 if [[ $? -eq 0 ]]; then
@@ -166,11 +150,11 @@ sed -i "s/#\s*StrictHostKeyChecking ask/    StrictHostKeyChecking no/g" /etc/ssh
 
 python3.8 -m venv my_env
 source my_env/bin/activate
-pip install -r /home/$current_user/workspace/eloqkv/tests/unit/eloq/log_replay_test/requirements.txt
+pip install -r ${ELOQKV_BASE_PATH}/tests/unit/eloq/log_replay_test/requirements.txt
 deactivate
 
 # --- Run build + tests for single (build_type, kv_store_type) ---
-rm -rf /home/$current_user/workspace/eloqkv/eloq_data
+rm -rf ${ELOQKV_BASE_PATH}/eloq_data
 
 run_build_ent $BUILD_TYPE $KV_STORE_TYPE $txlog_log_state
 
