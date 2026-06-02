@@ -25,7 +25,7 @@ jobs:
 
       - name: Run TCL tests
         run: |
-          ./build/eloqkv --port 6379 --eloq_store_buffer_pool_size=1MB --logtostderr > /tmp/eloqkv.log 2>&1 &
+          ./build/eloqkv --port 6379 --eloq_store_buffer_pool_size=1MB --eloq_store_open_files_limit=512 --logtostderr > /tmp/eloqkv.log 2>&1 &
           for i in $(seq 1 30); do
             redis-cli -h 127.0.0.1 -p 6379 ping && break
             sleep 1
