@@ -100,10 +100,6 @@ ls
 current_user=$(whoami)
 chown -R $current_user $PWD
 
-ulimit -c unlimited
-echo '/tmp/core.%t.%e.%p' | tee /proc/sys/kernel/core_pattern
-if [ ! -d "/var/crash" ]; then mkdir -p /var/crash; fi
-chmod 777 /var/crash
 
 mkdir -p /home/$current_user/workspace
 chown -R $current_user /home/$current_user/workspace
