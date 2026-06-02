@@ -22,7 +22,7 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: eloqdata/eloq-dev-ci-ubuntu2404:latest
-      options: --user root --privileged
+      options: --user root --privileged --security-opt seccomp=unconfined
 
     name: ${{ github.event_name == 'push' && 'main' || 'PR' }} ${{ matrix.build_type }}-${{ matrix.kv_store_type }}
 
