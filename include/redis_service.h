@@ -26,6 +26,7 @@
 
 #include <cassert>
 #include <cstddef>
+#include <map>
 #include <memory>  //std::unique_ptr
 #include <string>
 #include <string_view>
@@ -38,6 +39,7 @@
 #include "eloqkv_catalog_factory.h"
 #include "error_messages.h"
 #include "lua_interpreter.h"
+#include "namespace/manager.h"
 #include "pub_sub_manager.h"
 #include "redis_command.h"
 #include "store/data_store_handler.h"
@@ -150,6 +152,8 @@ struct RedisTable
 class RedisCommandHandler;
 class RedisConnectionContext;
 class MultiTransactionHandler;
+class RedisServiceImpl;
+class NamespaceStorage;
 
 const std::unordered_set<std::string> redis_config_keys = {
     "slowlog-log-slower-than",
@@ -158,6 +162,8 @@ const std::unordered_set<std::string> redis_config_keys = {
 
 class RedisServiceImpl : public brpc::RedisService
 {
+    friend class NamespaceStorage;
+
 public:
     explicit RedisServiceImpl(const std::string &config_file,
                               const char *version);
@@ -206,7 +212,7 @@ public:
     size_t GetRedisTableCount() const;
 
     bool AuthRequired(const RedisConnectionContext *ctx,
-                      const butil::StringPiece &command) const;
+                      const std::vector<butil::StringPiece> &args) const;
 
     brpc::RedisCommandHandlerResult DispatchCommand(
         brpc::ConnectionContext *ctx,
@@ -217,6 +223,28 @@ public:
     // Call this function to register `handler` that can handle command `name`.
     bool AddCommandHandler(const std::string &name,
                            RedisCommandHandler *handler);
+
+    NamespaceManager *GetNamespaceManager()
+    {
+        return &namespace_manager_;
+    }
+
+    bool IsStopping() const
+    {
+        return stopping_indicator_.load(std::memory_order_acquire);
+    }
+
+    const TableName *NamespaceTableName() const
+    {
+        return namespace_table_name_.get();
+    }
+    const TableName *NsDataTableName() const
+    {
+        return ns_data_table_name_.get();
+    }
+
+    bool ExecuteNamespaceTxRequest(TransactionExecution *txm,
+                                   TxRequest *tx_req);
 
     // TLS configuration accessors
     bool IsTlsEnabled() const
@@ -514,7 +542,6 @@ public:
 
     size_t MaxConnectionCount() const;
 
-private:
     static bool SendTxRequest(TransactionExecution *txm,
                               TxRequest *tx_req,
                               OutputHandler *error);
@@ -562,6 +589,8 @@ private:
     store::DataStoreHandler *store_hd_{nullptr};
 
     std::vector<TableName> redis_table_names_;
+    std::unique_ptr<TableName> namespace_table_name_;
+    std::unique_ptr<TableName> ns_data_table_name_;
 
     std::vector<std::unique_ptr<RedisCommandHandler>> hd_vec_;
 
@@ -570,6 +599,8 @@ private:
 
     std::shared_mutex script_mutex_;
     std::unordered_map<std::string, std::string> scripts_;
+
+    NamespaceManager namespace_manager_;
 
     // use atomic variable to protect config_. We do not use mutex here because
     // we might jump to other task groups when updating config_, so using mutex

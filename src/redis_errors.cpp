@@ -78,6 +78,7 @@ const char *redis_error_messages[] = {
     "ERR update vector in index failed",
     "ERR delete vector from index failed",
     "ERR search vector in index failed",
+    "ERR SELECT is not allowed in custom namespace",
 };
 
 extern const char *redis_get_error_messages(int nr)

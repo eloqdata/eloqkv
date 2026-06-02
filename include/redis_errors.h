@@ -70,8 +70,9 @@ static const int RD_ERR_VECTOR_INDX_ADD_FAILED = RD_ERR_FIRST + 42;
 static const int RD_ERR_VECTOR_INDX_UPDATE_FAILED = RD_ERR_FIRST + 43;
 static const int RD_ERR_VECTOR_INDX_DELETE_FAILED = RD_ERR_FIRST + 44;
 static const int RD_ERR_VECTOR_INDX_SEARCH_FAILED = RD_ERR_FIRST + 45;
+static const int RD_ERR_SELECT_FORBIDDEN_IN_NS = RD_ERR_FIRST + 46;
 
-static const int RD_ERR_LAST = RD_ERR_VECTOR_INDX_SEARCH_FAILED;
+static const int RD_ERR_LAST = RD_ERR_SELECT_FORBIDDEN_IN_NS;
 
 extern const char *redis_error_messages[];
 extern const char *redis_get_error_messages(int nr);
