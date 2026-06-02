@@ -1,0 +1,69 @@
+name: Enterprise CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    types: [opened, synchronize, reopened, labeled]
+    branches: [main]
+
+concurrency:
+  group: ent-ci-${{ github.event.pull_request.number || github.ref }}-${{ matrix.build_type }}-${{ matrix.kv_store_type }}
+  cancel-in-progress: true
+
+jobs:
+  compile-test:
+    if: |
+      github.event_name == 'push' ||
+      contains(github.event.pull_request.labels.*.name, 'trigger-ci')
+
+    strategy:
+      fail-fast: false
+      matrix:
+        build_type: [Debug, RelWithDebInfo]
+        kv_store_type: [ELOQDSS_ELOQSTORE, ELOQDSS_ROCKSDB_CLOUD_S3, ROCKSDB]
+
+    runs-on: ubuntu-latest
+    container:
+      image: eloqdata/eloq-dev-ci-ubuntu2404:latest
+      options: --user root --privileged
+
+    name: ${{ github.event_name == 'push' && 'main' || 'PR' }} ${{ matrix.build_type }}-${{ matrix.kv_store_type }}
+
+    steps:
+      - uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          path: ${{ github.event_name == 'push' && 'redis_src' || 'redis_pr' }}
+          ref: ${{ github.event.pull_request.head.sha || '' }}
+
+      - name: Clone private dependencies
+        env:
+          GIT_SSH_COMMAND: "ssh -o StrictHostKeyChecking=accept-new"
+        run: |
+          git config --global --add safe.directory '*'
+          git clone --recurse-submodules git@github.com:eloqdata/eloq_log_service.git logservice_src
+          git clone --recurse-submodules git@github.com:eloqdata/eloq-test.git eloq_test_src
+          git clone --recurse-submodules git@github.com:eloqdata/raft_host_manager.git raft_host_manager_src
+
+      - name: Run CI (${{ matrix.build_type }}, ${{ matrix.kv_store_type }})
+        env:
+          MINIO_ENDPOINT: http://localhost:9000
+          MINIO_ACCESS_KEY: minioadmin
+          MINIO_SECRET_KEY: minioadmin
+          BUILD_TYPE: ${{ matrix.build_type }}
+          KV_STORE_TYPE: ${{ matrix.kv_store_type }}
+          CI_MODE: ${{ github.event_name == 'push' && 'main' || 'pr' }}
+          PR_BRANCH_NAME: ${{ github.head_ref || '' }}
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+        run: |
+          bash ./redis_${{ github.event_name == 'push' && 'src' || 'pr' }}/.github/scripts/gh_ci_entry.sh \
+            "$MINIO_ENDPOINT" \
+            "$MINIO_ACCESS_KEY" \
+            "$MINIO_SECRET_KEY" \
+            "$KV_STORE_TYPE" \
+            "$SSH_PRIVATE_KEY"

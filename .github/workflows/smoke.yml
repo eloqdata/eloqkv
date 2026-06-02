@@ -1,0 +1,38 @@
+name: Smoke
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  tcl:
+    runs-on: ubuntu-latest
+    container:
+      image: eloqdata/eloq-dev-ci-ubuntu2404:latest
+      options: --user root
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Build
+        run: |
+          cmake -B build -DCMAKE_BUILD_TYPE=Debug
+          cmake --build build -j$(nproc)
+
+      - name: Run TCL tests
+        run: |
+          ./build/eloqkv --port 6379 --logtostderr > /tmp/eloqkv.log 2>&1 &
+          for i in $(seq 1 30); do
+            redis-cli -h 127.0.0.1 -p 6379 ping && break
+            sleep 1
+          done
+          redis-cli -h 127.0.0.1 -p 6379 ping || { cat /tmp/eloqkv.log; exit 1; }
+
+          tclsh tests/test_helper.tcl \
+            --host 127.0.0.1 \
+            --port 6379 \
+            --single /unit/eloq/
