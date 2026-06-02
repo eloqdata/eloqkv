@@ -234,7 +234,8 @@ bool RedisServiceImpl::Init(brpc::Server &brpc_server)
     // Prebuilt Redis tables (same names as today: data_table_0 ..
     // data_table_15)
     std::vector<std::pair<txservice::TableName, std::string>> prebuilt_tables;
-    prebuilt_tables.reserve(databases + 1);
+    // Reserve databases user tables + 2 system tables (namespace and ns_data)
+    prebuilt_tables.reserve(databases + 2);
 
     for (int i = 0; i < databases; i++)
     {
