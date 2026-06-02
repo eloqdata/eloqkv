@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
-    types: [opened, synchronize, reopened, labeled]
+    types: [opened, synchronize, reopened]
     branches: [main]
 
 concurrency:
@@ -13,9 +13,6 @@ concurrency:
 
 jobs:
   compile-test:
-    if: |
-      github.event_name == 'push' ||
-      contains(github.event.pull_request.labels.*.name, 'trigger-ci')
 
     strategy:
       fail-fast: false
