@@ -1171,7 +1171,7 @@ function start_dss_server() {
         local eloq_store_cloud_access_key=${ROCKSDB_CLOUD_AWS_ACCESS_KEY_ID}
         local eloq_store_cloud_secret_key=${ROCKSDB_CLOUD_AWS_SECRET_ACCESS_KEY}
         local eloq_store_cloud_store_path=${ELOQSTORE_BUCKET_NAME}
-        local eloq_store_buffer_pool_size=8MB
+        local eloq_store_buffer_pool_size=1MB
         cleanup_minio_bucket ${ELOQSTORE_BUCKET_NAME}
         create_minio_bucket ${ELOQSTORE_BUCKET_NAME}
         dss_server_configs="--eloq_store_worker_num=${eloq_store_worker_num} \
