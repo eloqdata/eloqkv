@@ -1165,7 +1165,7 @@ function start_dss_server() {
     elif [[ $kv_store_type = "ELOQDSS_ELOQSTORE" ]]; then
         local eloq_store_worker_num=2
         local eloq_store_data_path="${dss_data_path}/eloq_store"
-        local eloq_store_open_files_limit=10240
+        local eloq_store_open_files_limit=512
         local eloq_store_cloud_provider=aws
         local eloq_store_cloud_endpoint=${ROCKSDB_CLOUD_S3_ENDPOINT}
         local eloq_store_cloud_access_key=${ROCKSDB_CLOUD_AWS_ACCESS_KEY_ID}
