@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: eloqdata/eloq-dev-ci-ubuntu2404:latest
-      options: --user root
+      options: --user root --security-opt seccomp=unconfined
 
     steps:
       - uses: actions/checkout@v4
