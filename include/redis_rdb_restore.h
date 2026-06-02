@@ -5,6 +5,8 @@
 
 namespace EloqKV
 {
+struct RedisEloqObject;
+
 enum class RestorePayloadFormat
 {
     EloqKV,
@@ -13,4 +15,7 @@ enum class RestorePayloadFormat
 
 bool ConvertRedisDumpPayloadToEloqPayload(std::string_view dump_payload,
                                           std::string &eloq_payload);
+
+bool ConvertEloqObjectToRedisDumpPayload(const RedisEloqObject &object,
+                                         std::string &dump_payload);
 }  // namespace EloqKV

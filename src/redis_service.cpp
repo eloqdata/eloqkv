@@ -31,6 +31,7 @@
 #include <sys/resource.h>
 #include <sys/sysinfo.h>
 #include <sys/types.h>
+#include <sys/utsname.h>
 
 #include <algorithm>
 #include <atomic>
@@ -39,9 +40,11 @@
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
+#include <fstream>
 #include <functional>
 #include <memory>
 #include <optional>
+#include <sstream>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -138,6 +141,35 @@ DEFINE_bool(retry_on_occ_error, true, "Retry transaction on OCC caused error.");
 DEFINE_bool(enable_tls, false, "Enable TLS for brpc RPC connections");
 DEFINE_string(tls_cert_file, "", "Path to TLS certificate file (PEM format)");
 DEFINE_string(tls_key_file, "", "Path to TLS private key file (PEM format)");
+
+std::string ExecCommand(const std::string &cmd)
+{
+    char line[1024];
+    FILE *fp;
+    const char *sysCommand = cmd.data();
+    if ((fp = popen(sysCommand, "r")) == NULL)
+    {
+        return "Failed to execute command '" + cmd + "'!";
+    }
+
+    std::string rst;
+    while (fgets(line, sizeof(line) - 1, fp) != NULL)
+    {
+        if (rst.size() > 0 && *rst.rbegin() != '\n')
+        {
+            rst += "\n";
+        }
+
+        rst += line;
+    }
+    pclose(fp);
+
+    if (!rst.empty() && rst.back() == '\n')
+    {
+        return rst.substr(0, rst.size() - 1);
+    }
+    return rst;
+}
 
 namespace EloqKV
 {
@@ -522,6 +554,51 @@ bool RedisServiceImpl::Init(brpc::Server &brpc_server)
             return false;
         }
     }
+
+    // Capture static system info at startup (avoid fork/exec on every INFO).
+    {
+        struct utsname uts;
+        if (uname(&uts) == 0)
+        {
+            os_info_ = std::string(uts.sysname) + " " + uts.release + " " +
+                       uts.machine;
+        }
+    }
+    {
+        char buf[4096];
+        ssize_t len = readlink("/proc/self/exe", buf, sizeof(buf) - 1);
+        if (len > 0)
+        {
+            buf[len] = '\0';
+            executable_path_ = buf;
+        }
+    }
+    {
+        long total_mem_kb = 0;
+        std::ifstream file("/proc/meminfo");
+        if (file.is_open())
+        {
+            std::string line;
+            while (std::getline(file, line))
+            {
+                if (line.rfind("MemTotal:", 0) != 0)
+                {
+                    continue;
+                }
+                std::istringstream iss(line);
+                std::string key;
+                uint64_t value = 0;
+                std::string unit;
+                if (iss >> key >> value >> unit)
+                {
+                    total_mem_kb = static_cast<long>(value);
+                }
+                break;
+            }
+        }
+        total_system_memory_kb_ = static_cast<int64_t>(total_mem_kb);
+    }
+    event_dispatcher_num_ = brpc::FLAGS_event_dispatcher_num;
 
     return true;
 }
@@ -1270,6 +1347,12 @@ void RedisServiceImpl::AddHandlers()
     auto &info_hd =
         hd_vec_.emplace_back(std::make_unique<InfoCommandHandler>(this));
     AddCommandHandler("info", info_hd.get());
+
+#ifdef ELOQKV_WITH_DSS_ROCKSDB_CLOUD
+    auto &compact_hd =
+        hd_vec_.emplace_back(std::make_unique<CompactCommandHandler>(this));
+    AddCommandHandler("compact", compact_hd.get());
+#endif
 
     auto &command_hd =
         hd_vec_.emplace_back(std::make_unique<CommandCommandHandler>(this));
