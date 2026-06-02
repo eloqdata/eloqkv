@@ -48,7 +48,7 @@ jobs:
 
       - name: Run CI (${{ matrix.build_type }}, ${{ matrix.kv_store_type }})
         env:
-          MINIO_ENDPOINT: http://localhost:9000
+          MINIO_ENDPOINT: http://127.0.0.1:9000
           MINIO_ACCESS_KEY: minioadmin
           MINIO_SECRET_KEY: minioadmin
           BUILD_TYPE: ${{ matrix.build_type }}
