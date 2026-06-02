@@ -7,12 +7,11 @@ on:
     types: [opened, synchronize, reopened]
     branches: [main]
 
-concurrency:
-  group: ent-ci-${{ github.event.pull_request.number || github.ref }}-${{ matrix.build_type }}-${{ matrix.kv_store_type }}
-  cancel-in-progress: true
-
 jobs:
   compile-test:
+    concurrency:
+      group: ent-ci-${{ github.event.pull_request.number || github.ref }}-${{ matrix.build_type }}-${{ matrix.kv_store_type }}
+      cancel-in-progress: true
 
     strategy:
       fail-fast: false
