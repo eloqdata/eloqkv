@@ -60,12 +60,12 @@ wget -q https://dl.min.io/server/minio/release/linux-amd64/minio
 chmod +x minio
 mkdir -p /tmp/minio_data
 MINIO_ROOT_USER=$MINIO_ACCESS_KEY MINIO_ROOT_PASSWORD=$MINIO_SECRET_KEY \
-  ./minio server /tmp/minio_data --address :9000 --console-address :9001 > /tmp/minio.log 2>&1 &
+  ./minio server /tmp/minio_data --address :9900 --console-address :9901 > /tmp/minio.log 2>&1 &
 MINIO_PID=$!
 
 echo "Waiting for Minio to be ready..."
 for i in $(seq 1 30); do
-  if curl -sf http://localhost:9000/minio/health/live > /dev/null 2>&1; then
+  if curl -sf http://localhost:9900/minio/health/live > /dev/null 2>&1; then
     echo "Minio is ready."
     break
   fi
@@ -77,7 +77,7 @@ for i in $(seq 1 30); do
   sleep 1
 done
 
-if ! curl -sf http://localhost:9000/minio/health/live > /dev/null 2>&1; then
+if ! curl -sf http://localhost:9900/minio/health/live > /dev/null 2>&1; then
   echo "Minio failed to start after 30s. Log:"
   cat /tmp/minio.log
   exit 1
@@ -88,7 +88,7 @@ echo "Downloading and configuring mc..."
 wget -q https://dl.min.io/client/mc/release/linux-amd64/mc
 chmod +x mc
 mv mc /usr/local/bin/mc
-mc alias set local http://localhost:9000 $MINIO_ACCESS_KEY $MINIO_SECRET_KEY
+mc alias set local http://localhost:9900 $MINIO_ACCESS_KEY $MINIO_SECRET_KEY
 
 # --- Workspace setup ---
 # All repos live under GITHUB_WORKSPACE.
