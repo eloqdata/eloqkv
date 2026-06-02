@@ -715,7 +715,7 @@ function run_eloqkv_tests() {
     cleanup_minio_bucket ${ROCKSDB_CLOUD_BUCKET_NAME}
     create_minio_bucket ${ELOQSTORE_BUCKET_NAME}
     local eloq_data_path="/tmp/eloqkv_data"
-    local node_memory_limit_mb=8192
+    local node_memory_limit_mb=${NODE_MEMORY_LIMIT_MB:-8192}
     local eloq_store_data_path="/tmp/eloqkv_data/eloq_store"
     local eloqkv_bin_path="/home/$current_user/workspace/eloqkv/install/bin/eloqkv"
     local aws_access_key_id=${ROCKSDB_CLOUD_AWS_ACCESS_KEY_ID}
@@ -1668,7 +1668,7 @@ function run_eloqkv_cluster_tests() {
   elif [[ $kv_store_type = "ELOQDSS_ELOQSTORE" ]]; then
     echo "eloqkv cluster test with dss_eloqstore." >/tmp/redis_cluster_with_eloqstore.log
 
-    local node_memory_limit_mb=8192
+    local node_memory_limit_mb=${NODE_MEMORY_LIMIT_MB:-8192}
     local dss_peer_node="127.0.0.1:9100"
     local rocksdb_cloud_aws_access_key_id=${ROCKSDB_CLOUD_AWS_ACCESS_KEY_ID}
     local rocksdb_cloud_aws_secret_access_key=${ROCKSDB_CLOUD_AWS_SECRET_ACCESS_KEY}

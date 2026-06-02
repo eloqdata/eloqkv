@@ -54,6 +54,7 @@ jobs:
           BUILD_TYPE: ${{ matrix.build_type }}
           KV_STORE_TYPE: ${{ matrix.kv_store_type }}
           CI_MODE: ${{ github.event_name == 'push' && 'main' || 'pr' }}
+          NODE_MEMORY_LIMIT_MB: 4096
           PR_BRANCH_NAME: ${{ github.head_ref || '' }}
           SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
         run: |
