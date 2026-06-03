@@ -96,7 +96,7 @@ jobs:
           if [ "$BUILD_TYPE" = "Debug" ]; then
             export BUILD_JOBS=$NPROC
           else
-            export BUILD_JOBS=$((NPROC / 2))
+            export BUILD_JOBS=$(( (NPROC + 1) / 2 ))
           fi
           bash ./eloqkv/.github/scripts/gh_ci_entry.sh \
             "$MINIO_ENDPOINT" \
