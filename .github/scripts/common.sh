@@ -65,13 +65,19 @@ function wait_until_finished() {
   local elapsed=0
   local interval=1
 
-  while [ $(ps aux | grep eloqkv | grep -v grep | grep -v launch_sv | grep -v dss_server | grep -v gh_ci_entry | wc -l) -gt 0 ]; do
+  # First, forcefully kill any remaining eloqkv processes.
+  # pkill matches by process name, not command line, so it won't
+  # accidentally kill the bash scripts that have eloqkv in their path.
+  pkill eloqkv 2>/dev/null || true
+  sleep 2
+  pkill -9 eloqkv 2>/dev/null || true
+
+  while pgrep eloqkv > /dev/null 2>&1; do
     sleep $interval
     elapsed=$((elapsed + interval))
     if [ $elapsed -ge $timeout ]; then
-      echo "Timeout: Process still running after $timeout seconds."
-      # list eloqkv still alived
-      ps aux | grep eloqkv | grep -v grep | grep -v launch_sv | grep -v dss_server | grep -v gh_ci_entry
+      echo "Timeout: eloqkv process still running after $timeout seconds."
+      ps aux | grep eloqkv | grep -v grep | grep -v launch_sv | grep -v dss_server
       return 1
     fi
   done
