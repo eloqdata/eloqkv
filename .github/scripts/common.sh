@@ -65,13 +65,13 @@ function wait_until_finished() {
   local elapsed=0
   local interval=1
 
-  while [ $(ps aux | grep eloqkv | grep -v grep | grep -v launch_sv | grep -v dss_server | wc -l) -gt 0 ]; do
+  while [ $(ps aux | grep eloqkv | grep -v grep | grep -v launch_sv | grep -v dss_server | grep -v gh_ci_entry | wc -l) -gt 0 ]; do
     sleep $interval
     elapsed=$((elapsed + interval))
     if [ $elapsed -ge $timeout ]; then
       echo "Timeout: Process still running after $timeout seconds."
       # list eloqkv still alived
-      ps aux | grep eloqkv | grep -v grep | grep -v launch_sv | grep -v dss_server
+      ps aux | grep eloqkv | grep -v grep | grep -v launch_sv | grep -v dss_server | grep -v gh_ci_entry
       return 1
     fi
   done
