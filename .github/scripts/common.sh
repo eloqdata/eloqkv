@@ -22,6 +22,9 @@ if [ -n "${GITHUB_WORKSPACE}" ]; then
   fi
 fi
 
+# Build parallelism: defaults to nproc, caller can override per build type
+BUILD_JOBS=${BUILD_JOBS:-$(nproc)}
+
 function kernel_version_greater_than_6.5() {
   kernel_version=$(uname -r)
   major=$(echo "$kernel_version" | cut -d. -f1)
@@ -263,7 +266,7 @@ function run_build_ent() {
   log_file="/tmp/compile_info.log"
 
   run_cmake_build() {
-    cmake --build ${ELOQKV_BASE_PATH}/cmake -j 8
+    cmake --build ${ELOQKV_BASE_PATH}/cmake -j ${BUILD_JOBS}
     local exit_status=$?
 
     if [ $exit_status -ne 0 ]; then
@@ -280,14 +283,14 @@ function run_build_ent() {
 
   # compile log service to setup redis cluster later
   cd ${ELOQKV_BASE_PATH}/data_substrate/eloq_log_service
-  cmake -B bld -DCMAKE_BUILD_TYPE=$build_type && cmake --build bld -j 8
+  cmake -B bld -DCMAKE_BUILD_TYPE=$build_type && cmake --build bld -j ${BUILD_JOBS}
   cp ${ELOQKV_BASE_PATH}/data_substrate/eloq_log_service/bld/launch_sv ${ELOQKV_BASE_PATH}/install/bin/
 
   case "$kv_store_type" in
   ELOQDSS_*)
     echo "build dss_server"
     cd ${ELOQKV_BASE_PATH}/data_substrate/store_handler/eloq_data_store_service
-    cmake -B bld -DCMAKE_BUILD_TYPE=$build_type -DWITH_DATA_STORE=$kv_store_type && cmake --build bld -j8
+    cmake -B bld -DCMAKE_BUILD_TYPE=$build_type -DWITH_DATA_STORE=$kv_store_type && cmake --build bld -j ${BUILD_JOBS}
     cp ${ELOQKV_BASE_PATH}/data_substrate/store_handler/eloq_data_store_service/bld/dss_server ${ELOQKV_BASE_PATH}/install/bin/
     ;;
   esac

@@ -24,8 +24,9 @@ jobs:
       - name: Build
         working-directory: eloqkv
         run: |
+          export BUILD_JOBS=$(nproc)
           cmake -B build -DCMAKE_BUILD_TYPE=Debug
-          cmake --build build -j$(nproc)
+          cmake --build build -j${BUILD_JOBS}
 
       - name: Run TCL tests
         shell: bash
@@ -91,6 +92,12 @@ jobs:
           PR_BRANCH_NAME: ${{ github.head_ref || '' }}
           SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
         run: |
+          NPROC=$(nproc)
+          if [ "$BUILD_TYPE" = "Debug" ]; then
+            export BUILD_JOBS=$NPROC
+          else
+            export BUILD_JOBS=$((NPROC / 2))
+          fi
           bash ./eloqkv/.github/scripts/gh_ci_entry.sh \
             "$MINIO_ENDPOINT" \
             "$MINIO_ACCESS_KEY" \
