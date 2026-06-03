@@ -42,6 +42,7 @@ start_server {tags {"multi"}} {
     } {*ERR MULTI*}
 
     test {MULTI where commands alter argc/argv} {
+        r del myset
         r sadd myset a
         r multi
         r spop myset

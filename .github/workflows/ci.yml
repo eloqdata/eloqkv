@@ -32,6 +32,9 @@ jobs:
         shell: bash
         working-directory: eloqkv
         run: |
+          ulimit -l
+          ulimit -n
+
           source .github/scripts/common.sh
 
           ./build/eloqkv --port 6379 --eloq_store_buffer_pool_size=1MB --eloq_store_open_files_limit=512 --logtostderr > /tmp/eloqkv.log 2>&1 &

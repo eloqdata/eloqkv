@@ -229,18 +229,94 @@ function run_tcl_tests() {
 
 function cleanup_minio_bucket() {
   bucket_name=$1
-  bucket_full_name="eloqkv-${bucket_name}"
-  echo "Clean up bucket ${bucket_name}"
+  if [[ "$bucket_name" == eloqkv-* ]]; then
+    bucket_full_name="${bucket_name}"
+  else
+    bucket_full_name="eloqkv-${bucket_name}"
+  fi
+  echo "Clean up bucket ${bucket_full_name}"
   mc rb --force local/${bucket_full_name} 2>/dev/null || true
 }
 
 function create_minio_bucket()
 {
   bucket_name=$1
-  bucket_full_name="eloqkv-${bucket_name}"
-  echo "Create bucket ${bucket_name}"
+  if [[ "$bucket_name" == eloqkv-* ]]; then
+    bucket_full_name="${bucket_name}"
+  else
+    bucket_full_name="eloqkv-${bucket_name}"
+  fi
+  echo "Create bucket ${bucket_full_name}"
   mc mb local/${bucket_full_name} 2>/dev/null || true
   echo "Minio bucket ${bucket_full_name} has been created."
+}
+
+function dump_file_tail() {
+  local file=$1
+  local lines=${2:-300}
+
+  if [ -f "$file" ]; then
+    echo ""
+    echo "===== ${file} (last ${lines} lines) ====="
+    tail -n "$lines" "$file" || true
+  fi
+}
+
+function dump_ci_failure_logs() {
+  local rc=${1:-1}
+  local failed_command=${2:-unknown}
+
+  set +e
+  echo ""
+  echo "===== CI failure diagnostics ====="
+  echo "Exit code: ${rc}"
+  echo "Failed command: ${failed_command}"
+  date || true
+  pwd || true
+
+  echo ""
+  echo "===== Running eloq-related processes ====="
+  ps -ef | grep -E 'eloqkv|dss_server|launch_sv|minio|redis-server' | grep -v grep || true
+
+  echo ""
+  echo "===== eloq_test runtime files ====="
+  if [ -n "${ELOQ_TEST_PATH:-}" ] && [ -d "${ELOQ_TEST_PATH}/runtime" ]; then
+    find "${ELOQ_TEST_PATH}/runtime" -maxdepth 3 -type f -printf '%p\n' | sort || true
+    while IFS= read -r file; do
+      dump_file_tail "$file" 400
+    done < <(find "${ELOQ_TEST_PATH}/runtime" -maxdepth 3 -type f \
+      \( -name '*log*' -o -name '*.log' -o -name 'LOG' \) | sort)
+  else
+    echo "No eloq_test runtime directory found at ${ELOQ_TEST_PATH:-<unset>}/runtime"
+  fi
+
+  echo ""
+  echo "===== /tmp CI logs ====="
+  for file in \
+    /tmp/minio.log \
+    /tmp/eloq_dss_data/eloq_dss_server.log \
+    /tmp/redis_single_node.log \
+    /tmp/redis_cluster_with_eloqstore.log \
+    /tmp/redis_log_service.log \
+    /tmp/load.log \
+    /tmp/compile_info.log; do
+    dump_file_tail "$file" 400
+  done
+
+  while IFS= read -r file; do
+    dump_file_tail "$file" 250
+  done < <(find /tmp -maxdepth 2 -type f \
+    \( -name 'redis_server*.log' -o -name 'eloq*.log' -o -name 'dss*.log' \) | sort)
+
+  echo ""
+  echo "===== End CI failure diagnostics ====="
+}
+
+function prepare_eloqstore_minio_buckets() {
+  cleanup_minio_bucket ${ELOQSTORE_BUCKET_NAME}
+  cleanup_minio_bucket ${ROCKSDB_CLOUD_BUCKET_NAME}
+  create_minio_bucket ${ELOQSTORE_BUCKET_NAME}
+  create_minio_bucket ${ROCKSDB_CLOUD_BUCKET_NAME}
 }
 
 function run_build_ent() {
@@ -2222,10 +2298,6 @@ function run_eloq_test() {
     mkdir ${ELOQ_TEST_PATH}/runtime
   fi
 
-  # generate cassandra keyspace name.
-  local timestamp=$(($(date +%s%N) / 1000000))
-  local keyspace_name="redis_test_${timestamp}"
-
   if [[ $kv_store_type = "ELOQDSS_ROCKSDB_CLOUD_S3" ]]; then
 
     local rocksdb_cloud_s3_endpoint_url=${ROCKSDB_CLOUD_S3_ENDPOINT}
@@ -2288,6 +2360,7 @@ function run_eloq_test() {
 
   elif [[ $kv_store_type = "ELOQDSS_ELOQSTORE" ]]; then
     echo "Run eloq_test for ELOQDSS_ELOQSTORE"
+    prepare_eloqstore_minio_buckets
     local rocksdb_cloud_s3_endpoint_url=${ROCKSDB_CLOUD_S3_ENDPOINT}
     local rocksdb_cloud_s3_endpoint_url_escape=${ROCKSDB_CLOUD_S3_ENDPOINT_ESCAPE}
     local rocksdb_cloud_aws_access_key_id=${ROCKSDB_CLOUD_AWS_ACCESS_KEY_ID}
@@ -2350,19 +2423,25 @@ function run_eloq_test() {
 
     # run single/multi test
     rm -rf runtime/*
+    prepare_eloqstore_minio_buckets
     python3 redis_test/multi_test/smoke_test.py --dbtype redis --storage eloqdss-eloqstore-cloud --install_path ${eloqkv_install_path} --bootstrap true
 
+    prepare_eloqstore_minio_buckets
     python3 redis_test/multi_test/cluster_rolling_upgrade.py --dbtype redis --storage eloqdss-eloqstore-cloud --install_path ${eloqkv_install_path} --bootstrap true
+    prepare_eloqstore_minio_buckets
     python3 redis_test/multi_test/cluster_scale_test.py --dbtype redis --storage eloqdss-eloqstore-cloud --install_path ${eloqkv_install_path} --bootstrap true
 
     # run log service scale test
     rm -rf runtime/*
+    prepare_eloqstore_minio_buckets
     python3 redis_test/log_service_test/log_service_scale_test.py --dbtype redis --storage eloqdss-eloqstore-cloud --install_path ${eloqkv_install_path}
 
     # run standby test
     rm -rf runtime/*
+    prepare_eloqstore_minio_buckets
     python3 run_tests.py --dbtype redis --group standby --storage eloqdss-eloqstore-local --install_path ${eloqkv_install_path} --bootstrap true
     rm -rf runtime/*
+    prepare_eloqstore_minio_buckets
     python3 run_tests.py --dbtype redis --group standby --storage eloqdss-eloqstore-cloud --install_path ${eloqkv_install_path} --bootstrap true
     rm -rf runtime/*
     # rm -rf runtime/*
