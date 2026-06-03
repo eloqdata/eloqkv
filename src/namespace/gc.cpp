@@ -1,6 +1,7 @@
 #include "namespace/gc.h"
 
 #include <glog/logging.h>
+#include "sharder.h"
 
 #include "b255.h"
 #include "eloqkv_key.h"
@@ -44,6 +45,21 @@ void NamespaceGc::RunDaemon()
     LOG(INFO) << "Namespace GC daemon started.";
     while (!server_->IsStopping())
     {
+        if (FLAGS_cluster_mode)
+        {
+            if (txservice::Sharder::Instance().NodeId() != txservice::Sharder::Instance().LeaderNodeId(0))
+            {
+                for (int i = 0; i < 50; ++i)
+                {
+                    if (server_->IsStopping())
+                    {
+                        break;
+                    }
+                    bthread_usleep(100 * 1000);
+                }
+                continue;
+            }
+        }
         std::vector<std::string> gc_records = ScanGCRecords();
         if (server_->IsStopping())
         {

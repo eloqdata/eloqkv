@@ -22,6 +22,8 @@
 #include "redis_command.h"
 
 #include <brpc/acceptor.h>
+#include <brpc/channel.h>
+#include <brpc/redis.h>
 #include <butil/endpoint.h>
 #include <butil/logging.h>
 #include <ctype.h>
@@ -1537,6 +1539,48 @@ void AuthCommand::OutputResult(OutputHandler *reply) const
     }
 }
 
+static void BroadcastNsFlush(RedisServiceImpl *redis_impl, std::string_view ns)
+{
+    if (!FLAGS_cluster_mode)
+    {
+        return;
+    }
+
+    auto node_id = Sharder::Instance().NodeId();
+    auto ng_configs = Sharder::Instance().GetNodeGroupConfigs();
+
+    for (const auto &[ng_id, nodes] : ng_configs)
+    {
+        for (const auto &node : nodes)
+        {
+            if (node.node_id_ == node_id)
+            {
+                continue; // Skip self
+            }
+
+            brpc::Channel channel;
+            brpc::ChannelOptions options;
+            options.protocol = brpc::PROTOCOL_REDIS;
+            options.timeout_ms = 500;
+
+            std::string endpoint = node.host_name_ + ":" +
+                std::to_string(redis_impl->TxPortToRedisPort(node.port_));
+
+            if (channel.Init(endpoint.c_str(), &options) == 0)
+            {
+                brpc::RedisRequest request;
+                std::string cmd = "NAMESPACE " + std::string(NamespaceCommand::kOpNsFlush) + " " + std::string(ns);
+                if (request.AddCommand(cmd.c_str()))
+                {
+                    brpc::Controller cntl;
+                    brpc::RedisResponse response;
+                    channel.CallMethod(NULL, &cntl, &request, &response, NULL);
+                }
+            }
+        }
+    }
+}
+
 void NamespaceCommand::Execute(RedisServiceImpl *redis_impl,
                                RedisConnectionContext *ctx)
 {
@@ -1547,11 +1591,12 @@ void NamespaceCommand::Execute(RedisServiceImpl *redis_impl,
         return;
     }
 
-    if (FLAGS_cluster_mode)
+    if (op_ == NamespaceCommand::kOpNsFlush)
     {
-        result_.success = false;
-        result_.err_msg =
-            "ERR forbidden to manage namespace when cluster mode was enabled";
+        auto ns_mgr = redis_impl->GetNamespaceManager();
+        ns_mgr->RemoveMetadata(ns_);
+        result_.success = true;
+        result_.str_val = "OK";
         return;
     }
 
@@ -1665,6 +1710,7 @@ void NamespaceCommand::Execute(RedisServiceImpl *redis_impl,
         {
             result_.success = true;
             result_.str_val = token.ToString();
+            BroadcastNsFlush(redis_impl, ns_);
         }
         else
         {
@@ -1685,6 +1731,7 @@ void NamespaceCommand::Execute(RedisServiceImpl *redis_impl,
             if (ok)
             {
                 result_.success = true;
+                BroadcastNsFlush(redis_impl, ns_);
             }
             else
             {
@@ -1727,7 +1774,7 @@ void NamespaceCommand::OutputResult(OutputHandler *reply) const
     {
         reply->OnString(result_.str_val);
     }
-    else if (op_ == "del")
+    else if (op_ == "del" || op_ == NamespaceCommand::kOpNsFlush)
     {
         reply->OnStatus("OK");
     }
@@ -10633,6 +10680,10 @@ std::tuple<bool, NamespaceCommand> ParseNamespaceCommand(
     else if (args.size() == 3 && subcommand == "refresh")
     {
         return {true, NamespaceCommand("refresh", args[2], "")};
+    }
+    else if (args.size() == 3 && subcommand == NamespaceCommand::kOpNsFlush)
+    {
+        return {true, NamespaceCommand(NamespaceCommand::kOpNsFlush, args[2], "")};
     }
     else
     {
