@@ -469,11 +469,17 @@ if(WITH_BOOST_STACKTRACE)
     endif()
 endif()
 
-if(WITH_DATA_STORE STREQUAL "ROCKSDB" AND NOT BUILD_ELOQKV_AS_LIBRARY)
-    add_executable(eloqkv_to_aof src/tools/eloqkv2aof/eloqkv2aof.cpp ${RESELOQ_RESOURCES})
-    target_link_libraries(eloqkv_to_aof ${DYNAMIC_LIB} ${RESELOQ_LIBRARY} ${ABSEIL} lua fpconv)
-    add_executable(eloqkv_to_rdb src/tools/eloqkv2rdb/eloqkv2rdb.cpp ${RESELOQ_RESOURCES})
-    target_link_libraries(eloqkv_to_rdb ${DYNAMIC_LIB} ${RESELOQ_LIBRARY} ${ABSEIL} lua fpconv)
+if(NOT BUILD_ELOQKV_AS_LIBRARY)
+    if(WITH_DATA_STORE STREQUAL "ROCKSDB")
+        add_executable(eloqkv_to_aof src/tools/eloqkv2aof/eloqkv2aof.cpp ${RESELOQ_RESOURCES})
+        target_link_libraries(eloqkv_to_aof ${DYNAMIC_LIB} ${RESELOQ_LIBRARY} ${ABSEIL} lua fpconv)
+        add_executable(eloqkv_to_rdb src/tools/eloqkv2rdb/eloqkv2rdb.cpp ${RESELOQ_RESOURCES})
+        target_link_libraries(eloqkv_to_rdb ${DYNAMIC_LIB} ${RESELOQ_LIBRARY} ${ABSEIL} lua fpconv)
+    elseif(WITH_DATA_STORE STREQUAL "ELOQDSS_ROCKSDB_CLOUD_S3" OR
+           WITH_DATA_STORE STREQUAL "ELOQDSS_ROCKSDB_CLOUD_GCS")
+        add_executable(eloqkv_to_rdb src/tools/eloqkv2rdb/eloqkv2rdb.cpp ${RESELOQ_RESOURCES})
+        target_link_libraries(eloqkv_to_rdb ${DYNAMIC_LIB} ${RESELOQ_LIBRARY} ${ABSEIL} lua fpconv)
+    endif()
 endif()
 
 # add_executable(test_io_write src/tools/eloqkv2aof/test_io_write.cpp ${RESELOQ_RESOURCES})
@@ -509,9 +515,15 @@ if(NOT BUILD_ELOQKV_AS_LIBRARY)
         RUNTIME DESTINATION bin)
 endif()
 
-if(WITH_DATA_STORE STREQUAL "ROCKSDB" AND NOT BUILD_ELOQKV_AS_LIBRARY)
-    install(TARGETS eloqkv_to_aof
-        RUNTIME DESTINATION bin)
-    install(TARGETS eloqkv_to_rdb
-        RUNTIME DESTINATION bin)
+if(NOT BUILD_ELOQKV_AS_LIBRARY)
+    if(WITH_DATA_STORE STREQUAL "ROCKSDB")
+        install(TARGETS eloqkv_to_aof
+            RUNTIME DESTINATION bin)
+        install(TARGETS eloqkv_to_rdb
+            RUNTIME DESTINATION bin)
+    elseif(WITH_DATA_STORE STREQUAL "ELOQDSS_ROCKSDB_CLOUD_S3" OR
+           WITH_DATA_STORE STREQUAL "ELOQDSS_ROCKSDB_CLOUD_GCS")
+        install(TARGETS eloqkv_to_rdb
+            RUNTIME DESTINATION bin)
+    endif()
 endif()
