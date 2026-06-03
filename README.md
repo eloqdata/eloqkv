@@ -243,19 +243,6 @@ cd install
 ./bin/eloqkv --config=../../eloqkv.ini
 ```
 
-### 5. Build and Run Tests
-We provide a convenient script `test.sh` to compile EloqKV and run the unit tests inside a Docker or Podman container (using the `eloqdata/eloqkv-builder:latest` image).
-
-To run the default build and tests:
-```bash
-./test.sh
-```
-
-You can pass CMake options as parameters to `test.sh`. For example, to compile EloqKV with RocksDB storage support:
-```bash
-./test.sh -DWITH_DATA_STORE=ROCKSDB
-```
-
 ---
 
 ## License
