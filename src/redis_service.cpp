@@ -43,6 +43,7 @@
 #include <fstream>
 #include <functional>
 #include <memory>
+#include <nlohmann/json.hpp>
 #include <optional>
 #include <sstream>
 #include <string>
@@ -54,6 +55,7 @@
 #include <vector>
 
 #include "INIReader.h"
+#include "b255.h"
 #include "catalog_factory.h"
 #include "data_substrate.h"
 #include "eloq_metrics/include/metrics.h"
@@ -62,6 +64,8 @@
 #include "kv_store.h"
 #include "lua_interpreter.h"
 #include "metrics_registry_impl.h"
+#include "namespace/context.h"
+#include "namespace/storage.h"
 #include "redis_command.h"
 #include "redis_connection_context.h"
 #include "redis_handler.h"
@@ -173,6 +177,7 @@ std::string ExecCommand(const std::string &cmd)
 
 namespace EloqKV
 {
+
 const auto NUM_VCPU = std::thread::hardware_concurrency();
 
 // Global pub sub manager and publish function for eloqkv
@@ -205,6 +210,7 @@ std::vector<uint32_t> next_slow_log_unique_id_;
 
 RedisServiceImpl::RedisServiceImpl(const std::string &config_file,
                                    const char *version)
+    : namespace_manager_(std::make_unique<NamespaceStorage>(this))
 {
     version_ = version;
     config_file_ = config_file;
@@ -228,7 +234,8 @@ bool RedisServiceImpl::Init(brpc::Server &brpc_server)
     // Prebuilt Redis tables (same names as today: data_table_0 ..
     // data_table_15)
     std::vector<std::pair<txservice::TableName, std::string>> prebuilt_tables;
-    prebuilt_tables.reserve(databases);
+    // Reserve databases user tables + 2 system tables (namespace and ns_data)
+    prebuilt_tables.reserve(databases + 2);
 
     for (int i = 0; i < databases; i++)
     {
@@ -250,6 +257,28 @@ bool RedisServiceImpl::Init(brpc::Server &brpc_server)
         prebuilt_tables.emplace_back(redis_table_name, image);
         redis_table_names_.push_back(redis_table_name);
     }
+
+    // Register isolated namespace table
+    namespace_table_name_ = std::make_unique<TableName>(
+        std::string("__ns_0"), TableType::Primary, TableEngine::EloqKv);
+    std::string ns_image = GenKvTableName(*namespace_table_name_);
+#if defined(DATA_STORE_TYPE_CASSANDRA)
+    EloqDS::CassCatalogInfo ns_kv_info(ns_image, "");
+    auto ns_kv_info_str = ns_kv_info.Serialize();
+    ns_image = EloqDS::SerializeSchemaImage("", ns_kv_info_str, "");
+#endif
+    prebuilt_tables.emplace_back(*namespace_table_name_, ns_image);
+
+    // Register custom namespace shared table
+    ns_data_table_name_ = std::make_unique<TableName>(
+        std::string("ns_data_0"), TableType::Primary, TableEngine::EloqKv);
+    std::string ns_data_image = GenKvTableName(*ns_data_table_name_);
+#if defined(DATA_STORE_TYPE_CASSANDRA)
+    EloqDS::CassCatalogInfo ns_data_kv_info(ns_data_image, "");
+    auto ns_data_kv_info_str = ns_data_kv_info.Serialize();
+    ns_data_image = EloqDS::SerializeSchemaImage("", ns_data_kv_info_str, "");
+#endif
+    prebuilt_tables.emplace_back(*ns_data_table_name_, ns_data_image);
 
     // EloqKV-specific metrics (follow commented metrics_init.cpp patterns)
     std::vector<std::tuple<metrics::Name,
@@ -730,6 +759,9 @@ bool RedisServiceImpl::Start(brpc::Server &brpc_server)
     }
 #endif
 
+    // Start Namespace GC Daemon
+    namespace_manager_.StartGCDaemon();
+
     return true;
 }
 
@@ -747,6 +779,7 @@ void RedisServiceImpl::Stop()
 #endif
     // stopping other service like metrics collector
     stopping_indicator_.store(true, std::memory_order_release);
+    namespace_manager_.StopGCDaemon();
     if (metrics_collector_thd_.has_value() &&
         metrics_collector_thd_->joinable())
     {
@@ -1165,6 +1198,24 @@ std::string RedisServiceImpl::GenerateMovedErrorMessage(uint16_t slot_id)
     return error_msg;
 }
 
+bool RedisServiceImpl::ExecuteNamespaceTxRequest(TransactionExecution *txm,
+                                                 TxRequest *tx_req)
+{
+    if (auto *r = dynamic_cast<ObjectCommandTxRequest *>(tx_req))
+    {
+        return SendTxRequestAndWaitResult(txm, r, nullptr);
+    }
+    if (auto *r = dynamic_cast<ScanOpenTxRequest *>(tx_req))
+    {
+        return SendTxRequestAndWaitResult(txm, r, nullptr);
+    }
+    if (auto *r = dynamic_cast<ScanBatchTxRequest *>(tx_req))
+    {
+        return SendTxRequestAndWaitResult(txm, r, nullptr);
+    }
+    return false;
+}
+
 template <typename Subtype, typename T>
 bool RedisServiceImpl::SendTxRequestAndWaitResult(
     TransactionExecution *txm,
@@ -1339,6 +1390,10 @@ void RedisServiceImpl::AddHandlers()
     auto &dbsize_hd =
         hd_vec_.emplace_back(std::make_unique<DBSizeCommandHandler>(this));
     AddCommandHandler("dbsize", dbsize_hd.get());
+
+    auto &namespace_hd =
+        hd_vec_.emplace_back(std::make_unique<NamespaceCommandHandler>(this));
+    AddCommandHandler("namespace", namespace_hd.get());
 
     auto &readonly_hd =
         hd_vec_.emplace_back(std::make_unique<ReadOnlyCommandHandler>(this));
@@ -2705,6 +2760,66 @@ bool RedisServiceImpl::ExecuteFlushDBCommand(
     EloqKV::OutputHandler *output,
     bool auto_commit)
 {
+    if (ctx && ctx->ns != "default" && !ctx->ns.empty() && ctx->ns_meta)
+    {
+        uint64_t old_epoch =
+            ctx->ns_meta->epoch.load(std::memory_order_relaxed);
+        uint64_t new_epoch = old_epoch + 1;
+
+        EloqKey e_key = EloqKey::Raw("e:" + ctx->ns_meta->encoded_id);
+        std::string new_epoch_str = std::to_string(new_epoch);
+        SetCommand set_e_cmd(new_epoch_str);
+        ObjectCommandTxRequest set_e_req(namespace_table_name_.get(),
+                                         &e_key,
+                                         &set_e_cmd,
+                                         /*auto_commit=*/false,
+                                         /*always_redirect=*/true,
+                                         txm);
+        bool success = SendTxRequestAndWaitResult(txm, &set_e_req, nullptr);
+        if (!success)
+        {
+            if (auto_commit)
+                AbortTx(txm);
+            output->OnError("Failed to update namespace epoch in DB");
+            return false;
+        }
+
+        // Write GC record atomically in the same transaction
+        EloqKey gc_key = EloqKey::Raw("g:" + ctx->ns_meta->encoded_id + ":" +
+                                      std::to_string(old_epoch));
+        SetCommand set_gc_cmd("1");
+        ObjectCommandTxRequest set_gc_req(namespace_table_name_.get(),
+                                          &gc_key,
+                                          &set_gc_cmd,
+                                          /*auto_commit=*/false,
+                                          /*always_redirect=*/true,
+                                          txm);
+        success = SendTxRequestAndWaitResult(txm, &set_gc_req, nullptr);
+        if (!success)
+        {
+            if (auto_commit)
+                AbortTx(txm);
+            output->OnError("Failed to register namespace GC record in DB");
+            return false;
+        }
+
+        if (auto_commit)
+        {
+            auto [commit_success, commit_err] = txservice::CommitTx(txm);
+            if (!commit_success)
+            {
+                output->OnError("Commit failed");
+                return false;
+            }
+        }
+
+        // Update in-memory metadata epoch
+        ctx->ns_meta->epoch.store(new_epoch, std::memory_order_release);
+
+        output->OnStatus("OK");
+        return true;
+    }
+
     const TableName *redis_table_name = RedisTableName(ctx->db_id);
 
     // load table if not exists since drop table
@@ -2795,6 +2910,13 @@ bool RedisServiceImpl::ExecuteFlushALLCommand(RedisConnectionContext *ctx,
                                               IsolationLevel iso_level_,
                                               CcProtocol cc_protocol_)
 {
+    if (ctx && ctx->ns != "default" && !ctx->ns.empty())
+    {
+        TransactionExecution *txm = NewTxm(iso_level_, cc_protocol_);
+        bool res = ExecuteFlushDBCommand(ctx, txm, output, auto_commit);
+        return res;
+    }
+
     assert(auto_commit);
 
     std::vector<TransactionExecution *> txm_pool;
@@ -4877,17 +4999,32 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
     bool start_inclusive = false;
     bool end_inclusive = false;
 
-    if (!pattern.empty())
+    std::string ns = ctx ? ctx->ns_id : "";
+    bool has_ns = !ns.empty();
+
+    NamespaceGuard ns_guard("");
+
+    if (has_ns)
     {
-        size_t pos = pattern.find('*');
-        if (pos != std::string_view::npos && pos != 0)
+        std::string_view prefix = "";
+        bool has_prefix = false;
+        if (!pattern.empty())
         {
-            std::string_view prefix = pattern.substr(0, pos);
-            prefix_key = EloqKey(prefix);
+            size_t pos = pattern.find('*');
+            if (pos != std::string_view::npos && pos != 0)
+            {
+                prefix = pattern.substr(0, pos);
+                has_prefix = true;
+            }
+        }
 
-            start_tx_key = TxKey(&prefix_key);
-            start_inclusive = true;
+        std::string start_key_str = ComposeNamespaceKey(ns, prefix);
+        prefix_key = EloqKey(start_key_str.data(), start_key_str.size());
+        start_tx_key = TxKey(&prefix_key);
+        start_inclusive = true;
 
+        if (has_prefix)
+        {
             std::string prefix_next = std::string(prefix);
             bool increased = false;
             for (int i = static_cast<int>(prefix_next.size()) - 1; i >= 0; --i)
@@ -4904,12 +5041,68 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
 
             if (increased)
             {
+                std::string end_key_str = ComposeNamespaceKey(ns, prefix_next);
                 prefix_key_next =
-                    EloqKey(prefix_next.data(), prefix_next.size());
+                    EloqKey(end_key_str.data(), end_key_str.size());
                 end_tx_key = TxKey(&prefix_key_next);
             }
             else
             {
+                std::string end_key_str = ComposeNamespaceKeyNext(ns);
+                prefix_key_next =
+                    EloqKey(end_key_str.data(), end_key_str.size());
+                end_tx_key = TxKey(&prefix_key_next);
+            }
+        }
+        else
+        {
+            std::string end_key_str = ComposeNamespaceKeyNext(ns);
+            prefix_key_next = EloqKey(end_key_str.data(), end_key_str.size());
+            end_tx_key = TxKey(&prefix_key_next);
+        }
+    }
+    else
+    {
+        if (!pattern.empty())
+        {
+            size_t pos = pattern.find('*');
+            if (pos != std::string_view::npos && pos != 0)
+            {
+                std::string_view prefix = pattern.substr(0, pos);
+                prefix_key = EloqKey(prefix);
+
+                start_tx_key = TxKey(&prefix_key);
+                start_inclusive = true;
+
+                std::string prefix_next = std::string(prefix);
+                bool increased = false;
+                for (int i = static_cast<int>(prefix_next.size()) - 1; i >= 0;
+                     --i)
+                {
+                    auto c = static_cast<unsigned char>(prefix_next[i]);
+                    if (c != 0xFF)
+                    {
+                        prefix_next[i] = static_cast<char>(c + 1);
+                        prefix_next.resize(i + 1);
+                        increased = true;
+                        break;
+                    }
+                }
+
+                if (increased)
+                {
+                    prefix_key_next =
+                        EloqKey(prefix_next.data(), prefix_next.size());
+                    end_tx_key = TxKey(&prefix_key_next);
+                }
+                else
+                {
+                    end_tx_key = TxKey(EloqKey::PositiveInfinity());
+                }
+            }
+            else
+            {
+                start_tx_key = TxKey(EloqKey::NegativeInfinity());
                 end_tx_key = TxKey(EloqKey::PositiveInfinity());
             }
         }
@@ -4918,11 +5111,6 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
             start_tx_key = TxKey(EloqKey::NegativeInfinity());
             end_tx_key = TxKey(EloqKey::PositiveInfinity());
         }
-    }
-    else
-    {
-        start_tx_key = TxKey(EloqKey::NegativeInfinity());
-        end_tx_key = TxKey(EloqKey::PositiveInfinity());
     }
 
     bool is_ckpt = false;
@@ -5047,7 +5235,9 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
             nullptr,
             txm,
             filter_pushdown ? static_cast<int32_t>(cmd->obj_type_) : -1,
-            filter_pushdown ? cmd->pattern_.StringView() : "",
+            filter_pushdown
+                ? ComposeNamespaceKey(ns, cmd->pattern_.StringView())
+                : "",
             save_point);
 
         bool success = SendTxRequestAndWaitResult(txm, &scan_open, output);
@@ -5096,7 +5286,9 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
                 nullptr,
                 txm,
                 filter_pushdown ? static_cast<int32_t>(cmd->obj_type_) : -1,
-                filter_pushdown ? cmd->pattern_.StringView() : "",
+                filter_pushdown
+                    ? ComposeNamespaceKey(ns, cmd->pattern_.StringView())
+                    : "",
                 &plan);
             success = SendTxRequestAndWaitResult(txm, &scan_batch_req, output);
             if (!success)
@@ -5134,6 +5326,13 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
                     continue;
                 }
 
+                std::string_view user_key = sv;
+                if (has_ns && sv.size() >= ns.size() &&
+                    sv.substr(0, ns.size()) == ns)
+                {
+                    user_key = sv.substr(ns.size());
+                }
+
                 if (!filter_pushdown)
                 {
                     if (static_cast<int32_t>(cmd->obj_type_) != -1 &&
@@ -5155,8 +5354,8 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
                     if (cmd->pattern_.Length() > 0 &&
                         stringmatchlen(cmd->pattern_.Data(),
                                        cmd->pattern_.Length(),
-                                       sv.data(),
-                                       sv.size(),
+                                       user_key.data(),
+                                       user_key.size(),
                                        0) == 0)
                     {
                         obj_cnt++;
@@ -5172,7 +5371,7 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
                     }
                 }
 
-                vct_rst.emplace_back(sv);
+                vct_rst.emplace_back(user_key);
                 obj_cnt++;
 
                 if (cmd->count_ > 0 && obj_cnt >= cmd->count_)
@@ -5201,6 +5400,12 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
 
                     const std::string_view sv =
                         tuple.key_.GetKey<EloqKey>()->StringView();
+                    std::string_view user_key = sv;
+                    if (has_ns && sv.size() >= ns.size() &&
+                        sv.substr(0, ns.size()) == ns)
+                    {
+                        user_key = sv.substr(ns.size());
+                    }
 
                     if (!filter_pushdown)
                     {
@@ -5214,8 +5419,8 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
                         if (cmd->pattern_.Length() > 0 &&
                             stringmatchlen(cmd->pattern_.Data(),
                                            cmd->pattern_.Length(),
-                                           sv.data(),
-                                           sv.size(),
+                                           user_key.data(),
+                                           user_key.size(),
                                            0) == 0)
                         {
                             continue;
@@ -5224,7 +5429,7 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
 
                     // unlock_batch.emplace_back(
                     //    tuple.cce_addr_, tuple.version_ts_, tuple.status_);
-                    cmd->scan_cursor_->cache_.emplace_back(sv);
+                    cmd->scan_cursor_->cache_.emplace_back(user_key);
                 }
 
                 if (scan_batch_req.Result())
@@ -5657,7 +5862,11 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
 
 const TableName *RedisServiceImpl::RedisTableName(int db_id) const
 {
-    return &redis_table_names_[db_id];
+    if (current_namespace == "default" || current_namespace.empty())
+    {
+        return &redis_table_names_[db_id];
+    }
+    return ns_data_table_name_.get();
 }
 
 size_t RedisServiceImpl::GetRedisTableCount() const
@@ -5665,30 +5874,44 @@ size_t RedisServiceImpl::GetRedisTableCount() const
     return redis_table_names_.size();
 }
 
-bool RedisServiceImpl::AuthRequired(const RedisConnectionContext *ctx,
-                                    const butil::StringPiece &command) const
+bool RedisServiceImpl::AuthRequired(
+    const RedisConnectionContext *ctx,
+    const std::vector<butil::StringPiece> &args) const
 {
+    if (args.empty())
+    {
+        return true;
+    }
     if (requirepass.empty())
     {
         return false;
     }
-    else
+
+    if (ctx->authenticated)
     {
-        if (ctx->authenticated)
+        return false;
+    }
+
+    // Bypass auth for "NAMESPACE CURRENT"
+    if (args.size() >= 2)
+    {
+        std::string first(args[0].data(), args[0].size());
+        std::string second(args[1].data(), args[1].size());
+        std::transform(first.begin(), first.end(), first.begin(), ::tolower);
+        std::transform(second.begin(), second.end(), second.begin(), ::tolower);
+        if (first == "namespace" && second == "current")
         {
             return false;
         }
-        else
-        {
-            constexpr std::array<std::string_view, 4> cmds_no_auth = {
-                "auth", "hello", "quit", "reset"};
-            return std::find(
-                       cmds_no_auth.begin(),
-                       cmds_no_auth.end(),
-                       std::string_view(command.data(), command.size())) ==
-                   cmds_no_auth.end();
-        }
     }
+
+    constexpr std::array<std::string_view, 4> cmds_no_auth = {
+        "auth", "hello", "quit", "reset"};
+    std::string cmd_name(args[0].data(), args[0].size());
+    std::transform(
+        cmd_name.begin(), cmd_name.end(), cmd_name.begin(), ::tolower);
+    return std::find(cmds_no_auth.begin(), cmds_no_auth.end(), cmd_name) ==
+           cmds_no_auth.end();
 }
 
 std::unique_ptr<brpc::ConnectionContext> RedisServiceImpl::NewConnectionContext(
@@ -5709,7 +5932,30 @@ brpc::RedisCommandHandlerResult RedisServiceImpl::DispatchCommand(
     RedisConnectionContext *ctx =
         static_cast<RedisConnectionContext *>(conn_ctx);
 
-    if (AuthRequired(ctx, args[0]))
+    if (ctx->ns_meta)
+    {
+        auto live_meta =
+            namespace_manager_.GetMetadataByToken(ctx->ns_meta->token);
+        if (live_meta && live_meta == ctx->ns_meta)
+        {
+            uint64_t epoch = live_meta->epoch.load(std::memory_order_relaxed);
+            ctx->ns_id =
+                NamespacePrefix::MakePrefix(live_meta->encoded_id, epoch);
+        }
+        else
+        {
+            ctx->ns = "default";
+            ctx->ns_id = "";
+            ctx->ns_meta = nullptr;
+        }
+    }
+    else if (ctx->ns == "default")
+    {
+        ctx->ns_id = "";
+    }
+    NamespaceGuard ns_guard(ctx->ns_id);
+
+    if (AuthRequired(ctx, args))
     {
         output->SetError("NOAUTH Authentication required.");
         return result;

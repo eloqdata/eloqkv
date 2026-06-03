@@ -23,7 +23,7 @@ project(eloqkv C CXX)
 # sudo yum install readline-devel
 # sudo yum install ncurses-devel
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 20)
 
 add_compile_definitions(ELOQ_MODULE_ELOQKV)
 
@@ -151,6 +151,7 @@ if(WITH_DATA_STORE STREQUAL "DYNAMODB")
     find_package(AWSSDK REQUIRED COMPONENTS dynamodb)
 elseif(WITH_DATA_STORE STREQUAL "ROCKSDB")
     add_compile_definitions(DATA_STORE_TYPE_ROCKSDB)
+    include_directories(${PROJECT_SOURCE_DIR}/include)
 elseif(WITH_DATA_STORE STREQUAL "BIGTABLE")
     set(KV_STORAGE_VAL 2 CACHE STRING "big table" FORCE)
     add_compile_definitions(DATA_STORE_TYPE_BIGTABLE)
@@ -331,6 +332,8 @@ if(VECTOR_INDEX_ENABLED)
     set(DYNAMIC_LIB ${DYNAMIC_LIB} ${CURL_LIBRARIES})
 endif()
 
+
+
 # Build data_substrate library first
 if(NOT BUILD_ELOQKV_AS_LIBRARY)
     # Build data_substrate library first (standalone mode)
@@ -354,6 +357,12 @@ SET(RESELOQ_RESOURCES
     src/eloq_string.cpp
     src/lua_interpreter.cpp
     src/pub_sub_manager.cpp
+    src/namespace/manager.cpp
+    src/namespace/token.cpp
+    src/namespace/storage.cpp
+    src/namespace/gc.cpp
+    src/namespace/context.cpp
+    src/b255.cpp
     src/redis_service.cpp
     src/redis_command.cpp
     src/redis_object.cpp
@@ -393,11 +402,11 @@ SET(RESELOQ_LIBRARY ${RESELOQ_LIBRARY} data_substrate)
 # crcspeed
 SET(CRCSPEED_SOURCES crcspeed/crcspeed.c crcspeed/crc16speed.c crcspeed/crc64speed.c)
 SET(RESELOQ_RESOURCES ${RESELOQ_RESOURCES} ${CRCSPEED_SOURCES})
-
 # Set up base include directories
 set(INCLUDE_DIRS
     ${PROJECT_SOURCE_DIR}/
     ${PROJECT_SOURCE_DIR}/include
+    ${PROJECT_SOURCE_DIR}/include/namespace
     ${PROJECT_SOURCE_DIR}/include/redis
 )
 
@@ -407,7 +416,6 @@ endif()
 
 # Apply all includes at once
 include_directories(${INCLUDE_DIRS})
-
 set(ABSEIL
     absl::btree
     absl::flat_hash_map
