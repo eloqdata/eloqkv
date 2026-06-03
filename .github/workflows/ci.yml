@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: eloqdata/eloq-dev-ci-ubuntu2404:latest
-      options: --user root --security-opt seccomp=unconfined
+      options: --user root --security-opt seccomp=unconfined --ulimit memlock=-1:-1
 
     steps:
       - uses: actions/checkout@v4
@@ -56,7 +56,7 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: eloqdata/eloq-dev-ci-ubuntu2404:latest
-      options: --user root --privileged --security-opt seccomp=unconfined
+      options: --user root --privileged --security-opt seccomp=unconfined --ulimit memlock=-1:-1
 
     name: ${{ github.event_name == 'push' && 'main' || 'PR' }} ${{ matrix.build_type }}-${{ matrix.kv_store_type }}
 
@@ -96,7 +96,7 @@ jobs:
           if [ "$BUILD_TYPE" = "Debug" ]; then
             export BUILD_JOBS=$NPROC
           else
-            export BUILD_JOBS=$((NPROC / 2))
+            export BUILD_JOBS=$(( (NPROC + 1) / 2 ))
           fi
           bash ./eloqkv/.github/scripts/gh_ci_entry.sh \
             "$MINIO_ENDPOINT" \

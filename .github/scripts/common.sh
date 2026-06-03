@@ -24,6 +24,8 @@ fi
 
 # Build parallelism: defaults to nproc, caller can override per build type
 BUILD_JOBS=${BUILD_JOBS:-$(nproc)}
+# Ensure at least 1 to avoid -j 0 (unlimited parallelism)
+[ "${BUILD_JOBS}" -lt 1 ] && BUILD_JOBS=1
 
 function kernel_version_greater_than_6.5() {
   kernel_version=$(uname -r)
