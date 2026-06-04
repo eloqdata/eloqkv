@@ -73,7 +73,7 @@ extern "C"
 }
 
 DEFINE_string(rocksdb_path, "", "The RocksDB data (full) path");
-DEFINE_string(output_file, "", "The file to store the RDB file");
+DEFINE_string(output_file, "dump.rdb", "The file to store the RDB file");
 DEFINE_uint32(thread_count,
               1,
               "The number of thread to parse records from rocksdb");
@@ -395,6 +395,158 @@ std::ofstream outfile;
 std::atomic_uint64_t stat_read_key_count;
 // count of key written to rdb
 std::atomic_uint64_t stat_written_key_count;
+
+inline bool FindFlagInfo(const std::vector<google::CommandLineFlagInfo> &flags,
+                         const std::string &name,
+                         google::CommandLineFlagInfo &info)
+{
+    for (const auto &flag : flags)
+    {
+        if (flag.name == name)
+        {
+            info = flag;
+            return true;
+        }
+    }
+    return false;
+}
+
+inline bool IsFlagDefault(const std::string &name)
+{
+    google::CommandLineFlagInfo info;
+    return !google::GetCommandLineFlagInfo(name.c_str(), &info) ||
+           info.is_default;
+}
+
+inline void PrintSelectedFlag(
+    const std::vector<google::CommandLineFlagInfo> &flags,
+    const std::string &name,
+    const char *description_override = nullptr,
+    bool required = false,
+    bool show_default = true)
+{
+    google::CommandLineFlagInfo flag;
+    if (!FindFlagInfo(flags, name, flag))
+    {
+        return;
+    }
+
+    const std::string description =
+        description_override != nullptr ? description_override : flag.description;
+    std::cout << "    --" << flag.name << " (" << description << ") type: "
+              << flag.type;
+    if (required)
+    {
+        std::cout << " required";
+    }
+    else if (show_default)
+    {
+        std::cout << " default: ";
+        if (flag.type == "string")
+        {
+            std::cout << "\"" << flag.default_value << "\"";
+        }
+        else
+        {
+            std::cout << flag.default_value;
+        }
+    }
+    std::cout << std::endl;
+}
+
+inline void PrintToolHelp(const char *argv0)
+{
+    std::vector<google::CommandLineFlagInfo> flags;
+    google::GetAllFlags(&flags);
+
+    std::cout << "Usage: " << argv0 << " [options]" << std::endl
+              << std::endl;
+
+#if ROCKSDB_CLOUD_EXPORT
+    std::cout << "RocksDB Cloud export flags:" << std::endl;
+    PrintSelectedFlag(flags, "aws_access_key_id");
+    PrintSelectedFlag(flags, "aws_secret_key");
+    PrintSelectedFlag(flags, "rocksdb_cloud_region");
+    PrintSelectedFlag(
+        flags,
+        "rocksdb_cloud_s3_endpoint_url",
+        "Optional for AWS S3. Set it for S3-compatible object stores such as "
+        "MinIO, for example http://127.0.0.1:9900");
+    PrintSelectedFlag(flags, "rocksdb_cloud_bucket_prefix", nullptr, true, false);
+    PrintSelectedFlag(flags, "rocksdb_cloud_bucket_name", nullptr, true, false);
+    PrintSelectedFlag(flags, "rocksdb_cloud_object_path", nullptr, true, false);
+    PrintSelectedFlag(flags, "rocksdb_cloud_sst_file_cache_size");
+    PrintSelectedFlag(
+        flags,
+        "rocksdb_cloud_sst_file_cache_num_shard_bits",
+        "SST file cache shard bits. The cache is split into 2^N shards to "
+        "reduce lock contention; 5 means 32 shards. Usually no need to change");
+    PrintSelectedFlag(flags, "eloq_dss_branch_name");
+    PrintSelectedFlag(flags, "shard_num");
+    PrintSelectedFlag(flags, "db_path");
+    PrintSelectedFlag(flags, "output_file");
+#else
+    std::cout << "RocksDB export flags:" << std::endl;
+    const std::vector<std::string> flag_names = {
+        "rocksdb_path",
+        "output_file",
+        "thread_count",
+        "round_batch_size",
+        "pre_read_ratio",
+    };
+
+    for (const auto &name : flag_names)
+    {
+        PrintSelectedFlag(flags, name);
+    }
+#endif
+
+    std::cout << std::endl
+              << "Use --helpfull to show all linked gflags." << std::endl;
+}
+
+inline bool IsToolHelpArg(const char *arg)
+{
+    const std::string value(arg);
+    return value == "--help" || value == "-help" || value == "--help=true" ||
+           value == "-help=true" || value == "--help=1" || value == "-help=1";
+}
+
+inline bool MaybeHandleToolHelp(int argc, char *argv[])
+{
+    for (int idx = 1; idx < argc; idx++)
+    {
+        if (IsToolHelpArg(argv[idx]))
+        {
+            PrintToolHelp(argv[0]);
+            return true;
+        }
+    }
+    return false;
+}
+
+#if ROCKSDB_CLOUD_EXPORT
+inline bool ValidateRequiredCloudFlag(const std::string &name,
+                                      const std::string &value)
+{
+    if (IsFlagDefault(name) || value.empty())
+    {
+        std::cerr << "Please specify non-empty --" << name << std::endl;
+        return false;
+    }
+    return true;
+}
+
+inline bool ValidateRequiredCloudFlags()
+{
+    return ValidateRequiredCloudFlag("rocksdb_cloud_bucket_prefix",
+                                     FLAGS_rocksdb_cloud_bucket_prefix) &&
+           ValidateRequiredCloudFlag("rocksdb_cloud_bucket_name",
+                                     FLAGS_rocksdb_cloud_bucket_name) &&
+           ValidateRequiredCloudFlag("rocksdb_cloud_object_path",
+                                     FLAGS_rocksdb_cloud_object_path);
+}
+#endif
 
 struct WriteWorker
 {
@@ -777,11 +929,12 @@ inline std::string TrimLeadingSlashes(std::string value)
 
 inline std::string BuildObjectStoreServiceUrl()
 {
-    std::string bucket =
-        FLAGS_rocksdb_cloud_bucket_prefix + FLAGS_rocksdb_cloud_bucket_name;
+    std::string bucket_prefix = FLAGS_rocksdb_cloud_bucket_prefix;
+    std::string bucket_name = FLAGS_rocksdb_cloud_bucket_name;
+    std::string bucket = bucket_prefix + bucket_name;
     std::string object_path =
         TrimLeadingSlashes(FLAGS_rocksdb_cloud_object_path);
-    if (bucket.empty() || object_path.empty())
+    if (bucket_prefix.empty() || bucket_name.empty() || object_path.empty())
     {
         return "";
     }
@@ -1973,6 +2126,12 @@ bool CheckPathExists(const std::string &db_path)
 
 int main(int argc, char *argv[])
 {
+    google::SetUsageMessage("Export EloqKV data to Redis RDB format.");
+    if (EloqKV::Tools::MaybeHandleToolHelp(argc, argv))
+    {
+        return 0;
+    }
+
     google::ParseCommandLineFlags(&argc, &argv, true);
 
     FLAGS_logtostdout = true;
@@ -1980,11 +2139,17 @@ int main(int argc, char *argv[])
     crc64speed_init();
 
 #if ROCKSDB_CLOUD_EXPORT
+    if (!EloqKV::Tools::ValidateRequiredCloudFlags())
+    {
+        return -1;
+    }
+
     const std::string object_store_url =
         EloqKV::Tools::BuildObjectStoreServiceUrl();
     if (object_store_url.empty())
     {
-        std::cerr << "Please specify --rocksdb_cloud_bucket_name and "
+        std::cerr << "Please specify non-empty --rocksdb_cloud_bucket_prefix, "
+                     "--rocksdb_cloud_bucket_name and "
                      "--rocksdb_cloud_object_path"
                   << std::endl;
         return -1;
