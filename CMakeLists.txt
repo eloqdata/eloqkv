@@ -15,6 +15,33 @@
 cmake_minimum_required(VERSION 3.12)
 project(eloqkv C CXX)
 
+set(ELOQ_THIRD_PARTY_HELPER_CANDIDATES
+    "${CMAKE_CURRENT_SOURCE_DIR}/data_substrate/cmake/EloqThirdParty.cmake"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../data_substrate/cmake/EloqThirdParty.cmake")
+
+foreach(ELOQ_THIRD_PARTY_HELPER ${ELOQ_THIRD_PARTY_HELPER_CANDIDATES})
+    if(EXISTS "${ELOQ_THIRD_PARTY_HELPER}")
+        include("${ELOQ_THIRD_PARTY_HELPER}")
+        set(ELOQ_THIRD_PARTY_HELPER_FOUND TRUE)
+        break()
+    endif()
+endforeach()
+
+if(ELOQ_THIRD_PARTY_REQUIRED AND NOT ELOQ_THIRD_PARTY_HELPER_FOUND)
+    message(FATAL_ERROR
+        "ELOQ_THIRD_PARTY_REQUIRED is ON, but data_substrate/cmake/EloqThirdParty.cmake was not found")
+endif()
+
+if(NOT COMMAND eloq_assert_under_prefix)
+    function(eloq_assert_under_prefix path_var description)
+    endfunction()
+endif()
+
+if(NOT COMMAND eloq_assert_target_under_prefix)
+    function(eloq_assert_target_under_prefix target description)
+    endfunction()
+endif()
+
 # Install dependencies to compile redis_cli:
 # With apt:
 # sudo apt-get install libreadline-dev
@@ -182,6 +209,10 @@ add_definitions("-Wall -g")
 # set(CMAKE_PREFIX_PATH ${OUTPUT_PATH})
 include(FindThreads)
 include(FindProtobuf)
+find_package(absl CONFIG REQUIRED)
+eloq_assert_target_under_prefix(absl::btree "Abseil btree")
+eloq_assert_target_under_prefix(absl::flat_hash_map "Abseil flat_hash_map")
+eloq_assert_target_under_prefix(absl::span "Abseil span")
 
 # Search for libthrift* by best effort. If it is not found and brpc is
 # compiled with thrift protocol enabled, a link error would be reported.
@@ -208,6 +239,7 @@ endif()
 if((NOT BRPC_INCLUDE_PATH) OR(NOT BRPC_LIB))
     message(FATAL_ERROR "Fail to find brpc")
 endif()
+eloq_assert_under_prefix(BRPC_LIB "brpc library")
 
 include_directories(${BRPC_INCLUDE_PATH})
 
@@ -280,6 +312,7 @@ if(BRPC_WITH_GLOG)
     if((NOT GLOG_INCLUDE_PATH) OR(NOT GLOG_LIB))
         message(FATAL_ERROR "Fail to find glog")
     endif()
+    eloq_assert_under_prefix(GLOG_LIB "glog library")
 
     include_directories(${GLOG_INCLUDE_PATH})
     set(DYNAMIC_LIB ${DYNAMIC_LIB} ${GLOG_LIB})
@@ -301,29 +334,40 @@ endif()
 
 if(VECTOR_INDEX_ENABLED)
     add_compile_definitions(VECTOR_INDEX_ENABLED)
-    # Add usearch dependency for vector indexing
-    include(FetchContent)
-    FetchContent_Declare(
-        usearch
-        GIT_REPOSITORY https://github.com/unum-cloud/usearch.git
-        GIT_TAG        v2.21.0
-    )
-    FetchContent_MakeAvailable(usearch)
-    set(USEARCH_INCLUDE_DIR
-       ${usearch_SOURCE_DIR}/include
-       ${usearch_SOURCE_DIR}/fp16/include
-    )
+    set(USEARCH_SOURCE_DIR "${ELOQ_THIRD_PARTY_ROOT}/src/usearch" CACHE PATH "usearch source directory")
+
+    if(EXISTS "${USEARCH_SOURCE_DIR}/include" AND NOT ELOQ_THIRD_PARTY_REQUIRED)
+        set(USEARCH_INCLUDE_DIR
+            ${USEARCH_SOURCE_DIR}/include
+            ${USEARCH_SOURCE_DIR}/fp16/include)
+    else()
+        find_path(USEARCH_MAIN_INCLUDE_DIR
+            NAMES usearch/index.hpp
+            PATHS "${ELOQ_THIRD_PARTY_PREFIX}/include"
+            NO_DEFAULT_PATH
+            REQUIRED)
+        find_path(USEARCH_FP16_INCLUDE_DIR
+            NAMES fp16/fp16.h
+            PATHS "${ELOQ_THIRD_PARTY_PREFIX}/include"
+            NO_DEFAULT_PATH
+            REQUIRED)
+        set(USEARCH_INCLUDE_DIR
+            ${USEARCH_MAIN_INCLUDE_DIR}
+            ${USEARCH_FP16_INCLUDE_DIR})
+    endif()
     include_directories(${USEARCH_INCLUDE_DIR})
     
-    # Add nlohmann/json dependency for vector indexing
-    include(FetchContent)
-    FetchContent_Declare(
-        nlohmann_json
-        GIT_REPOSITORY https://github.com/nlohmann/json.git
-        GIT_TAG        v3.12.0
-    )
-    FetchContent_MakeAvailable(nlohmann_json)
-    set(NLOHMANN_JSON_INCLUDE_DIR ${nlohmann_json_SOURCE_DIR}/single_include)
+    set(NLOHMANN_JSON_SOURCE_DIR "${ELOQ_THIRD_PARTY_ROOT}/src/nlohmann-json" CACHE PATH "nlohmann-json source directory")
+
+    if(EXISTS "${NLOHMANN_JSON_SOURCE_DIR}/single_include" AND NOT ELOQ_THIRD_PARTY_REQUIRED)
+        set(NLOHMANN_JSON_INCLUDE_DIR ${NLOHMANN_JSON_SOURCE_DIR}/single_include)
+    else()
+        find_path(NLOHMANN_JSON_INCLUDE_DIR
+            NAMES nlohmann/json.hpp
+            PATHS "${ELOQ_THIRD_PARTY_PREFIX}/include"
+            NO_DEFAULT_PATH
+            REQUIRED)
+    endif()
     include_directories(${NLOHMANN_JSON_INCLUDE_DIR})
     
     # CURL

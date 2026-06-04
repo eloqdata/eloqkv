@@ -17,7 +17,7 @@
 # EloqKV  
 EloqKV is a high-performance distributed database with a Redis/ValKey compatible API. It offers features like **ACID transactions, full elasticity and scalability, tiered storage, and session-style transaction syntax** — all while preserving Redis' simplicity and usability. EloqKV is engineered for developers who need a modern no-compromise database solution to power the next generation of demanding applications in the AI era. 
 
-This repo contains the code for the pluggable Redis API layer. See [Architecture](#architecture) for more details. The API sits on top of EloqData's [Data Substrate](https://github.com/eloqdata/tx_service) modular database foundation and the dependencies are included as submodules.
+This repo contains the code for the pluggable Redis API layer. See [Architecture](#architecture) for more details. The API sits on top of EloqData's [Data Substrate](https://github.com/eloqdata/tx_service) modular database foundation. Product source dependencies are checked out as submodules; forked third-party libraries are managed under Data Substrate's `third_party` workspace.
 
 - [Key Features](#key-features)
 - [Quick Start](#quick-start)
@@ -209,8 +209,8 @@ When running with full durability, EloqKV outperforms other Redis-compatible sto
 We recommend using our Docker image with pre-installed dependencies and pull EloqKV source code in the container for a quick build and run of EloqKV.
 
 ```bash
-docker pull eloqdata/eloq-dev-ci-ubuntu2404:latest
-docker run -it --name eloq eloqdata/eloq-dev-ci-ubuntu2404
+docker pull eloqdata/eloqkv-builder:latest
+docker run -it --name eloq eloqdata/eloqkv-builder:latest
 git clone https://github.com/eloqdata/eloqkv.git
 cd eloqkv
 ```
@@ -225,8 +225,14 @@ bash scripts/install_dependency_ubuntu2404.sh
 ### 2. Initialize Submodules
 
 ```
-git submodule update --init --recursive
+bash scripts/checkout_product_submodules.sh
 ```
+
+`scripts/checkout_product_submodules.sh` intentionally skips
+`data_substrate/third_party/src/*`. CI uses the prebuilt
+`eloqdata/eloqkv-builder:latest` image, whose third-party libraries are
+installed under `/opt/eloq/third_party`. To rebuild those dependencies locally,
+run `data_substrate/scripts/third_party/install-ubuntu2404.sh`.
 
 ### 3. Build EloqKV
 ```bash
