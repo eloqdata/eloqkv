@@ -431,10 +431,11 @@ inline void PrintSelectedFlag(
         return;
     }
 
-    const std::string description =
-        description_override != nullptr ? description_override : flag.description;
-    std::cout << "    --" << flag.name << " (" << description << ") type: "
-              << flag.type;
+    const std::string description = description_override != nullptr
+                                        ? description_override
+                                        : flag.description;
+    std::cout << "    --" << flag.name << " (" << description
+              << ") type: " << flag.type;
     if (required)
     {
         std::cout << " required";
@@ -459,8 +460,7 @@ inline void PrintToolHelp(const char *argv0)
     std::vector<google::CommandLineFlagInfo> flags;
     google::GetAllFlags(&flags);
 
-    std::cout << "Usage: " << argv0 << " [options]" << std::endl
-              << std::endl;
+    std::cout << "Usage: " << argv0 << " [options]" << std::endl << std::endl;
 
 #if ROCKSDB_CLOUD_EXPORT
     std::cout << "RocksDB Cloud export flags:" << std::endl;
@@ -472,7 +472,8 @@ inline void PrintToolHelp(const char *argv0)
         "rocksdb_cloud_s3_endpoint_url",
         "Optional for AWS S3. Set it for S3-compatible object stores such as "
         "MinIO, for example http://127.0.0.1:9900");
-    PrintSelectedFlag(flags, "rocksdb_cloud_bucket_prefix", nullptr, true, false);
+    PrintSelectedFlag(
+        flags, "rocksdb_cloud_bucket_prefix", nullptr, true, false);
     PrintSelectedFlag(flags, "rocksdb_cloud_bucket_name", nullptr, true, false);
     PrintSelectedFlag(flags, "rocksdb_cloud_object_path", nullptr, true, false);
     PrintSelectedFlag(flags, "rocksdb_cloud_sst_file_cache_size");
