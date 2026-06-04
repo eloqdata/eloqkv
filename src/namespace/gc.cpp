@@ -1,6 +1,9 @@
 #include "namespace/gc.h"
 
+#include <gflags/gflags.h>
 #include <glog/logging.h>
+
+DECLARE_bool(cluster_mode);
 
 #include "b255.h"
 #include "eloqkv_key.h"
@@ -44,6 +47,18 @@ void NamespaceGc::RunDaemon()
     LOG(INFO) << "Namespace GC daemon started.";
     while (!server_->IsStopping())
     {
+        // In cluster mode, namespace metadata and GC logs are replicated
+        // globally. Only the leader of node group 0 is responsible for scanning
+        // and cleaning up GC records to prevent redundant executions and
+        // transaction conflicts.
+        if (FLAGS_cluster_mode)
+        {
+            if (!server_->IsLeader())
+            {
+                SleepWithStopCheck(50);
+                continue;
+            }
+        }
         std::vector<std::string> gc_records = ScanGCRecords();
         if (server_->IsStopping())
         {
@@ -52,14 +67,7 @@ void NamespaceGc::RunDaemon()
 
         if (gc_records.empty())
         {
-            for (int i = 0; i < 300; ++i)
-            {
-                if (server_->IsStopping())
-                {
-                    break;
-                }
-                bthread_usleep(100 * 1000);  // 100ms
-            }
+            SleepWithStopCheck(300);
             continue;
         }
 
@@ -102,6 +110,18 @@ void NamespaceGc::RunDaemon()
         }
     }
     LOG(INFO) << "Namespace GC daemon stopped.";
+}
+
+void NamespaceGc::SleepWithStopCheck(int hundred_ms_units)
+{
+    for (int i = 0; i < hundred_ms_units; ++i)
+    {
+        if (server_->IsStopping())
+        {
+            break;
+        }
+        bthread_usleep(100 * 1000);
+    }
 }
 
 std::vector<std::string> NamespaceGc::ScanGCRecords()
