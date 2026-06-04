@@ -23,6 +23,7 @@
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
@@ -395,6 +396,8 @@ std::ofstream outfile;
 std::atomic_uint64_t stat_read_key_count;
 // count of key written to rdb
 std::atomic_uint64_t stat_written_key_count;
+// count of serialized key payload bytes written to rdb
+std::atomic_uint64_t stat_written_byte_count;
 
 inline bool FindFlagInfo(const std::vector<google::CommandLineFlagInfo> &flags,
                          const std::string &name,
@@ -484,6 +487,11 @@ inline void PrintToolHelp(const char *argv0)
         "reduce lock contention; 5 means 32 shards. Usually no need to change");
     PrintSelectedFlag(flags, "eloq_dss_branch_name");
     PrintSelectedFlag(flags, "shard_num");
+    PrintSelectedFlag(
+        flags,
+        "thread_count",
+        "Parallel scan threads per cloud shard. Values greater than 1 split "
+        "ranges from live SST metadata; shards are still processed sequentially");
     PrintSelectedFlag(flags, "db_path");
     PrintSelectedFlag(flags, "output_file");
 #else
@@ -972,6 +980,61 @@ inline std::string FormatKeyRate(double rate)
     return ss.str();
 }
 
+inline std::string FormatBytes(uint64_t bytes)
+{
+    static constexpr double kKiB = 1024.0;
+    static constexpr double kMiB = 1024.0 * 1024.0;
+    static constexpr double kGiB = 1024.0 * 1024.0 * 1024.0;
+
+    std::ostringstream ss;
+    if (bytes >= kGiB)
+    {
+        ss << std::fixed << std::setprecision(2) << (bytes / kGiB) << " GiB";
+    }
+    else if (bytes >= kMiB)
+    {
+        ss << std::fixed << std::setprecision(2) << (bytes / kMiB) << " MiB";
+    }
+    else if (bytes >= kKiB)
+    {
+        ss << std::fixed << std::setprecision(2) << (bytes / kKiB) << " KiB";
+    }
+    else
+    {
+        ss << bytes << " B";
+    }
+    return ss.str();
+}
+
+inline std::string FormatByteRate(double bytes_per_sec)
+{
+    static constexpr double kKiB = 1024.0;
+    static constexpr double kMiB = 1024.0 * 1024.0;
+    static constexpr double kGiB = 1024.0 * 1024.0 * 1024.0;
+
+    std::ostringstream ss;
+    if (bytes_per_sec >= kGiB)
+    {
+        ss << std::fixed << std::setprecision(2) << (bytes_per_sec / kGiB)
+           << " GiB/s";
+    }
+    else if (bytes_per_sec >= kMiB)
+    {
+        ss << std::fixed << std::setprecision(2) << (bytes_per_sec / kMiB)
+           << " MiB/s";
+    }
+    else if (bytes_per_sec >= kKiB)
+    {
+        ss << std::fixed << std::setprecision(2) << (bytes_per_sec / kKiB)
+           << " KiB/s";
+    }
+    else
+    {
+        ss << std::fixed << std::setprecision(0) << bytes_per_sec << " B/s";
+    }
+    return ss.str();
+}
+
 class ShardProgressPrinter
 {
 public:
@@ -1003,11 +1066,41 @@ public:
         phase_.store(phase, std::memory_order_relaxed);
     }
 
-    void SetCounts(uint64_t read_key_count, uint64_t exported_key_count)
+    void SetCounts(uint64_t read_key_count,
+                   uint64_t exported_key_count,
+                   uint64_t exported_byte_count)
     {
         read_key_count_.store(read_key_count, std::memory_order_relaxed);
         exported_key_count_.store(exported_key_count,
                                   std::memory_order_relaxed);
+        exported_byte_count_.store(exported_byte_count,
+                                   std::memory_order_relaxed);
+    }
+
+    void AddCounts(uint64_t read_key_count,
+                   uint64_t exported_key_count,
+                   uint64_t exported_byte_count)
+    {
+        read_key_count_.fetch_add(read_key_count, std::memory_order_relaxed);
+        exported_key_count_.fetch_add(exported_key_count,
+                                      std::memory_order_relaxed);
+        exported_byte_count_.fetch_add(exported_byte_count,
+                                       std::memory_order_relaxed);
+    }
+
+    uint64_t ReadKeyCount() const
+    {
+        return read_key_count_.load(std::memory_order_relaxed);
+    }
+
+    uint64_t ExportedKeyCount() const
+    {
+        return exported_key_count_.load(std::memory_order_relaxed);
+    }
+
+    uint64_t ExportedByteCount() const
+    {
+        return exported_byte_count_.load(std::memory_order_relaxed);
     }
 
     void Finish(const char *final_status = "done")
@@ -1065,16 +1158,23 @@ private:
             read_key_count_.load(std::memory_order_relaxed);
         uint64_t exported_key_count =
             exported_key_count_.load(std::memory_order_relaxed);
-        double rate = 0;
+        uint64_t exported_byte_count =
+            exported_byte_count_.load(std::memory_order_relaxed);
+        double key_rate = 0;
+        double byte_rate = 0;
         if (interval_secs > 0)
         {
-            rate =
+            key_rate =
                 (exported_key_count - last_exported_key_count_) / interval_secs;
+            byte_rate =
+                (exported_byte_count - last_exported_byte_count_) / interval_secs;
         }
-        double avg_rate = 0;
+        double avg_key_rate = 0;
+        double avg_byte_rate = 0;
         if (elapsed_secs > 0)
         {
-            avg_rate = exported_key_count / elapsed_secs;
+            avg_key_rate = exported_key_count / elapsed_secs;
+            avg_byte_rate = exported_byte_count / elapsed_secs;
         }
 
         std::ostringstream ss;
@@ -1089,14 +1189,19 @@ private:
         }
         ss << " | elapsed "
            << FormatElapsed(static_cast<uint64_t>(elapsed_secs))
-           << " | exported " << exported_key_count;
+           << " | exported " << exported_key_count << " keys / "
+           << FormatBytes(exported_byte_count);
         if (final_status != nullptr)
         {
-            ss << " | avg " << FormatKeyRate(avg_rate) << " keys/s";
+            ss << " | avg " << FormatKeyRate(avg_key_rate) << " keys/s, "
+               << FormatByteRate(avg_byte_rate);
         }
         else
         {
-            ss << " | rate " << FormatKeyRate(rate) << " keys/s";
+            ss << " | rate " << FormatKeyRate(key_rate) << " keys/s, "
+               << FormatByteRate(byte_rate)
+               << " | avg " << FormatKeyRate(avg_key_rate) << " keys/s, "
+               << FormatByteRate(avg_byte_rate);
         }
         ss << " | read " << read_key_count;
 
@@ -1111,6 +1216,7 @@ private:
         last_line_size_ = line.size();
         last_print_time_ = now;
         last_exported_key_count_ = exported_key_count;
+        last_exported_byte_count_ = exported_byte_count;
     }
 
     uint32_t shard_id_;
@@ -1120,10 +1226,12 @@ private:
     std::atomic_bool running_{false};
     std::atomic_uint64_t read_key_count_{0};
     std::atomic_uint64_t exported_key_count_{0};
+    std::atomic_uint64_t exported_byte_count_{0};
     std::mutex refresh_mux_;
     std::condition_variable refresh_cv_;
     std::thread thd_;
     uint64_t last_exported_key_count_{0};
+    uint64_t last_exported_byte_count_{0};
     size_t last_line_size_{0};
 };
 
@@ -1463,6 +1571,230 @@ inline int ExtractDbNumberFromCatalogKey(const std::string &table_name)
     }
 }
 
+inline bool IsExportableDssKey(const rocksdb::Slice &key)
+{
+    std::string table_name;
+    std::string_view actual_key;
+    if (!ParseDssKey(key, table_name, actual_key))
+    {
+        return false;
+    }
+
+    return ExtractDbNumberFromCatalogKey(table_name) >= 0;
+}
+
+inline void FlushRdbBuffer(std::string &output_buf)
+{
+    if (output_buf.empty())
+    {
+        return;
+    }
+
+    std::unique_lock<std::mutex> write_lk(write_mux);
+    outfile << output_buf;
+    crc_val = crc64speed(crc_val, output_buf.data(), output_buf.size());
+    output_buf.clear();
+}
+
+inline std::vector<std::string> BuildShardRangeBoundaries(
+    rocksdb::DBCloud *db,
+    uint32_t scan_thread_count)
+{
+    if (scan_thread_count <= 1)
+    {
+        return {};
+    }
+
+    struct FileRange
+    {
+        std::string largest_key;
+        uint64_t size{0};
+    };
+
+    std::vector<rocksdb::LiveFileMetaData> metadata;
+    db->GetLiveFilesMetaData(&metadata);
+
+    std::vector<FileRange> file_ranges;
+    file_ranges.reserve(metadata.size());
+    const std::string default_cf_name = db->DefaultColumnFamily()->GetName();
+    for (const auto &meta : metadata)
+    {
+        if (meta.column_family_name != default_cf_name || meta.size == 0 ||
+            meta.largestkey.empty())
+        {
+            continue;
+        }
+
+        file_ranges.push_back({meta.largestkey, meta.size});
+    }
+
+    if (file_ranges.size() <= 1)
+    {
+        return {};
+    }
+
+    std::sort(file_ranges.begin(),
+              file_ranges.end(),
+              [](const FileRange &lhs, const FileRange &rhs) {
+                  return lhs.largest_key < rhs.largest_key;
+              });
+
+    std::vector<FileRange> merged_file_ranges;
+    merged_file_ranges.reserve(file_ranges.size());
+    for (const FileRange &file_range : file_ranges)
+    {
+        if (!merged_file_ranges.empty() &&
+            merged_file_ranges.back().largest_key == file_range.largest_key)
+        {
+            merged_file_ranges.back().size += file_range.size;
+            continue;
+        }
+        merged_file_ranges.push_back(file_range);
+    }
+
+    std::vector<std::string> boundaries;
+    boundaries.reserve(scan_thread_count - 1);
+    uint64_t total_size = 0;
+    for (const FileRange &file_range : merged_file_ranges)
+    {
+        total_size += file_range.size;
+    }
+
+    uint64_t accumulated_size = 0;
+    size_t file_idx = 0;
+    for (uint32_t idx = 1; idx < scan_thread_count; idx++)
+    {
+        const long double target =
+            (static_cast<long double>(total_size) * idx) / scan_thread_count;
+        while (file_idx < merged_file_ranges.size() &&
+               accumulated_size < target)
+        {
+            accumulated_size += merged_file_ranges[file_idx].size;
+            file_idx++;
+        }
+
+        if (file_idx == 0)
+        {
+            continue;
+        }
+        boundaries.emplace_back(merged_file_ranges[file_idx - 1].largest_key);
+    }
+
+    boundaries.erase(std::unique(boundaries.begin(), boundaries.end()),
+                     boundaries.end());
+    return boundaries;
+}
+
+inline void ScanShardRange(rocksdb::DBCloud *db,
+                           const std::string &lower_key,
+                           bool has_lower_key,
+                           const std::string &upper_key,
+                           bool has_upper_key,
+                           uint64_t clock_ts,
+                           ShardProgressPrinter &progress)
+{
+    rocksdb::ReadOptions ro;
+    rocksdb::Slice lower_bound;
+    rocksdb::Slice upper_bound;
+    if (has_lower_key)
+    {
+        lower_bound = rocksdb::Slice(lower_key);
+        ro.iterate_lower_bound = &lower_bound;
+    }
+    if (has_upper_key)
+    {
+        upper_bound = rocksdb::Slice(upper_key);
+        ro.iterate_upper_bound = &upper_bound;
+    }
+
+    std::unique_ptr<rocksdb::Iterator> it(
+        db->NewIterator(ro, db->DefaultColumnFamily()));
+    if (has_lower_key)
+    {
+        it->Seek(lower_bound);
+    }
+    else
+    {
+        it->SeekToFirst();
+    }
+
+    int current_db = -1;
+    std::string output_buf;
+    RedisRdbUtil util;
+
+    for (; it->Valid(); it->Next())
+    {
+        std::string table_name;
+        std::string_view actual_key;
+        if (!ParseDssKey(it->key(), table_name, actual_key))
+        {
+            continue;
+        }
+
+        int db_no = ExtractDbNumberFromCatalogKey(table_name);
+        if (db_no < 0)
+        {
+            continue;
+        }
+
+        progress.AddCounts(1, 0, 0);
+
+        std::string record;
+        uint64_t ts = 0;
+        uint64_t ttl = 0;
+        DeserializeDssValue(it->value().data(), it->value().size(), record, ts, ttl);
+
+        const bool has_ttl = ttl > 0;
+        if (has_ttl && ttl < (clock_ts / 1000))
+        {
+            continue;
+        }
+
+        txservice::TxRecord::Uptr rec =
+            DeserializeRecordData(record.data(), record.size());
+        if (!rec)
+        {
+            continue;
+        }
+
+        if (has_ttl)
+        {
+            rec->SetTTL(ttl);
+        }
+
+        if (db_no != current_db)
+        {
+            std::string db_buf;
+            RedisRdbUtil::ParseSelectDB(db_no, db_buf);
+            output_buf.append(db_buf);
+            current_db = db_no;
+        }
+
+        EloqKey eloq_key(actual_key.data(), actual_key.size());
+
+        const size_t output_size_before = output_buf.size();
+        util.ParseEloqKV(
+            &eloq_key, static_cast<RedisEloqObject *>(rec.get()), output_buf);
+
+        uint64_t written_bytes = output_buf.size() - output_size_before;
+        progress.AddCounts(0, 1, written_bytes);
+
+        if (output_buf.size() >= WriteBlockSize)
+        {
+            FlushRdbBuffer(output_buf);
+            current_db = -1;
+        }
+    }
+
+    FlushRdbBuffer(output_buf);
+
+    if (!it->status().ok())
+    {
+        std::cerr << "Range scan iterator error: " << it->status().ToString()
+                  << std::endl;
+    }
+}
+
 void RocksdbCloud2RDB(const std::string &base_url,
                       const std::string &output_fpath,
                       const std::string &aws_key_id,
@@ -1477,6 +1809,10 @@ void RocksdbCloud2RDB(const std::string &base_url,
     std::cout << "Starting RocksDB Cloud export" << std::endl;
 
 #if defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB_CLOUD_S3)
+    if (!aws_key_id.empty() && !aws_secret.empty())
+    {
+        setenv("AWS_EC2_METADATA_DISABLED", "true", 0);
+    }
     Aws::SDKOptions aws_options;
     aws_options.httpOptions.installSigPipeHandler = true;
     aws_options.loggingOptions.logLevel = Aws::Utils::Logging::LogLevel::Info;
@@ -1737,110 +2073,69 @@ void RocksdbCloud2RDB(const std::string &base_url,
                       << std::endl;
         }
 
-        // Direct scan
-        progress.SetPhase("scanning");
-        rocksdb::ReadOptions ro;
-        std::unique_ptr<rocksdb::Iterator> it(
-            db->NewIterator(ro, db->DefaultColumnFamily()));
-
-        int current_db = -1;
-        uint64_t read_key_count = 0;
-        uint64_t written_key_count = 0;
-        std::string output_buf;
-        RedisRdbUtil util;
-        progress.SetCounts(read_key_count, written_key_count);
-
-        for (it->SeekToFirst(); it->Valid(); it->Next())
+        const uint32_t scan_thread_count = std::max<uint32_t>(threads_cnt, 1);
+        progress.SetCounts(0, 0, 0);
+        if (scan_thread_count == 1)
         {
-            std::string table_name;
-            std::string_view actual_key;
-            if (!ParseDssKey(it->key(), table_name, actual_key))
+            progress.SetPhase("scanning");
+            ScanShardRange(db, "", false, "", false, clock_ts, progress);
+        }
+        else
+        {
+            progress.SetPhase("splitting");
+            std::vector<std::string> boundaries =
+                BuildShardRangeBoundaries(db, scan_thread_count);
+            const uint32_t actual_scan_thread_count = std::min<uint32_t>(
+                scan_thread_count, static_cast<uint32_t>(boundaries.size() + 1));
+
+            progress.SetPhase("scanning");
+            if (actual_scan_thread_count <= 1)
             {
-                continue;
+                ScanShardRange(db, "", false, "", false, clock_ts, progress);
             }
-
-            int db_no = ExtractDbNumberFromCatalogKey(table_name);
-            if (db_no < 0)
+            else
             {
-                continue;
-            }
-            read_key_count++;
-            progress.SetCounts(read_key_count, written_key_count);
-
-            std::string record;
-            uint64_t ts = 0;
-            uint64_t ttl = 0;
-            DeserializeDssValue(
-                it->value().data(), it->value().size(), record, ts, ttl);
-
-            const bool has_ttl = ttl > 0;
-            if (has_ttl && ttl < (clock_ts / 1000))
-            {
-                continue;
-            }
-
-            txservice::TxRecord::Uptr rec =
-                DeserializeRecordData(record.data(), record.size());
-            if (!rec)
-            {
-                continue;
-            }
-
-            if (has_ttl)
-            {
-                rec->SetTTL(ttl);
-            }
-
-            if (db_no != current_db)
-            {
-                if (!output_buf.empty())
+                std::vector<std::thread> scan_threads;
+                scan_threads.reserve(actual_scan_thread_count);
+                for (uint32_t idx = 0; idx < actual_scan_thread_count; idx++)
                 {
-                    std::unique_lock<std::mutex> write_lk(write_mux);
-                    outfile << output_buf;
-                    crc_val = crc64speed(
-                        crc_val, output_buf.data(), output_buf.size());
-                    output_buf.clear();
+                    std::string lower_key =
+                        (idx == 0) ? "" : boundaries[idx - 1];
+                    std::string upper_key =
+                        (idx < boundaries.size()) ? boundaries[idx] : "";
+                    const bool has_lower_key = idx != 0;
+                    const bool has_upper_key = idx < boundaries.size();
+
+                    scan_threads.emplace_back(
+                        [db,
+                         lower_key = std::move(lower_key),
+                         upper_key = std::move(upper_key),
+                         has_lower_key,
+                         has_upper_key,
+                         clock_ts,
+                         &progress]() {
+                            ScanShardRange(db,
+                                           lower_key,
+                                           has_lower_key,
+                                           upper_key,
+                                           has_upper_key,
+                                           clock_ts,
+                                           progress);
+                        });
                 }
-                std::unique_lock<std::mutex> write_lk(write_mux);
-                std::string buf;
-                RedisRdbUtil::ParseSelectDB(db_no, buf);
-                outfile << buf;
-                crc_val = crc64speed(crc_val, buf.data(), buf.size());
-                current_db = db_no;
-            }
 
-            EloqKey eloq_key(actual_key.data(), actual_key.size());
-
-            util.ParseEloqKV(&eloq_key,
-                             static_cast<RedisEloqObject *>(rec.get()),
-                             output_buf);
-
-            written_key_count++;
-            progress.SetCounts(read_key_count, written_key_count);
-
-            if (output_buf.size() >= WriteBlockSize)
-            {
-                std::unique_lock<std::mutex> write_lk(write_mux);
-                outfile << output_buf;
-                crc_val =
-                    crc64speed(crc_val, output_buf.data(), output_buf.size());
-                output_buf.clear();
+                for (std::thread &scan_thread : scan_threads)
+                {
+                    scan_thread.join();
+                }
             }
         }
 
-        if (!output_buf.empty())
-        {
-            std::unique_lock<std::mutex> write_lk(write_mux);
-            outfile << output_buf;
-            crc_val = crc64speed(crc_val, output_buf.data(), output_buf.size());
-            output_buf.clear();
-        }
-
-        stat_read_key_count.fetch_add(read_key_count);
-        stat_written_key_count.fetch_add(written_key_count);
+        stat_read_key_count.fetch_add(progress.ReadKeyCount());
+        stat_written_key_count.fetch_add(progress.ExportedKeyCount());
+        stat_written_byte_count.fetch_add(progress.ExportedByteCount());
         progress.SetPhase("closing");
 
-        it.reset();
         rocksdb::Status close_status = db->Close();
         delete db;
         progress.Finish();
@@ -2164,6 +2459,7 @@ int main(int argc, char *argv[])
 
     std::cout << "Object store URL: " << object_store_url << std::endl;
     std::cout << "Shard count: " << FLAGS_shard_num << std::endl;
+    std::cout << "Scan thread count: " << FLAGS_thread_count << std::endl;
     std::cout << "Output file: " << FLAGS_output_file << std::endl;
     std::cout << "Local cache dir: " << db_path << std::endl;
     std::cout << "Region: " << FLAGS_rocksdb_cloud_region << std::endl;
@@ -2259,6 +2555,11 @@ int main(int argc, char *argv[])
               << EloqKV::Tools::stat_read_key_count.load()
               << ", write keys to RDB: "
               << EloqKV::Tools::stat_written_key_count.load()
+#if ROCKSDB_CLOUD_EXPORT
+              << ", serialized data: "
+              << EloqKV::Tools::FormatBytes(
+                     EloqKV::Tools::stat_written_byte_count.load())
+#endif
               << ", expired keys:"
               << (EloqKV::Tools::stat_read_key_count.load() -
                   EloqKV::Tools::stat_written_key_count.load())
