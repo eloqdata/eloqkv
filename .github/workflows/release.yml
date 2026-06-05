@@ -22,7 +22,7 @@ jobs:
     uses: ./.github/workflows/docker.template.yml
     with:
       dockerfile: ./scripts/docker/builder.docker
-      image-name: eloqkv-builder
+      image-name: eloq-dev-ci-ubuntu2404
       force-latest: true
       latest-only: true
       checkout-submodules: "false"
@@ -53,7 +53,7 @@ jobs:
         include:
           # ---- ubuntu24.04 only ----
           - os_id: ubuntu24
-            container: eloqdata/eloqkv-builder:latest
+            container: eloqdata/eloq-dev-ci-ubuntu2404:latest
             pkg: apt
             data_store_type: ROCKSDB
             log_state_type: ROCKSDB
@@ -63,7 +63,7 @@ jobs:
             cmake_extra: ''
 
           - os_id: ubuntu24
-            container: eloqdata/eloqkv-builder:latest
+            container: eloqdata/eloq-dev-ci-ubuntu2404:latest
             pkg: apt
             data_store_type: ELOQDSS_ROCKSDB_CLOUD_S3
             log_state_type: ROCKSDB_CLOUD_S3
@@ -73,7 +73,7 @@ jobs:
             cmake_extra: '-DWITH_CLOUD_AZ_INFO=ON'
 
           - os_id: ubuntu24
-            container: eloqdata/eloqkv-builder:latest
+            container: eloqdata/eloq-dev-ci-ubuntu2404:latest
             pkg: apt
             data_store_type: ELOQDSS_ELOQSTORE
             log_state_type: ROCKSDB
@@ -83,7 +83,7 @@ jobs:
             cmake_extra: ''
 
           - os_id: ubuntu24
-            container: eloqdata/eloqkv-builder:latest
+            container: eloqdata/eloq-dev-ci-ubuntu2404:latest
             pkg: apt
             data_store_type: ELOQDSS_ELOQSTORE
             log_state_type: ROCKSDB_CLOUD_S3
@@ -93,7 +93,7 @@ jobs:
             cmake_extra: ''
 
           - os_id: ubuntu24
-            container: eloqdata/eloqkv-builder:latest
+            container: eloqdata/eloq-dev-ci-ubuntu2404:latest
             pkg: apt
             data_store_type: ELOQDSS_ELOQSTORE
             log_state_type: ROCKSDB_CLOUD_GCS
