@@ -205,7 +205,7 @@ When running with full durability, EloqKV outperforms other Redis-compatible sto
 ---
 
 ## Build from Source  
-### 1. Pull the Source Code and Install Dependencies
+### 1. Pull the Source Code
 We recommend using our Docker image with pre-installed dependencies and pull EloqKV source code in the container for a quick build and run of EloqKV.
 
 ```bash
@@ -214,15 +214,14 @@ docker run -it --name eloq eloqdata/eloqkv-builder:latest
 git clone https://github.com/eloqdata/eloqkv.git
 cd eloqkv
 ```
-Alternatively, you can also pull the source code in an existing Linux environment (currently, ubuntu2404 is preferred), and manually run the script to install dependencies on your local machine. Notice that this might take a while.
+Alternatively, you can also pull the source code in an existing Linux environment. Ubuntu 24.04 is preferred.
 
 ```bash
 git clone https://github.com/eloqdata/eloqkv.git
 cd eloqkv
-bash scripts/install_dependency_ubuntu2404.sh
 ```
 
-### 2. Initialize Submodules
+### 2. Initialize Submodules and Dependencies
 
 ```
 bash scripts/checkout_product_submodules.sh
@@ -233,6 +232,13 @@ bash scripts/checkout_product_submodules.sh
 `eloqdata/eloqkv-builder:latest` image, whose third-party libraries are
 installed under `/opt/eloq/third_party`. To rebuild those dependencies locally,
 run `data_substrate/scripts/third_party/install-ubuntu2404.sh`.
+
+If you are not using the builder image, install dependencies after product
+submodules have been initialized:
+
+```
+bash scripts/install_dependency_ubuntu2404.sh
+```
 
 ### 3. Build EloqKV
 ```bash
