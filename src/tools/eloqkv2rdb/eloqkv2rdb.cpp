@@ -104,6 +104,12 @@ DECLARE_string(rocksdb_cloud_sst_file_cache_size);
 DECLARE_int32(rocksdb_cloud_sst_file_cache_num_shard_bits);
 #endif
 
+DEFINE_string(write_block_size,
+              "1MB",
+              "Write buffer flush threshold. Supports KB, MB, GB, TB units "
+              "(e.g., 512KB, 1MB, 2GB). Based on 1024-byte units.");
+static uint64_t write_block_size_bytes = 0;
+
 // Compression not supported yet
 // DEFINE_uint32(compress_threshold,
 //               4,
@@ -367,8 +373,6 @@ struct KvEntry
     int64_t version_ts_;
 };
 
-const uint32_t WriteBlockSize = 1000 * 1000;
-
 using BatchKvEntry = std::vector<KvEntry>;
 std::vector<BatchKvEntry> entry_pool;
 std::vector<std::string> write_buf_pool;
@@ -494,6 +498,7 @@ inline void PrintToolHelp(const char *argv0)
         "ranges from live SST metadata; shards are still processed sequentially");
     PrintSelectedFlag(flags, "db_path");
     PrintSelectedFlag(flags, "output_file");
+    PrintSelectedFlag(flags, "write_block_size");
 #else
     std::cout << "RocksDB export flags:" << std::endl;
     const std::vector<std::string> flag_names = {
@@ -502,6 +507,7 @@ inline void PrintToolHelp(const char *argv0)
         "thread_count",
         "round_batch_size",
         "pre_read_ratio",
+        "write_block_size",
     };
 
     for (const auto &name : flag_names)
@@ -697,7 +703,7 @@ struct ParseWorker
                     *output_buf);
 
                 written_key_count++;
-                if (output_buf->size() >= WriteBlockSize)
+                if (output_buf->size() >= write_block_size_bytes)
                 {
                     flush_tasks.enqueue(output_buf);
                     writer_cv.notify_one();
@@ -1384,7 +1390,11 @@ inline bool ParseSizeBytes(const std::string &size_str, uint64_t &bytes)
                    [](unsigned char c) { return std::toupper(c); });
 
     uint64_t multiplier = 0;
-    if (unit_part == "MB")
+    if (unit_part == "KB")
+    {
+        multiplier = 1024ULL;
+    }
+    else if (unit_part == "MB")
     {
         multiplier = 1024ULL * 1024ULL;
     }
@@ -1779,7 +1789,7 @@ inline void ScanShardRange(rocksdb::DBCloud *db,
         uint64_t written_bytes = output_buf.size() - output_size_before;
         progress.AddCounts(0, 1, written_bytes);
 
-        if (output_buf.size() >= WriteBlockSize)
+        if (output_buf.size() >= write_block_size_bytes)
         {
             FlushRdbBuffer(output_buf);
             current_db = -1;
@@ -2280,7 +2290,7 @@ void Rocksdb2RDB(const std::string &db_path,
     for (size_t i = 0; i < write_buf_pool.size(); i++)
     {
         // reserve 2* write block size to avoid resize
-        write_buf_pool[i].reserve(WriteBlockSize * 2);
+        write_buf_pool[i].reserve(write_block_size_bytes * 2);
         free_flush_tasks.enqueue(&write_buf_pool[i]);
     }
 
@@ -2433,6 +2443,14 @@ int main(int argc, char *argv[])
     FLAGS_logtostdout = true;
     google::InitGoogleLogging(argv[0]);
     crc64speed_init();
+
+    if (!EloqKV::Tools::ParseSizeBytes(FLAGS_write_block_size,
+                                       write_block_size_bytes))
+    {
+        LOG(ERROR) << "Invalid --write_block_size: " << FLAGS_write_block_size
+                   << ", expected a positive size ending with KB, MB, GB, or TB";
+        return -1;
+    }
 
 #if ROCKSDB_CLOUD_EXPORT
     if (!EloqKV::Tools::ValidateRequiredCloudFlags())
