@@ -28,12 +28,21 @@
 #include <unordered_map>
 #include <utility>
 
+#include "absl/strings/string_view.h"
 #include "redis_command.h"
 #include "redis_service.h"
 #include "tx_util.h"
 
 namespace EloqKV
 {
+namespace
+{
+absl::string_view ToAbslStringView(std::string_view value)
+{
+    return absl::string_view(value.data(), value.size());
+}
+}  // namespace
+
 RedisConnectionContext::~RedisConnectionContext()
 {
     // Fixme(zkl): risk of data race for subscribed_channels
@@ -55,26 +64,26 @@ RedisConnectionContext::~RedisConnectionContext()
 
 void RedisConnectionContext::SubscribeChannel(std::string_view chan)
 {
-    assert(!subscribed_channels.contains(chan));
-    subscribed_channels.emplace(chan);
+    assert(!subscribed_channels.contains(ToAbslStringView(chan)));
+    subscribed_channels.emplace(std::string(chan));
 }
 
 void RedisConnectionContext::UnsubscribeChannel(std::string_view chan)
 {
-    assert(subscribed_channels.contains(chan));
-    subscribed_channels.erase(chan);
+    assert(subscribed_channels.contains(ToAbslStringView(chan)));
+    subscribed_channels.erase(ToAbslStringView(chan));
 }
 
 void RedisConnectionContext::SubscribePattern(std::string_view pattern)
 {
-    assert(!subscribed_patterns.contains(pattern));
-    subscribed_patterns.emplace(pattern);
+    assert(!subscribed_patterns.contains(ToAbslStringView(pattern)));
+    subscribed_patterns.emplace(std::string(pattern));
 }
 
 void RedisConnectionContext::UnsubscribePattern(std::string_view pattern)
 {
-    assert(subscribed_patterns.contains(pattern));
-    subscribed_patterns.erase(pattern);
+    assert(subscribed_patterns.contains(ToAbslStringView(pattern)));
+    subscribed_patterns.erase(ToAbslStringView(pattern));
 }
 
 int RedisConnectionContext::SubscriptionsCount() const
