@@ -1041,9 +1041,18 @@ inline std::string FormatByteRate(double bytes_per_sec)
     return ss.str();
 }
 
+struct alignas(64) ThreadCounters
+{
+    std::atomic_uint64_t read_key_count{0};
+    std::atomic_uint64_t exported_key_count{0};
+    std::atomic_uint64_t exported_byte_count{0};
+};
+
 class ShardProgressPrinter
 {
 public:
+    static constexpr size_t kMaxScanThreads = 64;
+
     explicit ShardProgressPrinter(uint32_t shard_id)
         : shard_id_(shard_id),
           start_time_(Clock::now()),
@@ -1072,41 +1081,37 @@ public:
         phase_.store(phase, std::memory_order_relaxed);
     }
 
-    void SetCounts(uint64_t read_key_count,
-                   uint64_t exported_key_count,
-                   uint64_t exported_byte_count)
-    {
-        read_key_count_.store(read_key_count, std::memory_order_relaxed);
-        exported_key_count_.store(exported_key_count,
-                                  std::memory_order_relaxed);
-        exported_byte_count_.store(exported_byte_count,
-                                   std::memory_order_relaxed);
-    }
-
-    void AddCounts(uint64_t read_key_count,
-                   uint64_t exported_key_count,
-                   uint64_t exported_byte_count)
-    {
-        read_key_count_.fetch_add(read_key_count, std::memory_order_relaxed);
-        exported_key_count_.fetch_add(exported_key_count,
-                                      std::memory_order_relaxed);
-        exported_byte_count_.fetch_add(exported_byte_count,
-                                       std::memory_order_relaxed);
-    }
-
     uint64_t ReadKeyCount() const
     {
-        return read_key_count_.load(std::memory_order_relaxed);
+        uint64_t total = 0;
+        for (size_t i = 0; i < kMaxScanThreads; i++)
+        {
+            total += counters_[i].read_key_count.load(
+                std::memory_order_relaxed);
+        }
+        return total;
     }
 
     uint64_t ExportedKeyCount() const
     {
-        return exported_key_count_.load(std::memory_order_relaxed);
+        uint64_t total = 0;
+        for (size_t i = 0; i < kMaxScanThreads; i++)
+        {
+            total += counters_[i].exported_key_count.load(
+                std::memory_order_relaxed);
+        }
+        return total;
     }
 
     uint64_t ExportedByteCount() const
     {
-        return exported_byte_count_.load(std::memory_order_relaxed);
+        uint64_t total = 0;
+        for (size_t i = 0; i < kMaxScanThreads; i++)
+        {
+            total += counters_[i].exported_byte_count.load(
+                std::memory_order_relaxed);
+        }
+        return total;
     }
 
     void Finish(const char *final_status = "done")
@@ -1115,6 +1120,8 @@ public:
         Print(Clock::now(), final_status);
         std::cout << std::endl;
     }
+
+    ThreadCounters counters_[kMaxScanThreads];
 
 private:
     using Clock = std::chrono::steady_clock;
@@ -1160,12 +1167,9 @@ private:
             std::chrono::duration<double>(now - last_print_time_).count();
         double elapsed_secs =
             std::chrono::duration<double>(now - start_time_).count();
-        uint64_t read_key_count =
-            read_key_count_.load(std::memory_order_relaxed);
-        uint64_t exported_key_count =
-            exported_key_count_.load(std::memory_order_relaxed);
-        uint64_t exported_byte_count =
-            exported_byte_count_.load(std::memory_order_relaxed);
+        uint64_t read_key_count = ReadKeyCount();
+        uint64_t exported_key_count = ExportedKeyCount();
+        uint64_t exported_byte_count = ExportedByteCount();
         double key_rate = 0;
         double byte_rate = 0;
         if (interval_secs > 0)
@@ -1230,9 +1234,6 @@ private:
     Clock::time_point last_print_time_;
     std::atomic<const char *> phase_{"starting"};
     std::atomic_bool running_{false};
-    std::atomic_uint64_t read_key_count_{0};
-    std::atomic_uint64_t exported_key_count_{0};
-    std::atomic_uint64_t exported_byte_count_{0};
     std::mutex refresh_mux_;
     std::condition_variable refresh_cv_;
     std::thread thd_;
@@ -1701,7 +1702,7 @@ inline void ScanShardRange(rocksdb::DBCloud *db,
                            const std::string &upper_key,
                            bool has_upper_key,
                            uint64_t clock_ts,
-                           ShardProgressPrinter &progress)
+                           ThreadCounters &counters)
 {
     rocksdb::ReadOptions ro;
     rocksdb::Slice lower_bound;
@@ -1747,7 +1748,7 @@ inline void ScanShardRange(rocksdb::DBCloud *db,
             continue;
         }
 
-        progress.AddCounts(1, 0, 0);
+        counters.read_key_count.fetch_add(1, std::memory_order_relaxed);
 
         std::string record;
         uint64_t ts = 0;
@@ -1787,7 +1788,9 @@ inline void ScanShardRange(rocksdb::DBCloud *db,
             &eloq_key, static_cast<RedisEloqObject *>(rec.get()), output_buf);
 
         uint64_t written_bytes = output_buf.size() - output_size_before;
-        progress.AddCounts(0, 1, written_bytes);
+        counters.exported_key_count.fetch_add(1, std::memory_order_relaxed);
+        counters.exported_byte_count.fetch_add(written_bytes,
+                                               std::memory_order_relaxed);
 
         if (output_buf.size() >= write_block_size_bytes)
         {
@@ -2084,11 +2087,11 @@ void RocksdbCloud2RDB(const std::string &base_url,
         }
 
         const uint32_t scan_thread_count = std::max<uint32_t>(threads_cnt, 1);
-        progress.SetCounts(0, 0, 0);
         if (scan_thread_count == 1)
         {
             progress.SetPhase("scanning");
-            ScanShardRange(db, "", false, "", false, clock_ts, progress);
+            ScanShardRange(
+                db, "", false, "", false, clock_ts, progress.counters_[0]);
         }
         else
         {
@@ -2101,7 +2104,13 @@ void RocksdbCloud2RDB(const std::string &base_url,
             progress.SetPhase("scanning");
             if (actual_scan_thread_count <= 1)
             {
-                ScanShardRange(db, "", false, "", false, clock_ts, progress);
+                ScanShardRange(db,
+                               "",
+                               false,
+                               "",
+                               false,
+                               clock_ts,
+                               progress.counters_[0]);
             }
             else
             {
@@ -2123,14 +2132,14 @@ void RocksdbCloud2RDB(const std::string &base_url,
                          has_lower_key,
                          has_upper_key,
                          clock_ts,
-                         &progress]() {
+                         counters = &progress.counters_[idx]]() {
                             ScanShardRange(db,
                                            lower_key,
                                            has_lower_key,
                                            upper_key,
                                            has_upper_key,
                                            clock_ts,
-                                           progress);
+                                           *counters);
                         });
                 }
 
@@ -2449,6 +2458,14 @@ int main(int argc, char *argv[])
     {
         LOG(ERROR) << "Invalid --write_block_size: " << FLAGS_write_block_size
                    << ", expected a positive size ending with KB, MB, GB, or TB";
+        return -1;
+    }
+
+    if (FLAGS_thread_count > EloqKV::Tools::ShardProgressPrinter::kMaxScanThreads)
+    {
+        LOG(ERROR) << "--thread_count " << FLAGS_thread_count
+                   << " exceeds maximum "
+                   << EloqKV::Tools::ShardProgressPrinter::kMaxScanThreads;
         return -1;
     }
 
