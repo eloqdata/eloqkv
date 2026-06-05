@@ -60,7 +60,6 @@
 #include <aws/s3/S3Client.h>
 #endif
 #include <rocksdb/cloud/cloud_file_system.h>
-#include <rocksdb/cloud/cloud_storage_provider.h>
 #include <rocksdb/cloud/db_cloud.h>
 #include <rocksdb/env.h>
 #include <rocksdb/options.h>
@@ -89,12 +88,12 @@ DEFINE_uint32(pre_read_ratio,
 
 #if ROCKSDB_CLOUD_EXPORT
 DEFINE_uint32(shard_num, 1, "Number of shards to export");
+DEFINE_string(snapshot_name, "", "Snapshot name to export (required)");
 DEFINE_string(db_path,
               "/tmp/eloqkv_rdb_export",
               "Local cache directory for RocksDB Cloud");
 DECLARE_string(aws_access_key_id);
 DECLARE_string(aws_secret_key);
-DECLARE_string(eloq_dss_branch_name);
 DECLARE_string(rocksdb_cloud_bucket_name);
 DECLARE_string(rocksdb_cloud_bucket_prefix);
 DECLARE_string(rocksdb_cloud_object_path);
@@ -489,13 +488,19 @@ inline void PrintToolHelp(const char *argv0)
         "rocksdb_cloud_sst_file_cache_num_shard_bits",
         "SST file cache shard bits. The cache is split into 2^N shards to "
         "reduce lock contention; 5 means 32 shards. Usually no need to change");
-    PrintSelectedFlag(flags, "eloq_dss_branch_name");
+    PrintSelectedFlag(flags,
+                      "snapshot_name",
+                      "Comma-separated snapshot names, one per shard "
+                      "(required)",
+                      true,
+                      false);
     PrintSelectedFlag(flags, "shard_num");
     PrintSelectedFlag(
         flags,
         "thread_count",
         "Parallel scan threads per cloud shard. Values greater than 1 split "
-        "ranges from live SST metadata; shards are still processed sequentially");
+        "ranges from live SST metadata; shards are still processed "
+        "sequentially");
     PrintSelectedFlag(flags, "db_path");
     PrintSelectedFlag(flags, "output_file");
     PrintSelectedFlag(flags, "write_block_size");
@@ -559,7 +564,8 @@ inline bool ValidateRequiredCloudFlags()
            ValidateRequiredCloudFlag("rocksdb_cloud_bucket_name",
                                      FLAGS_rocksdb_cloud_bucket_name) &&
            ValidateRequiredCloudFlag("rocksdb_cloud_object_path",
-                                     FLAGS_rocksdb_cloud_object_path);
+                                     FLAGS_rocksdb_cloud_object_path) &&
+           ValidateRequiredCloudFlag("snapshot_name", FLAGS_snapshot_name);
 }
 #endif
 
@@ -1086,8 +1092,8 @@ public:
         uint64_t total = 0;
         for (size_t i = 0; i < kMaxScanThreads; i++)
         {
-            total += counters_[i].read_key_count.load(
-                std::memory_order_relaxed);
+            total +=
+                counters_[i].read_key_count.load(std::memory_order_relaxed);
         }
         return total;
     }
@@ -1097,8 +1103,8 @@ public:
         uint64_t total = 0;
         for (size_t i = 0; i < kMaxScanThreads; i++)
         {
-            total += counters_[i].exported_key_count.load(
-                std::memory_order_relaxed);
+            total +=
+                counters_[i].exported_key_count.load(std::memory_order_relaxed);
         }
         return total;
     }
@@ -1176,8 +1182,8 @@ private:
         {
             key_rate =
                 (exported_key_count - last_exported_key_count_) / interval_secs;
-            byte_rate =
-                (exported_byte_count - last_exported_byte_count_) / interval_secs;
+            byte_rate = (exported_byte_count - last_exported_byte_count_) /
+                        interval_secs;
         }
         double avg_key_rate = 0;
         double avg_byte_rate = 0;
@@ -1209,8 +1215,8 @@ private:
         else
         {
             ss << " | rate " << FormatKeyRate(key_rate) << " keys/s, "
-               << FormatByteRate(byte_rate)
-               << " | avg " << FormatKeyRate(avg_key_rate) << " keys/s, "
+               << FormatByteRate(byte_rate) << " | avg "
+               << FormatKeyRate(avg_key_rate) << " keys/s, "
                << FormatByteRate(avg_byte_rate);
         }
         ss << " | read " << read_key_count;
@@ -1241,140 +1247,6 @@ private:
     uint64_t last_exported_byte_count_{0};
     size_t last_line_size_{0};
 };
-
-inline std::string MakeCloudManifestCookie(const std::string &branch_name,
-                                           int64_t dss_shard_id,
-                                           int64_t term)
-{
-    if (branch_name.empty())
-    {
-        return std::to_string(dss_shard_id) + "-" + std::to_string(term);
-    }
-
-    return branch_name + "-" + std::to_string(dss_shard_id) + "-" +
-           std::to_string(term);
-}
-
-inline bool ParseCloudManifestFileName(const std::string &filename,
-                                       std::string &branch_name,
-                                       int64_t &dss_shard_id,
-                                       int64_t &term)
-{
-    const std::string prefix = "CLOUDMANIFEST";
-    const size_t pos = filename.rfind('/');
-    std::string manifest_part =
-        (pos == std::string::npos) ? filename : filename.substr(pos + 1);
-
-    if (manifest_part.rfind(prefix, 0) != 0)
-    {
-        return false;
-    }
-
-    std::string suffix = manifest_part.substr(prefix.size());
-    if (suffix.empty())
-    {
-        branch_name.clear();
-        dss_shard_id = -1;
-        term = -1;
-        return true;
-    }
-
-    if (suffix[0] != '-' || suffix.size() == 1)
-    {
-        return false;
-    }
-    suffix.erase(0, 1);
-
-    const size_t last_hyphen = suffix.rfind('-');
-    if (last_hyphen == std::string::npos)
-    {
-        branch_name = suffix;
-        dss_shard_id = -1;
-        term = -1;
-        return true;
-    }
-
-    const size_t second_last_hyphen = suffix.rfind('-', last_hyphen - 1);
-    try
-    {
-        if (second_last_hyphen != std::string::npos)
-        {
-            branch_name = suffix.substr(0, second_last_hyphen);
-            dss_shard_id = std::stoll(suffix.substr(
-                second_last_hyphen + 1, last_hyphen - second_last_hyphen - 1));
-        }
-        else
-        {
-            branch_name.clear();
-            dss_shard_id = std::stoll(suffix.substr(0, last_hyphen));
-        }
-        term = std::stoll(suffix.substr(last_hyphen + 1));
-    }
-    catch (...)
-    {
-        return false;
-    }
-
-    return true;
-}
-
-inline bool FindLatestCloudManifest(
-    const std::shared_ptr<rocksdb::CloudStorageProvider> &storage_provider,
-    const std::string &bucket_name,
-    const std::string &object_path,
-    const std::string &branch_name,
-    std::string &cookie_on_open,
-    std::string &error_message)
-{
-    constexpr int64_t kDssShardIdInCookie = 0;
-    std::vector<std::string> cloud_objects;
-    const std::string manifest_prefix = "CLOUDMANIFEST-" + branch_name;
-    auto list_status = storage_provider->ListCloudObjectsWithPrefix(
-        bucket_name, object_path, manifest_prefix, &cloud_objects);
-    if (!list_status.ok())
-    {
-        error_message = "Failed to list cloud manifest files from bucket " +
-                        bucket_name + ", object_path: " + object_path +
-                        ", prefix: " + manifest_prefix +
-                        ", error: " + list_status.ToString();
-        return false;
-    }
-
-    int64_t max_term = -1;
-    std::string matched_branch;
-    for (const auto &object : cloud_objects)
-    {
-        std::string object_branch;
-        int64_t dss_shard_id = -1;
-        int64_t term = -1;
-        if (!ParseCloudManifestFileName(
-                object, object_branch, dss_shard_id, term))
-        {
-            continue;
-        }
-
-        if (object_branch == branch_name &&
-            dss_shard_id == kDssShardIdInCookie && term > max_term)
-        {
-            matched_branch = object_branch;
-            max_term = term;
-        }
-    }
-
-    if (max_term < 0)
-    {
-        error_message = "No matching cloud manifest found in bucket " +
-                        bucket_name + ", object_path: " + object_path +
-                        ", branch: " + branch_name +
-                        ", expected cookie shard id: " +
-                        std::to_string(kDssShardIdInCookie);
-        return false;
-    }
-
-    cookie_on_open =
-        MakeCloudManifestCookie(matched_branch, kDssShardIdInCookie, max_term);
-    return true;
-}
 
 inline bool ParseSizeBytes(const std::string &size_str, uint64_t &bytes)
 {
@@ -1595,8 +1467,7 @@ inline bool IsExportableDssKey(const rocksdb::Slice &key)
 }
 
 inline std::vector<std::string> BuildShardRangeBoundaries(
-    rocksdb::DBCloud *db,
-    uint32_t scan_thread_count)
+    rocksdb::DBCloud *db, uint32_t scan_thread_count)
 {
     if (scan_thread_count <= 1)
     {
@@ -1633,9 +1504,8 @@ inline std::vector<std::string> BuildShardRangeBoundaries(
 
     std::sort(file_ranges.begin(),
               file_ranges.end(),
-              [](const FileRange &lhs, const FileRange &rhs) {
-                  return lhs.largest_key < rhs.largest_key;
-              });
+              [](const FileRange &lhs, const FileRange &rhs)
+              { return lhs.largest_key < rhs.largest_key; });
 
     std::vector<FileRange> merged_file_ranges;
     merged_file_ranges.reserve(file_ranges.size());
@@ -1720,7 +1590,8 @@ inline void ScanShardRange(rocksdb::DBCloud *db,
     std::string *output_buf = nullptr;
     RedisRdbUtil util;
 
-    auto acquire_buffer = [&]() {
+    auto acquire_buffer = [&]()
+    {
         while (!free_flush_tasks.try_dequeue(output_buf))
         {
             std::unique_lock<std::mutex> lk(parser_mux);
@@ -1753,7 +1624,8 @@ inline void ScanShardRange(rocksdb::DBCloud *db,
         std::string record;
         uint64_t ts = 0;
         uint64_t ttl = 0;
-        DeserializeDssValue(it->value().data(), it->value().size(), record, ts, ttl);
+        DeserializeDssValue(
+            it->value().data(), it->value().size(), record, ts, ttl);
 
         const bool has_ttl = ttl > 0;
         if (has_ttl && ttl < (clock_ts / 1000))
@@ -1824,7 +1696,8 @@ void RocksdbCloud2RDB(const std::string &base_url,
                       uint32_t shard_num,
                       uint32_t threads_cnt,
                       uint32_t round_batch_size,
-                      uint32_t read_parse_ratio)
+                      uint32_t read_parse_ratio,
+                      const std::vector<std::string> &snapshot_names)
 {
     std::cout << "Starting RocksDB Cloud export" << std::endl;
 
@@ -2033,25 +1906,9 @@ void RocksdbCloud2RDB(const std::string &base_url,
         }
 
         std::shared_ptr<rocksdb::FileSystem> cloud_fs(cfs);
-        auto storage_provider = cfs->GetStorageProvider();
-
-        std::string cookie_on_open;
-        std::string manifest_error;
-        progress.SetPhase("discovering");
-        if (!FindLatestCloudManifest(storage_provider,
-                                     url_parts.bucket_name,
-                                     shard_object_path,
-                                     FLAGS_eloq_dss_branch_name,
-                                     cookie_on_open,
-                                     manifest_error))
-        {
-            progress.Finish("skipped");
-            std::cerr << manifest_error << std::endl;
-            continue;
-        }
 
         auto &mutable_cfs_options = cfs->GetMutableCloudFileSystemOptions();
-        mutable_cfs_options.cookie_on_open = cookie_on_open;
+        mutable_cfs_options.cookie_on_open = snapshot_names[shard_id];
         mutable_cfs_options.new_cookie_on_open.clear();
 
         std::unique_ptr<rocksdb::Env> cloud_env =
@@ -2121,18 +1978,14 @@ void RocksdbCloud2RDB(const std::string &base_url,
             std::vector<std::string> boundaries =
                 BuildShardRangeBoundaries(db, scan_thread_count);
             const uint32_t actual_scan_thread_count = std::min<uint32_t>(
-                scan_thread_count, static_cast<uint32_t>(boundaries.size() + 1));
+                scan_thread_count,
+                static_cast<uint32_t>(boundaries.size() + 1));
 
             progress.SetPhase("scanning");
             if (actual_scan_thread_count <= 1)
             {
-                ScanShardRange(db,
-                               "",
-                               false,
-                               "",
-                               false,
-                               clock_ts,
-                               progress.counters_[0]);
+                ScanShardRange(
+                    db, "", false, "", false, clock_ts, progress.counters_[0]);
             }
             else
             {
@@ -2154,7 +2007,8 @@ void RocksdbCloud2RDB(const std::string &base_url,
                          has_lower_key,
                          has_upper_key,
                          clock_ts,
-                         counters = &progress.counters_[idx]]() {
+                         counters = &progress.counters_[idx]]()
+                        {
                             ScanShardRange(db,
                                            lower_key,
                                            has_lower_key,
@@ -2482,12 +2336,14 @@ int main(int argc, char *argv[])
     if (!EloqKV::Tools::ParseSizeBytes(FLAGS_write_block_size,
                                        write_block_size_bytes))
     {
-        LOG(ERROR) << "Invalid --write_block_size: " << FLAGS_write_block_size
-                   << ", expected a positive size ending with KB, MB, GB, or TB";
+        LOG(ERROR)
+            << "Invalid --write_block_size: " << FLAGS_write_block_size
+            << ", expected a positive size ending with KB, MB, GB, or TB";
         return -1;
     }
 
-    if (FLAGS_thread_count > EloqKV::Tools::ShardProgressPrinter::kMaxScanThreads)
+    if (FLAGS_thread_count >
+        EloqKV::Tools::ShardProgressPrinter::kMaxScanThreads)
     {
         LOG(ERROR) << "--thread_count " << FLAGS_thread_count
                    << " exceeds maximum "
@@ -2523,10 +2379,32 @@ int main(int argc, char *argv[])
     std::cout << "Scan thread count: " << FLAGS_thread_count << std::endl;
     std::cout << "Output file: " << FLAGS_output_file << std::endl;
     std::cout << "Local cache dir: " << db_path << std::endl;
+    std::cout << "Snapshot name: " << FLAGS_snapshot_name << std::endl;
     std::cout << "Region: " << FLAGS_rocksdb_cloud_region << std::endl;
     std::cout << "==== Begin ====" << std::endl;
 
     auto start_time = std::chrono::system_clock::now();
+
+    // Parse comma-separated snapshot names
+    std::vector<std::string> snapshot_names;
+    if (!FLAGS_snapshot_name.empty())
+    {
+        std::stringstream ss(FLAGS_snapshot_name);
+        std::string name;
+        while (std::getline(ss, name, ','))
+        {
+            snapshot_names.push_back(name);
+        }
+    }
+
+    if (snapshot_names.size() != FLAGS_shard_num)
+    {
+        LOG(ERROR) << "Snapshot name count (" << snapshot_names.size()
+                   << ") does not match shard count (" << FLAGS_shard_num
+                   << "). Please provide one snapshot name per shard, "
+                      "comma-separated.";
+        return -1;
+    }
 
     EloqKV::Tools::RocksdbCloud2RDB(object_store_url,
                                     FLAGS_output_file,
@@ -2537,7 +2415,8 @@ int main(int argc, char *argv[])
                                     FLAGS_shard_num,
                                     FLAGS_thread_count,
                                     FLAGS_round_batch_size,
-                                    FLAGS_pre_read_ratio);
+                                    FLAGS_pre_read_ratio,
+                                    snapshot_names);
 #else
     if (FLAGS_rocksdb_path.empty())
     {
