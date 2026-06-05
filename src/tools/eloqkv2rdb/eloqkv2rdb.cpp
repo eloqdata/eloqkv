@@ -1859,6 +1859,7 @@ void RocksdbCloud2RDB(const std::string &base_url,
               << sst_file_cache_size << " bytes), shard bits: "
               << FLAGS_rocksdb_cloud_sst_file_cache_num_shard_bits << std::endl;
     cfs_options.resync_on_open = true;
+    cfs_options.roll_cloud_manifest_on_open = false;
     cfs_options.disable_cloud_file_deletion = true;
     cfs_options.delete_cloud_invisible_files_on_open = false;
 #if defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB_CLOUD_S3)
