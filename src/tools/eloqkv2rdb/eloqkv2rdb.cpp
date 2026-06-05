@@ -1594,19 +1594,6 @@ inline bool IsExportableDssKey(const rocksdb::Slice &key)
     return ExtractDbNumberFromCatalogKey(table_name) >= 0;
 }
 
-inline void FlushRdbBuffer(std::string &output_buf)
-{
-    if (output_buf.empty())
-    {
-        return;
-    }
-
-    std::unique_lock<std::mutex> write_lk(write_mux);
-    outfile << output_buf;
-    crc_val = crc64speed(crc_val, output_buf.data(), output_buf.size());
-    output_buf.clear();
-}
-
 inline std::vector<std::string> BuildShardRangeBoundaries(
     rocksdb::DBCloud *db,
     uint32_t scan_thread_count)
@@ -1730,8 +1717,21 @@ inline void ScanShardRange(rocksdb::DBCloud *db,
     }
 
     int current_db = -1;
-    std::string output_buf;
+    std::string *output_buf = nullptr;
     RedisRdbUtil util;
+
+    auto acquire_buffer = [&]() {
+        while (!free_flush_tasks.try_dequeue(output_buf))
+        {
+            std::unique_lock<std::mutex> lk(parser_mux);
+            parser_cv.wait_for(lk, std::chrono::milliseconds(100));
+        }
+        if (current_db >= 0)
+        {
+            RedisRdbUtil::ParseSelectDB(current_db, *output_buf);
+        }
+    };
+    acquire_buffer();
 
     for (; it->Valid(); it->Next())
     {
@@ -1777,29 +1777,36 @@ inline void ScanShardRange(rocksdb::DBCloud *db,
         {
             std::string db_buf;
             RedisRdbUtil::ParseSelectDB(db_no, db_buf);
-            output_buf.append(db_buf);
+            output_buf->append(db_buf);
             current_db = db_no;
         }
 
         EloqKey eloq_key(actual_key.data(), actual_key.size());
 
-        const size_t output_size_before = output_buf.size();
+        const size_t output_size_before = output_buf->size();
         util.ParseEloqKV(
-            &eloq_key, static_cast<RedisEloqObject *>(rec.get()), output_buf);
+            &eloq_key, static_cast<RedisEloqObject *>(rec.get()), *output_buf);
 
-        uint64_t written_bytes = output_buf.size() - output_size_before;
+        uint64_t written_bytes = output_buf->size() - output_size_before;
         counters.exported_key_count.fetch_add(1, std::memory_order_relaxed);
         counters.exported_byte_count.fetch_add(written_bytes,
                                                std::memory_order_relaxed);
 
-        if (output_buf.size() >= write_block_size_bytes)
+        if (output_buf->size() >= write_block_size_bytes)
         {
-            FlushRdbBuffer(output_buf);
+            flush_tasks.enqueue(output_buf);
+            writer_cv.notify_one();
+            output_buf = nullptr;
             current_db = -1;
+            acquire_buffer();
         }
     }
 
-    FlushRdbBuffer(output_buf);
+    if (output_buf && !output_buf->empty())
+    {
+        flush_tasks.enqueue(output_buf);
+        writer_cv.notify_one();
+    }
 
     if (!it->status().ok())
     {
@@ -1852,6 +1859,18 @@ void RocksdbCloud2RDB(const std::string &base_url,
         RedisRdbUtil::ParseHeader(buf);
         outfile << buf;
         crc_val = crc64speed(crc_val, buf.data(), buf.size());
+    }
+
+    // Init buffer pool for async writes. Scan threads fill buffers and hand
+    // them off to a dedicated WriteWorker via flush_tasks, so the scan is
+    // never blocked on disk I/O.
+    const uint32_t write_buf_cnt = std::max<uint32_t>(threads_cnt * 4, 64);
+    write_buf_pool.clear();
+    write_buf_pool.resize(write_buf_cnt);
+    for (size_t i = 0; i < write_buf_pool.size(); i++)
+    {
+        write_buf_pool[i].reserve(write_block_size_bytes * 2);
+        free_flush_tasks.enqueue(&write_buf_pool[i]);
     }
 
     // Parse base URL to get common cloud config (matching DSS pattern)
@@ -2087,6 +2106,9 @@ void RocksdbCloud2RDB(const std::string &base_url,
         }
 
         const uint32_t scan_thread_count = std::max<uint32_t>(threads_cnt, 1);
+
+        WriteWorker write_worker;
+
         if (scan_thread_count == 1)
         {
             progress.SetPhase("scanning");
@@ -2149,6 +2171,10 @@ void RocksdbCloud2RDB(const std::string &base_url,
                 }
             }
         }
+
+        write_worker.Terminate();
+        writer_cv.notify_one();
+        write_worker.Join();
 
         stat_read_key_count.fetch_add(progress.ReadKeyCount());
         stat_written_key_count.fetch_add(progress.ExportedKeyCount());
