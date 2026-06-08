@@ -28,7 +28,11 @@ jobs:
       checkout-submodules: "false"
       checkout-command: |
         git submodule update --init data_substrate
-        git -C data_substrate submodule update --init --recursive third_party/src
+        git -C data_substrate submodule update --init \
+          third_party/src/brpc \
+          third_party/src/braft \
+          third_party/src/mimalloc \
+          third_party/src/rocksdb-cloud
     secrets: inherit
 
   call-build:
