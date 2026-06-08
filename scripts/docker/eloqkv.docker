@@ -8,7 +8,11 @@ COPY . .
 
 RUN --mount=type=cache,target=/app/build,sharing=locked \
   mkdir -p build && cd build && \
-  cmake .. -DCMAKE_BUILD_TYPE=Release -DGIT_SUBMODULE=OFF && \
+  cmake .. \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DGIT_SUBMODULE=OFF \
+    -DELOQ_THIRD_PARTY_PREFIX=/opt/eloq/third_party \
+    -DELOQ_THIRD_PARTY_REQUIRED=ON && \
   make -j$(nproc) && \
   cp eloqkv /app/eloqkv
 

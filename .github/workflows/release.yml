@@ -2,6 +2,8 @@ name: Release
 
 permissions:
   contents: write
+  id-token: write
+  attestations: write
 
 on:
   push:
@@ -15,7 +17,26 @@ on:
         type: string
 
 jobs:
+  builder-image:
+    name: Rebuild builder image
+    uses: ./.github/workflows/docker.template.yml
+    with:
+      dockerfile: ./scripts/docker/builder.docker
+      image-name: eloq-dev-ci-ubuntu2404
+      force-latest: true
+      latest-only: true
+      checkout-submodules: "false"
+      checkout-command: |
+        git submodule update --init data_substrate
+        git -C data_substrate submodule update --init \
+          third_party/src/brpc \
+          third_party/src/braft \
+          third_party/src/mimalloc \
+          third_party/src/rocksdb-cloud
+    secrets: inherit
+
   call-build:
+    needs: builder-image
     name: ${{ matrix.os_id }}-${{ matrix.data_store_id }}
     uses: ./.github/workflows/build.yml
     with:

@@ -11,7 +11,8 @@ git checkout "${TAG}"
 if [ "${TAG}" = "main" ]; then
   git pull origin main
 fi
-git submodule update --init --recursive
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+bash "${SCRIPT_DIR}/checkout_product_submodules.sh"
 
 if [ "${TAG}" = "main" ]; then
   if [ -d data_substrate/eloq_log_service ]; then

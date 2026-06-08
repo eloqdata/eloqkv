@@ -17,4 +17,6 @@ jobs:
     with:
       dockerfile: ./scripts/docker/eloqkv.docker
       image-name: eloqkv
+      checkout-submodules: "false"
+      checkout-command: bash scripts/checkout_product_submodules.sh
     secrets: inherit

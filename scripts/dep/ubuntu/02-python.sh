@@ -12,13 +12,13 @@ export PATH="$HOME/.local/bin:$PATH"
 # Here we follow the user's previous pattern of using a venv at $HOME/venv
 
 # Create and activate venv with uv
-uv venv $HOME/venv
-source $HOME/venv/bin/activate
+uv venv --python /usr/bin/python3 "$HOME/venv"
+source "$HOME/venv/bin/activate"
 
-# Use uv to install packages
+# cassandra-driver 3.28.0 falls back to a legacy sdist build on Python 3.12.
 run_with_retry uv pip install --no-cache-dir \
     setuptools==45.2.0 \
-    cassandra-driver==3.28.0 \
+    cassandra-driver==3.29.2 \
     awscli==1.29.44 \
     boto3==1.28.36 \
     botocore==1.31.44 \
