@@ -204,43 +204,59 @@ When running with full durability, EloqKV outperforms other Redis-compatible sto
   
 ---
 
-## Build from Source  
-### 1. Pull the Source Code and Install Dependencies
-We recommend using our Docker image with pre-installed dependencies and pull EloqKV source code in the container for a quick build and run of EloqKV.
+## Build from Source
+
+### System prerequisites (Ubuntu 24.04)
 
 ```bash
-docker pull eloqdata/eloq-dev-ci-ubuntu2404:latest
-docker run -it --name eloq eloqdata/eloq-dev-ci-ubuntu2404
+sudo apt install -y \
+    git build-essential cmake ninja-build pkg-config python3 python3-venv \
+    bison flex libssl-dev zlib1g-dev libgflags-dev libleveldb-dev \
+    libsnappy-dev liblz4-dev libzstd-dev libbz2-dev libcurl4-openssl-dev \
+    libjsoncpp-dev liburing-dev
+```
+
+### Build
+
+```bash
 git clone https://github.com/eloqdata/eloqkv.git
 cd eloqkv
+chmod +x build.sh
+./build.sh
 ```
-Alternatively, you can also pull the source code in an existing Linux environment (currently, ubuntu2404 is preferred), and manually run the script to install dependencies on your local machine. Notice that this might take a while.
+
+`build.sh` handles everything automatically:
+
+1. Clones [eloq_build_env](https://github.com/ltzhang/eloq_build_env) as a sibling directory (the shared build environment — built once, reused by all Eloq products)
+2. Builds all shared dependencies into `../eloq_build_env/install/` (~30–60 min on first run; subsequent runs skip cached steps)
+3. Builds EloqKV against the shared prefix
+
+The compiled binary is at `../eloq_build_env/install/bin/eloqkv`.
+
+### Re-building after code changes
 
 ```bash
-git clone https://github.com/eloqdata/eloqkv.git
 cd eloqkv
-bash scripts/install_dependency_ubuntu2404.sh
+./build.sh    # deps and substrate are cached — only eloqkv is rebuilt
 ```
 
-### 2. Initialize Submodules
+### Custom eloq_build_env location
 
-```
-git submodule update --init --recursive
-```
+If `eloq_build_env` lives somewhere other than a sibling directory:
 
-### 3. Build EloqKV
 ```bash
-mkdir build
-cd build
-cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=./install ..
-make -j$(nproc)
-make install
+# Option 1: env var
+export ELOQ_BUILD_ENV=/path/to/eloq_build_env
+./build.sh
+
+# Option 2: symlink (add eloq_env to .gitignore)
+ln -s /path/to/eloq_build_env eloq_env
+./build.sh
 ```
 
-### 4. Run EloqKV
+### Run EloqKV
 ```bash
-cd install
-./bin/eloqkv --config=../../eloqkv.ini
+../eloq_build_env/install/bin/eloqkv --config=./eloqkv.ini
 ```
 
 ---
