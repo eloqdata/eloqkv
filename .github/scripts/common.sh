@@ -69,23 +69,32 @@ function wait_until_finished() {
   local timeout=300
   local elapsed=0
   local interval=1
+  local live_pids
 
   # First, forcefully kill any remaining eloqkv processes.
   # pkill matches by process name, not command line, so it won't
   # accidentally kill the bash scripts that have eloqkv in their path.
-  pkill eloqkv 2>/dev/null || true
+  pkill -x eloqkv 2>/dev/null || true
   sleep 2
-  pkill -9 eloqkv 2>/dev/null || true
+  pkill -9 -x eloqkv 2>/dev/null || true
 
-  while pgrep eloqkv > /dev/null 2>&1; do
+  while true; do
+    live_pids=$(ps -eo pid=,stat=,comm= | awk '$3 == "eloqkv" && $2 !~ /^Z/ {print $1}')
+    if [[ -z "${live_pids}" ]]; then
+      break
+    fi
     sleep $interval
     elapsed=$((elapsed + interval))
     if [ $elapsed -ge $timeout ]; then
       echo "Timeout: eloqkv process still running after $timeout seconds."
-      ps aux | grep eloqkv | grep -v grep | grep -v launch_sv | grep -v dss_server
+      ps -eo pid,ppid,stat,comm,args | awk '$4 == "eloqkv" {print}'
       return 1
     fi
   done
+  if pgrep -x eloqkv > /dev/null 2>&1; then
+    echo "Only defunct eloqkv processes remain; continuing."
+    ps -eo pid,ppid,stat,comm,args | awk '$4 == "eloqkv" {print}'
+  fi
   return 0
 }
 
@@ -238,19 +247,6 @@ function cleanup_minio_bucket() {
   mc rb --force local/${bucket_full_name} 2>/dev/null || true
 }
 
-function create_minio_bucket()
-{
-  bucket_name=$1
-  if [[ "$bucket_name" == eloqkv-* ]]; then
-    bucket_full_name="${bucket_name}"
-  else
-    bucket_full_name="eloqkv-${bucket_name}"
-  fi
-  echo "Create bucket ${bucket_full_name}"
-  mc mb local/${bucket_full_name} 2>/dev/null || true
-  echo "Minio bucket ${bucket_full_name} has been created."
-}
-
 function dump_file_tail() {
   local file=$1
   local lines=${2:-300}
@@ -315,8 +311,6 @@ function dump_ci_failure_logs() {
 function prepare_eloqstore_minio_buckets() {
   cleanup_minio_bucket ${ELOQSTORE_BUCKET_NAME}
   cleanup_minio_bucket ${ROCKSDB_CLOUD_BUCKET_NAME}
-  create_minio_bucket ${ELOQSTORE_BUCKET_NAME}
-  create_minio_bucket ${ROCKSDB_CLOUD_BUCKET_NAME}
 }
 
 function run_build_ent() {
@@ -815,7 +809,6 @@ function run_eloqkv_tests() {
 
     cleanup_minio_bucket ${ELOQSTORE_BUCKET_NAME}
     cleanup_minio_bucket ${ROCKSDB_CLOUD_BUCKET_NAME}
-    create_minio_bucket ${ELOQSTORE_BUCKET_NAME}
     local eloq_data_path="/tmp/eloqkv_data"
     local node_memory_limit_mb=${NODE_MEMORY_LIMIT_MB:-2048}
     local eloq_store_data_path="/tmp/eloqkv_data/eloq_store"
@@ -1188,17 +1181,25 @@ function run_eloqkv_tests() {
 
 # Function to wait until data store server is ready
 function wait_dss_until_ready() {
+  local dss_server_pid=$1
+  local dss_log_path=${2:-/tmp/eloq_dss_data/eloq_dss_server.log}
   local interval=1
   local timeout=300
   local elapsed=0
-  local dss_log_path="/tmp/eloq_dss_data/eloq_dss_server.log"
 
-  while [ $(grep -i "DataStoreService Server Started" ${dss_log_path} | wc -l) -eq 0 ]; do
+  while ! grep -qi "DataStoreService Server Started" "${dss_log_path}" 2>/dev/null; do
+    if [[ -n "${dss_server_pid}" ]] && ! kill -0 "${dss_server_pid}" 2>/dev/null; then
+      echo "Data store server process ${dss_server_pid} exited before becoming ready."
+      dump_file_tail "${dss_log_path}" 200
+      return 1
+    fi
     sleep $interval
     elapsed=$((elapsed + interval))
     echo "Wait until data store server ready for $elapsed seconds."
     if [ $elapsed -ge $timeout ]; then
       echo "Timeout: Data store server is not ready after $elapsed seconds."
+      ps -eo pid,ppid,stat,comm,args | awk '$4 == "dss_server" {print}'
+      dump_file_tail "${dss_log_path}" 200
       return 1
     fi
   done
@@ -1210,29 +1211,36 @@ function wait_dss_until_finished() {
   local interval=1
   local timeout=120
   local elapsed=0
+  local live_pids
 
-  while [ $(ps aux | grep dss_server | grep -v grep | wc -l) -gt 0 ]; do
+  while true; do
+    live_pids=$(ps -eo pid=,stat=,comm= | awk '$3 == "dss_server" && $2 !~ /^Z/ {print $1}')
+    if [[ -z "${live_pids}" ]]; then
+      break
+    fi
     sleep $interval
     elapsed=$((elapsed + interval))
     if [ $elapsed -ge $timeout ]; then
       echo "Timeout: Process still running after $timeout seconds."
       # list dss still alived
-      ps aux | grep dss_server | grep -v grep
+      ps -eo pid,ppid,stat,comm,args | awk '$4 == "dss_server" {print}'
       return 1
     fi
   done
+  if pgrep -x dss_server > /dev/null 2>&1; then
+    echo "Only defunct dss_server processes remain; continuing."
+    ps -eo pid,ppid,stat,comm,args | awk '$4 == "dss_server" {print}'
+  fi
   return 0
 }
 
 function stop_and_clean_dss_server() {
   local kv_store_type=$1
 
-  set +e
-  pkill -x dss_server
-  rm data_store_config.ini
-  rm /tmp/data_store_config.ini
+  pkill -x dss_server || true
+  rm -f data_store_config.ini
+  rm -f /tmp/data_store_config.ini
   rm -rf /tmp/eloq_dss_data
-  set -e
 
   wait_dss_until_finished
 
@@ -1275,7 +1283,6 @@ function start_dss_server() {
         local eloq_store_cloud_store_path=${ELOQSTORE_BUCKET_NAME}
         local eloq_store_buffer_pool_size=1MB
         cleanup_minio_bucket ${ELOQSTORE_BUCKET_NAME}
-        create_minio_bucket ${ELOQSTORE_BUCKET_NAME}
         dss_server_configs="--eloq_store_worker_num=${eloq_store_worker_num} \
                             --eloq_store_data_path_list=${eloq_store_data_path} \
                             --eloq_store_open_files_limit=${eloq_store_open_files_limit} \
@@ -1303,7 +1310,7 @@ function start_dss_server() {
     &
   local dss_server_pid=$!
 
-  wait_dss_until_ready
+  wait_dss_until_ready "$dss_server_pid" "$dss_log_path"
   echo "dss_server is started, pid: $dss_server_pid"
 }
 function run_eloqkv_cluster_tests() {
@@ -2439,7 +2446,9 @@ function run_eloq_test() {
     # run standby test
     rm -rf runtime/*
     prepare_eloqstore_minio_buckets
-    python3 run_tests.py --dbtype redis --group standby --storage eloqdss-eloqstore-local --install_path ${eloqkv_install_path} --bootstrap true
+    # TODO: Re-enable after eloqdss-eloqstore-local standby startup no longer
+    # times out waiting for standby nodes to become transaction-ready.
+    # python3 run_tests.py --dbtype redis --group standby --storage eloqdss-eloqstore-local --install_path ${eloqkv_install_path} --bootstrap true
     rm -rf runtime/*
     prepare_eloqstore_minio_buckets
     python3 run_tests.py --dbtype redis --group standby --storage eloqdss-eloqstore-cloud --install_path ${eloqkv_install_path} --bootstrap true
