@@ -84,7 +84,7 @@ COMMIT
 redis-cli -h eloqkv-server SET key "value"  # Works out of the box!  
 ```  
 - Zero code changes needed. Check out our [supported Redis commands](https://www.eloqdata.com/eloqkv/kvstore_compatibility). 
-- Use [1bench](https://1bench.dev/redis) as a graphical client by creating a Redis connection with your EloqKV frontend host and port.
+- Use [1bench](https://1bench.dev/eloqkv) as a graphical client by creating a Redis connection with your EloqKV frontend host and port.
 
 
 ---
