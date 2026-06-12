@@ -23,12 +23,16 @@
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <iomanip>
+#include <iostream>
 #include <mutex>
 #include <ratio>
 #include <regex>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "bthread/moodycamelqueue.h"
@@ -42,13 +46,34 @@
 #include "redis_string_object.h"
 #include "redis_zset_object.h"
 #include "rocksdb/db.h"
+
+#if defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB_CLOUD_S3) ||                       \
+    defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB_CLOUD_GCS)
+#define ROCKSDB_CLOUD_EXPORT 1
+#endif
+
+#if ROCKSDB_CLOUD_EXPORT
+#if defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB_CLOUD_S3)
+#include <aws/core/Aws.h>
+#include <aws/core/auth/AWSCredentialsProvider.h>
+#include <aws/core/client/ClientConfiguration.h>
+#include <aws/s3/S3Client.h>
+#endif
+#include <rocksdb/cloud/cloud_file_system.h>
+#include <rocksdb/cloud/db_cloud.h>
+#include <rocksdb/env.h>
+#include <rocksdb/options.h>
+
+#include <algorithm>
+#include <sstream>
+#endif
 extern "C"
 {
 #include "crcspeed/crc64speed.h"
 }
 
 DEFINE_string(rocksdb_path, "", "The RocksDB data (full) path");
-DEFINE_string(output_file, "", "The file to store the RDB file");
+DEFINE_string(output_file, "dump.rdb", "The file to store the RDB file");
 DEFINE_uint32(thread_count,
               1,
               "The number of thread to parse records from rocksdb");
@@ -60,6 +85,29 @@ DEFINE_uint32(round_batch_size,
 DEFINE_uint32(pre_read_ratio,
               2,
               "Pre read batch count for each parsing thread");
+
+#if ROCKSDB_CLOUD_EXPORT
+DEFINE_uint32(shard_num, 1, "Number of shards to export");
+DEFINE_string(snapshot_name, "", "Snapshot name to export (required)");
+DEFINE_string(db_path,
+              "/tmp/eloqkv_rdb_export",
+              "Local cache directory for RocksDB Cloud");
+DECLARE_string(aws_access_key_id);
+DECLARE_string(aws_secret_key);
+DECLARE_string(rocksdb_cloud_bucket_name);
+DECLARE_string(rocksdb_cloud_bucket_prefix);
+DECLARE_string(rocksdb_cloud_object_path);
+DECLARE_string(rocksdb_cloud_region);
+DECLARE_string(rocksdb_cloud_s3_endpoint_url);
+DECLARE_string(rocksdb_cloud_sst_file_cache_size);
+DECLARE_int32(rocksdb_cloud_sst_file_cache_num_shard_bits);
+#endif
+
+DEFINE_string(write_block_size,
+              "1MB",
+              "Write buffer flush threshold. Supports KB, MB, GB, TB units "
+              "(e.g., 512KB, 1MB, 2GB). Based on 1024-byte units.");
+static uint64_t write_block_size_bytes = 0;
 
 // Compression not supported yet
 // DEFINE_uint32(compress_threshold,
@@ -324,8 +372,6 @@ struct KvEntry
     int64_t version_ts_;
 };
 
-const uint32_t WriteBlockSize = 1000 * 1000;
-
 using BatchKvEntry = std::vector<KvEntry>;
 std::vector<BatchKvEntry> entry_pool;
 std::vector<std::string> write_buf_pool;
@@ -353,6 +399,175 @@ std::ofstream outfile;
 std::atomic_uint64_t stat_read_key_count;
 // count of key written to rdb
 std::atomic_uint64_t stat_written_key_count;
+// count of serialized key payload bytes written to rdb
+std::atomic_uint64_t stat_written_byte_count;
+
+inline bool FindFlagInfo(const std::vector<google::CommandLineFlagInfo> &flags,
+                         const std::string &name,
+                         google::CommandLineFlagInfo &info)
+{
+    for (const auto &flag : flags)
+    {
+        if (flag.name == name)
+        {
+            info = flag;
+            return true;
+        }
+    }
+    return false;
+}
+
+inline bool IsFlagDefault(const std::string &name)
+{
+    google::CommandLineFlagInfo info;
+    return !google::GetCommandLineFlagInfo(name.c_str(), &info) ||
+           info.is_default;
+}
+
+inline void PrintSelectedFlag(
+    const std::vector<google::CommandLineFlagInfo> &flags,
+    const std::string &name,
+    const char *description_override = nullptr,
+    bool required = false,
+    bool show_default = true)
+{
+    google::CommandLineFlagInfo flag;
+    if (!FindFlagInfo(flags, name, flag))
+    {
+        return;
+    }
+
+    const std::string description = description_override != nullptr
+                                        ? description_override
+                                        : flag.description;
+    std::cout << "    --" << flag.name << " (" << description
+              << ") type: " << flag.type;
+    if (required)
+    {
+        std::cout << " required";
+    }
+    else if (show_default)
+    {
+        std::cout << " default: ";
+        if (flag.type == "string")
+        {
+            std::cout << "\"" << flag.default_value << "\"";
+        }
+        else
+        {
+            std::cout << flag.default_value;
+        }
+    }
+    std::cout << std::endl;
+}
+
+inline void PrintToolHelp(const char *argv0)
+{
+    std::vector<google::CommandLineFlagInfo> flags;
+    google::GetAllFlags(&flags);
+
+    std::cout << "Usage: " << argv0 << " [options]" << std::endl << std::endl;
+
+#if ROCKSDB_CLOUD_EXPORT
+    std::cout << "RocksDB Cloud export flags:" << std::endl;
+    PrintSelectedFlag(flags, "aws_access_key_id");
+    PrintSelectedFlag(flags, "aws_secret_key");
+    PrintSelectedFlag(flags, "rocksdb_cloud_region");
+    PrintSelectedFlag(
+        flags,
+        "rocksdb_cloud_s3_endpoint_url",
+        "Optional for AWS S3. Set it for S3-compatible object stores such as "
+        "MinIO, for example http://127.0.0.1:9900");
+    PrintSelectedFlag(
+        flags, "rocksdb_cloud_bucket_prefix", nullptr, true, false);
+    PrintSelectedFlag(flags, "rocksdb_cloud_bucket_name", nullptr, true, false);
+    PrintSelectedFlag(flags, "rocksdb_cloud_object_path", nullptr, true, false);
+    PrintSelectedFlag(flags, "rocksdb_cloud_sst_file_cache_size");
+    PrintSelectedFlag(
+        flags,
+        "rocksdb_cloud_sst_file_cache_num_shard_bits",
+        "SST file cache shard bits. The cache is split into 2^N shards to "
+        "reduce lock contention; 5 means 32 shards. Usually no need to change");
+    PrintSelectedFlag(flags,
+                      "snapshot_name",
+                      "Comma-separated snapshot names, one per shard "
+                      "(required)",
+                      true,
+                      false);
+    PrintSelectedFlag(flags, "shard_num");
+    PrintSelectedFlag(
+        flags,
+        "thread_count",
+        "Parallel scan threads per cloud shard. Values greater than 1 split "
+        "ranges from live SST metadata; shards are still processed "
+        "sequentially");
+    PrintSelectedFlag(flags, "db_path");
+    PrintSelectedFlag(flags, "output_file");
+    PrintSelectedFlag(flags, "write_block_size");
+#else
+    std::cout << "RocksDB export flags:" << std::endl;
+    const std::vector<std::string> flag_names = {
+        "rocksdb_path",
+        "output_file",
+        "thread_count",
+        "round_batch_size",
+        "pre_read_ratio",
+        "write_block_size",
+    };
+
+    for (const auto &name : flag_names)
+    {
+        PrintSelectedFlag(flags, name);
+    }
+#endif
+
+    std::cout << std::endl
+              << "Use --helpfull to show all linked gflags." << std::endl;
+}
+
+inline bool IsToolHelpArg(const char *arg)
+{
+    const std::string value(arg);
+    return value == "--help" || value == "-help" || value == "--help=true" ||
+           value == "-help=true" || value == "--help=1" || value == "-help=1";
+}
+
+inline bool MaybeHandleToolHelp(int argc, char *argv[])
+{
+    for (int idx = 1; idx < argc; idx++)
+    {
+        if (IsToolHelpArg(argv[idx]))
+        {
+            PrintToolHelp(argv[0]);
+            return true;
+        }
+    }
+    return false;
+}
+
+#if ROCKSDB_CLOUD_EXPORT
+inline bool ValidateRequiredCloudFlag(const std::string &name,
+                                      const std::string &value)
+{
+    if (IsFlagDefault(name) || value.empty())
+    {
+        std::cerr << "Please specify non-empty --" << name << std::endl;
+        return false;
+    }
+    return true;
+}
+
+inline bool ValidateRequiredCloudFlags()
+{
+    return ValidateRequiredCloudFlag("rocksdb_cloud_bucket_prefix",
+                                     FLAGS_rocksdb_cloud_bucket_prefix) &&
+           ValidateRequiredCloudFlag("rocksdb_cloud_bucket_name",
+                                     FLAGS_rocksdb_cloud_bucket_name) &&
+           ValidateRequiredCloudFlag("rocksdb_cloud_object_path",
+                                     FLAGS_rocksdb_cloud_object_path) &&
+           ValidateRequiredCloudFlag("snapshot_name", FLAGS_snapshot_name);
+}
+#endif
 
 struct WriteWorker
 {
@@ -494,7 +709,7 @@ struct ParseWorker
                     *output_buf);
 
                 written_key_count++;
-                if (output_buf->size() >= WriteBlockSize)
+                if (output_buf->size() >= write_block_size_bytes)
                 {
                     flush_tasks.enqueue(output_buf);
                     writer_cv.notify_one();
@@ -602,6 +817,1253 @@ private:
 
     std::thread thd_;
 };
+
+#if ROCKSDB_CLOUD_EXPORT
+
+struct S3UrlComponents
+{
+    std::string protocol;
+    std::string bucket_name;
+    std::string object_path;
+    std::string endpoint_url;
+    bool is_valid{false};
+    std::string error_message;
+};
+
+inline std::string LowerString(std::string s)
+{
+    std::transform(s.begin(),
+                   s.end(),
+                   s.begin(),
+                   [](unsigned char c) { return std::tolower(c); });
+    return s;
+}
+
+inline S3UrlComponents ParseS3Url(const std::string &s3_url)
+{
+    S3UrlComponents result;
+
+    if (s3_url.empty())
+    {
+        result.error_message = "Object store URL is empty";
+        return result;
+    }
+
+    size_t protocol_end = s3_url.find("://");
+    if (protocol_end == std::string::npos)
+    {
+        result.error_message = "Invalid URL format: missing '://' separator";
+        return result;
+    }
+
+    result.protocol = LowerString(s3_url.substr(0, protocol_end));
+
+    if (result.protocol != "s3" && result.protocol != "gs" &&
+        result.protocol != "http" && result.protocol != "https")
+    {
+        result.error_message = "Invalid protocol '" + result.protocol +
+                               "'. Must be one of: s3, gs, http, https";
+        return result;
+    }
+
+    size_t path_start = protocol_end + 3;
+    if (path_start >= s3_url.length())
+    {
+        result.error_message = "Invalid URL format: no content after protocol";
+        return result;
+    }
+
+    std::string remaining = s3_url.substr(path_start);
+
+    if (result.protocol == "http" || result.protocol == "https")
+    {
+        size_t first_slash = remaining.find('/');
+        if (first_slash == std::string::npos)
+        {
+            result.error_message =
+                "Invalid URL: missing bucket and object path";
+            return result;
+        }
+        result.endpoint_url =
+            result.protocol + "://" + remaining.substr(0, first_slash);
+        remaining = remaining.substr(first_slash + 1);
+    }
+
+    size_t first_slash = remaining.find('/');
+    if (first_slash == std::string::npos)
+    {
+        result.error_message = "Invalid URL: missing object path";
+        return result;
+    }
+
+    result.bucket_name = remaining.substr(0, first_slash);
+    result.object_path = remaining.substr(first_slash + 1);
+
+    if (result.bucket_name.empty() || result.object_path.empty())
+    {
+        result.error_message = "Bucket name or object path cannot be empty";
+        return result;
+    }
+
+    result.is_valid = true;
+    return result;
+}
+
+inline std::string BuildShardObjectPath(const std::string &object_path,
+                                        uint32_t shard_id)
+{
+    std::string path = object_path;
+    while (!path.empty() && path.back() == '/')
+    {
+        path.pop_back();
+    }
+
+    const std::string shard_suffix = "/ds_" + std::to_string(shard_id);
+    if (path.size() >= shard_suffix.size() &&
+        path.compare(path.size() - shard_suffix.size(),
+                     shard_suffix.size(),
+                     shard_suffix) == 0)
+    {
+        return path;
+    }
+
+    return path + shard_suffix;
+}
+
+inline std::string TrimTrailingSlashes(std::string value)
+{
+    while (!value.empty() && value.back() == '/')
+    {
+        value.pop_back();
+    }
+    return value;
+}
+
+inline std::string TrimLeadingSlashes(std::string value)
+{
+    while (!value.empty() && value.front() == '/')
+    {
+        value.erase(value.begin());
+    }
+    return value;
+}
+
+inline std::string BuildObjectStoreServiceUrl()
+{
+    std::string bucket_prefix = FLAGS_rocksdb_cloud_bucket_prefix;
+    std::string bucket_name = FLAGS_rocksdb_cloud_bucket_name;
+    std::string bucket = bucket_prefix + bucket_name;
+    std::string object_path =
+        TrimLeadingSlashes(FLAGS_rocksdb_cloud_object_path);
+    if (bucket_prefix.empty() || bucket_name.empty() || object_path.empty())
+    {
+        return "";
+    }
+
+    if (!FLAGS_rocksdb_cloud_s3_endpoint_url.empty())
+    {
+        return TrimTrailingSlashes(FLAGS_rocksdb_cloud_s3_endpoint_url) + "/" +
+               bucket + "/" + object_path;
+    }
+
+#if defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB_CLOUD_GCS)
+    return "gs://" + bucket + "/" + object_path;
+#else
+    return "s3://" + bucket + "/" + object_path;
+#endif
+}
+
+inline std::string FormatElapsed(uint64_t elapsed_secs)
+{
+    const uint64_t hours = elapsed_secs / 3600;
+    const uint64_t minutes = (elapsed_secs % 3600) / 60;
+    const uint64_t seconds = elapsed_secs % 60;
+
+    std::ostringstream ss;
+    ss << std::setfill('0') << std::setw(2) << hours << ":" << std::setw(2)
+       << minutes << ":" << std::setw(2) << seconds;
+    return ss.str();
+}
+
+inline std::string FormatKeyRate(double rate)
+{
+    std::ostringstream ss;
+    ss << std::fixed << std::setprecision(rate >= 1000 ? 1 : 0) << rate;
+    return ss.str();
+}
+
+inline std::string FormatBytes(uint64_t bytes)
+{
+    static constexpr double kKiB = 1024.0;
+    static constexpr double kMiB = 1024.0 * 1024.0;
+    static constexpr double kGiB = 1024.0 * 1024.0 * 1024.0;
+
+    std::ostringstream ss;
+    if (bytes >= kGiB)
+    {
+        ss << std::fixed << std::setprecision(2) << (bytes / kGiB) << " GiB";
+    }
+    else if (bytes >= kMiB)
+    {
+        ss << std::fixed << std::setprecision(2) << (bytes / kMiB) << " MiB";
+    }
+    else if (bytes >= kKiB)
+    {
+        ss << std::fixed << std::setprecision(2) << (bytes / kKiB) << " KiB";
+    }
+    else
+    {
+        ss << bytes << " B";
+    }
+    return ss.str();
+}
+
+inline std::string FormatByteRate(double bytes_per_sec)
+{
+    static constexpr double kKiB = 1024.0;
+    static constexpr double kMiB = 1024.0 * 1024.0;
+    static constexpr double kGiB = 1024.0 * 1024.0 * 1024.0;
+
+    std::ostringstream ss;
+    if (bytes_per_sec >= kGiB)
+    {
+        ss << std::fixed << std::setprecision(2) << (bytes_per_sec / kGiB)
+           << " GiB/s";
+    }
+    else if (bytes_per_sec >= kMiB)
+    {
+        ss << std::fixed << std::setprecision(2) << (bytes_per_sec / kMiB)
+           << " MiB/s";
+    }
+    else if (bytes_per_sec >= kKiB)
+    {
+        ss << std::fixed << std::setprecision(2) << (bytes_per_sec / kKiB)
+           << " KiB/s";
+    }
+    else
+    {
+        ss << std::fixed << std::setprecision(0) << bytes_per_sec << " B/s";
+    }
+    return ss.str();
+}
+
+struct alignas(64) ThreadCounters
+{
+    std::atomic_uint64_t read_key_count{0};
+    std::atomic_uint64_t exported_key_count{0};
+    std::atomic_uint64_t exported_byte_count{0};
+};
+
+class ShardProgressPrinter
+{
+public:
+    static constexpr size_t kMaxScanThreads = 64;
+
+    explicit ShardProgressPrinter(uint32_t shard_id)
+        : shard_id_(shard_id),
+          start_time_(Clock::now()),
+          last_print_time_(start_time_)
+    {
+    }
+
+    ~ShardProgressPrinter()
+    {
+        StopThread();
+    }
+
+    void Start(const char *phase)
+    {
+        SetPhase(phase);
+        bool expected = false;
+        if (!running_.compare_exchange_strong(expected, true))
+        {
+            return;
+        }
+        thd_ = std::thread([this] { Run(); });
+    }
+
+    void SetPhase(const char *phase)
+    {
+        phase_.store(phase, std::memory_order_relaxed);
+    }
+
+    uint64_t ReadKeyCount() const
+    {
+        uint64_t total = 0;
+        for (size_t i = 0; i < kMaxScanThreads; i++)
+        {
+            total +=
+                counters_[i].read_key_count.load(std::memory_order_relaxed);
+        }
+        return total;
+    }
+
+    uint64_t ExportedKeyCount() const
+    {
+        uint64_t total = 0;
+        for (size_t i = 0; i < kMaxScanThreads; i++)
+        {
+            total +=
+                counters_[i].exported_key_count.load(std::memory_order_relaxed);
+        }
+        return total;
+    }
+
+    uint64_t ExportedByteCount() const
+    {
+        uint64_t total = 0;
+        for (size_t i = 0; i < kMaxScanThreads; i++)
+        {
+            total += counters_[i].exported_byte_count.load(
+                std::memory_order_relaxed);
+        }
+        return total;
+    }
+
+    void Finish(const char *final_status = "done")
+    {
+        StopThread();
+        Print(Clock::now(), final_status);
+        std::cout << std::endl;
+    }
+
+    ThreadCounters counters_[kMaxScanThreads];
+
+private:
+    using Clock = std::chrono::steady_clock;
+
+    void Run()
+    {
+        Print(Clock::now(), nullptr);
+
+        std::unique_lock<std::mutex> lk(refresh_mux_);
+        while (running_.load(std::memory_order_relaxed))
+        {
+            bool stopped = refresh_cv_.wait_for(
+                lk,
+                std::chrono::seconds(1),
+                [this] { return !running_.load(std::memory_order_relaxed); });
+            if (stopped)
+            {
+                break;
+            }
+
+            lk.unlock();
+            Print(Clock::now(), nullptr);
+            lk.lock();
+        }
+    }
+
+    void StopThread()
+    {
+        bool expected = true;
+        if (running_.compare_exchange_strong(expected, false))
+        {
+            refresh_cv_.notify_all();
+        }
+        if (thd_.joinable())
+        {
+            thd_.join();
+        }
+    }
+
+    void Print(Clock::time_point now, const char *final_status)
+    {
+        double interval_secs =
+            std::chrono::duration<double>(now - last_print_time_).count();
+        double elapsed_secs =
+            std::chrono::duration<double>(now - start_time_).count();
+        uint64_t read_key_count = ReadKeyCount();
+        uint64_t exported_key_count = ExportedKeyCount();
+        uint64_t exported_byte_count = ExportedByteCount();
+        double key_rate = 0;
+        double byte_rate = 0;
+        if (interval_secs > 0)
+        {
+            key_rate =
+                (exported_key_count - last_exported_key_count_) / interval_secs;
+            byte_rate = (exported_byte_count - last_exported_byte_count_) /
+                        interval_secs;
+        }
+        double avg_key_rate = 0;
+        double avg_byte_rate = 0;
+        if (elapsed_secs > 0)
+        {
+            avg_key_rate = exported_key_count / elapsed_secs;
+            avg_byte_rate = exported_byte_count / elapsed_secs;
+        }
+
+        std::ostringstream ss;
+        ss << "shard " << shard_id_;
+        if (final_status != nullptr)
+        {
+            ss << " " << final_status;
+        }
+        else
+        {
+            ss << " | " << phase_.load(std::memory_order_relaxed);
+        }
+        ss << " | elapsed "
+           << FormatElapsed(static_cast<uint64_t>(elapsed_secs))
+           << " | exported " << exported_key_count << " keys / "
+           << FormatBytes(exported_byte_count);
+        if (final_status != nullptr)
+        {
+            ss << " | avg " << FormatKeyRate(avg_key_rate) << " keys/s, "
+               << FormatByteRate(avg_byte_rate);
+        }
+        else
+        {
+            ss << " | rate " << FormatKeyRate(key_rate) << " keys/s, "
+               << FormatByteRate(byte_rate) << " | avg "
+               << FormatKeyRate(avg_key_rate) << " keys/s, "
+               << FormatByteRate(avg_byte_rate);
+        }
+        ss << " | read " << read_key_count;
+
+        std::string line = ss.str();
+        std::cout << '\r' << line;
+        if (last_line_size_ > line.size())
+        {
+            std::cout << std::string(last_line_size_ - line.size(), ' ');
+        }
+        std::cout.flush();
+
+        last_line_size_ = line.size();
+        last_print_time_ = now;
+        last_exported_key_count_ = exported_key_count;
+        last_exported_byte_count_ = exported_byte_count;
+    }
+
+    uint32_t shard_id_;
+    Clock::time_point start_time_;
+    Clock::time_point last_print_time_;
+    std::atomic<const char *> phase_{"starting"};
+    std::atomic_bool running_{false};
+    std::mutex refresh_mux_;
+    std::condition_variable refresh_cv_;
+    std::thread thd_;
+    uint64_t last_exported_key_count_{0};
+    uint64_t last_exported_byte_count_{0};
+    size_t last_line_size_{0};
+};
+
+inline bool ParseSizeBytes(const std::string &size_str, uint64_t &bytes)
+{
+    if (size_str.size() <= 2)
+    {
+        return false;
+    }
+
+    std::string number_part = size_str.substr(0, size_str.size() - 2);
+    std::string unit_part = size_str.substr(size_str.size() - 2);
+    std::transform(unit_part.begin(),
+                   unit_part.end(),
+                   unit_part.begin(),
+                   [](unsigned char c) { return std::toupper(c); });
+
+    uint64_t multiplier = 0;
+    if (unit_part == "KB")
+    {
+        multiplier = 1024ULL;
+    }
+    else if (unit_part == "MB")
+    {
+        multiplier = 1024ULL * 1024ULL;
+    }
+    else if (unit_part == "GB")
+    {
+        multiplier = 1024ULL * 1024ULL * 1024ULL;
+    }
+    else if (unit_part == "TB")
+    {
+        multiplier = 1024ULL * 1024ULL * 1024ULL * 1024ULL;
+    }
+    else
+    {
+        return false;
+    }
+
+    if (number_part.empty() ||
+        !std::all_of(number_part.begin(),
+                     number_part.end(),
+                     [](unsigned char c) { return std::isdigit(c); }))
+    {
+        return false;
+    }
+
+    try
+    {
+        bytes = std::stoull(number_part) * multiplier;
+    }
+    catch (...)
+    {
+        return false;
+    }
+
+    return bytes > 0;
+}
+
+// DSS value format constants and helpers.
+// Value layout: [version_ts(8B, MSB=has_ttl)][ttl(8B optional)][record_data]
+constexpr uint64_t kTtlMsb = 1ULL << 63;
+constexpr uint64_t kTtlMsbMask = ~kTtlMsb;
+
+inline void DecodeHasTTLFromTs(uint64_t &ts, bool &has_ttl)
+{
+    if (ts & kTtlMsb)
+    {
+        has_ttl = true;
+        ts &= kTtlMsbMask;
+    }
+    else
+    {
+        has_ttl = false;
+    }
+}
+
+inline void DeserializeDssValue(const char *data,
+                                size_t size,
+                                std::string &record,
+                                uint64_t &ts,
+                                uint64_t &ttl)
+{
+    assert(size >= sizeof(uint64_t));
+    ts = *reinterpret_cast<const uint64_t *>(data);
+    size_t offset = sizeof(uint64_t);
+    bool has_ttl = false;
+    DecodeHasTTLFromTs(ts, has_ttl);
+    if (has_ttl)
+    {
+        assert(size >= sizeof(uint64_t) * 2);
+        ttl = *reinterpret_cast<const uint64_t *>(data + offset);
+        offset += sizeof(uint64_t);
+    }
+    else
+    {
+        ttl = 0;
+    }
+    record.assign(data + offset, size - offset);
+}
+
+// Parse DSS key: {kv_table_name}/{partition_id}/{actual_key}
+// Extracts kv_table_name and actual_key from the full RocksDB key.
+inline bool ParseDssKey(const rocksdb::Slice &full_key,
+                        std::string &table_name,
+                        std::string_view &actual_key)
+{
+    std::string key_str = full_key.ToString();
+    size_t first_sep = key_str.find('/');
+    if (first_sep == std::string::npos)
+    {
+        return false;
+    }
+    table_name = key_str.substr(0, first_sep);
+
+    size_t second_sep = key_str.find('/', first_sep + 1);
+    if (second_sep == std::string::npos)
+    {
+        return false;
+    }
+
+    actual_key = std::string_view(full_key.data() + second_sep + 1,
+                                  full_key.size() - second_sep - 1);
+    return true;
+}
+
+// Deserialize DSS record_data into a RedisEloqObject.
+// record_data format: [obj_type(int8)][serialized_object]
+inline txservice::TxRecord::Uptr DeserializeRecordData(const char *data,
+                                                       size_t size)
+{
+    if (size < 1)
+    {
+        return nullptr;
+    }
+
+    int8_t obj_type_int8 = static_cast<int8_t>(data[0]);
+    RedisObjectType obj_type = static_cast<RedisObjectType>(obj_type_int8);
+    txservice::TxRecord::Uptr typed_rec;
+
+    switch (obj_type)
+    {
+    case RedisObjectType::String:
+        typed_rec.reset(new RedisStringObject());
+        break;
+    case RedisObjectType::List:
+        typed_rec.reset(new RedisListObject());
+        break;
+    case RedisObjectType::Hash:
+        typed_rec.reset(new RedisHashObject());
+        break;
+    case RedisObjectType::Zset:
+        typed_rec.reset(new RedisZsetObject());
+        break;
+    case RedisObjectType::Set:
+        typed_rec.reset(new RedisHashSetObject());
+        break;
+    case RedisObjectType::TTLString:
+        typed_rec.reset(new RedisStringTTLObject());
+        break;
+    case RedisObjectType::TTLSet:
+        typed_rec.reset(new RedisHashSetTTLObject());
+        break;
+    case RedisObjectType::TTLHash:
+        typed_rec.reset(new RedisHashTTLObject());
+        break;
+    case RedisObjectType::TTLList:
+        typed_rec.reset(new RedisListTTLObject());
+        break;
+    case RedisObjectType::TTLZset:
+        typed_rec.reset(new RedisZsetTTLObject());
+        break;
+    default:
+        return nullptr;
+    }
+
+    size_t offset = 0;
+    typed_rec->Deserialize(data, offset);
+    return typed_rec;
+}
+
+// Extract DB number from catalog key. Catalog keys have format:
+//   table_catalogs/0/eloqkv_data_table_N
+// Returns -1 if the key does not match.
+inline int ExtractDbNumberFromCatalogKey(const std::string &table_name)
+{
+    const std::string prefix("eloqkv_data_table_");
+    if (table_name.compare(0, prefix.size(), prefix) != 0)
+    {
+        return -1;
+    }
+    // The table name is like "eloqkv_data_table_0" or
+    // "eloqkv_data_table_0_2026_06_03..." (after FLUSHDB)
+    std::string suffix = table_name.substr(prefix.size());
+    // Extract the leading number before any '_'
+    size_t underscore = suffix.find('_');
+    std::string num_str = (underscore == std::string::npos)
+                              ? suffix
+                              : suffix.substr(0, underscore);
+    try
+    {
+        return std::stoi(num_str);
+    }
+    catch (...)
+    {
+        return -1;
+    }
+}
+
+inline bool IsExportableDssKey(const rocksdb::Slice &key)
+{
+    std::string table_name;
+    std::string_view actual_key;
+    if (!ParseDssKey(key, table_name, actual_key))
+    {
+        return false;
+    }
+
+    return ExtractDbNumberFromCatalogKey(table_name) >= 0;
+}
+
+inline std::vector<std::string> BuildShardRangeBoundaries(
+    rocksdb::DBCloud *db, uint32_t scan_thread_count)
+{
+    if (scan_thread_count <= 1)
+    {
+        return {};
+    }
+
+    struct FileRange
+    {
+        std::string largest_key;
+        uint64_t size{0};
+    };
+
+    std::vector<rocksdb::LiveFileMetaData> metadata;
+    db->GetLiveFilesMetaData(&metadata);
+
+    std::vector<FileRange> file_ranges;
+    file_ranges.reserve(metadata.size());
+    const std::string default_cf_name = db->DefaultColumnFamily()->GetName();
+    for (const auto &meta : metadata)
+    {
+        if (meta.column_family_name != default_cf_name || meta.size == 0 ||
+            meta.largestkey.empty())
+        {
+            continue;
+        }
+
+        file_ranges.push_back({meta.largestkey, meta.size});
+    }
+
+    if (file_ranges.size() <= 1)
+    {
+        return {};
+    }
+
+    std::sort(file_ranges.begin(),
+              file_ranges.end(),
+              [](const FileRange &lhs, const FileRange &rhs)
+              { return lhs.largest_key < rhs.largest_key; });
+
+    std::vector<FileRange> merged_file_ranges;
+    merged_file_ranges.reserve(file_ranges.size());
+    for (const FileRange &file_range : file_ranges)
+    {
+        if (!merged_file_ranges.empty() &&
+            merged_file_ranges.back().largest_key == file_range.largest_key)
+        {
+            merged_file_ranges.back().size += file_range.size;
+            continue;
+        }
+        merged_file_ranges.push_back(file_range);
+    }
+
+    std::vector<std::string> boundaries;
+    boundaries.reserve(scan_thread_count - 1);
+    uint64_t total_size = 0;
+    for (const FileRange &file_range : merged_file_ranges)
+    {
+        total_size += file_range.size;
+    }
+
+    uint64_t accumulated_size = 0;
+    size_t file_idx = 0;
+    for (uint32_t idx = 1; idx < scan_thread_count; idx++)
+    {
+        const long double target =
+            (static_cast<long double>(total_size) * idx) / scan_thread_count;
+        while (file_idx < merged_file_ranges.size() &&
+               accumulated_size < target)
+        {
+            accumulated_size += merged_file_ranges[file_idx].size;
+            file_idx++;
+        }
+
+        if (file_idx == 0)
+        {
+            continue;
+        }
+        boundaries.emplace_back(merged_file_ranges[file_idx - 1].largest_key);
+    }
+
+    boundaries.erase(std::unique(boundaries.begin(), boundaries.end()),
+                     boundaries.end());
+    return boundaries;
+}
+
+inline void ScanShardRange(rocksdb::DBCloud *db,
+                           const std::string &lower_key,
+                           bool has_lower_key,
+                           const std::string &upper_key,
+                           bool has_upper_key,
+                           uint64_t clock_ts,
+                           ThreadCounters &counters)
+{
+    rocksdb::ReadOptions ro;
+    rocksdb::Slice lower_bound;
+    rocksdb::Slice upper_bound;
+    if (has_lower_key)
+    {
+        lower_bound = rocksdb::Slice(lower_key);
+        ro.iterate_lower_bound = &lower_bound;
+    }
+    if (has_upper_key)
+    {
+        upper_bound = rocksdb::Slice(upper_key);
+        ro.iterate_upper_bound = &upper_bound;
+    }
+
+    std::unique_ptr<rocksdb::Iterator> it(
+        db->NewIterator(ro, db->DefaultColumnFamily()));
+    if (has_lower_key)
+    {
+        it->Seek(lower_bound);
+    }
+    else
+    {
+        it->SeekToFirst();
+    }
+
+    int current_db = -1;
+    std::string *output_buf = nullptr;
+    RedisRdbUtil util;
+
+    auto acquire_buffer = [&]()
+    {
+        while (!free_flush_tasks.try_dequeue(output_buf))
+        {
+            std::unique_lock<std::mutex> lk(parser_mux);
+            parser_cv.wait_for(lk, std::chrono::milliseconds(100));
+        }
+        if (current_db >= 0)
+        {
+            RedisRdbUtil::ParseSelectDB(current_db, *output_buf);
+        }
+    };
+    acquire_buffer();
+
+    for (; it->Valid(); it->Next())
+    {
+        std::string table_name;
+        std::string_view actual_key;
+        if (!ParseDssKey(it->key(), table_name, actual_key))
+        {
+            continue;
+        }
+
+        int db_no = ExtractDbNumberFromCatalogKey(table_name);
+        if (db_no < 0)
+        {
+            continue;
+        }
+
+        counters.read_key_count.fetch_add(1, std::memory_order_relaxed);
+
+        std::string record;
+        uint64_t ts = 0;
+        uint64_t ttl = 0;
+        DeserializeDssValue(
+            it->value().data(), it->value().size(), record, ts, ttl);
+
+        const bool has_ttl = ttl > 0;
+        if (has_ttl && ttl < (clock_ts / 1000))
+        {
+            continue;
+        }
+
+        txservice::TxRecord::Uptr rec =
+            DeserializeRecordData(record.data(), record.size());
+        if (!rec)
+        {
+            continue;
+        }
+
+        if (has_ttl)
+        {
+            rec->SetTTL(ttl);
+        }
+
+        if (db_no != current_db)
+        {
+            std::string db_buf;
+            RedisRdbUtil::ParseSelectDB(db_no, db_buf);
+            output_buf->append(db_buf);
+            current_db = db_no;
+        }
+
+        EloqKey eloq_key(actual_key.data(), actual_key.size());
+
+        const size_t output_size_before = output_buf->size();
+        util.ParseEloqKV(
+            &eloq_key, static_cast<RedisEloqObject *>(rec.get()), *output_buf);
+
+        uint64_t written_bytes = output_buf->size() - output_size_before;
+        counters.exported_key_count.fetch_add(1, std::memory_order_relaxed);
+        counters.exported_byte_count.fetch_add(written_bytes,
+                                               std::memory_order_relaxed);
+
+        if (output_buf->size() >= write_block_size_bytes)
+        {
+            flush_tasks.enqueue(output_buf);
+            writer_cv.notify_one();
+            output_buf = nullptr;
+            current_db = -1;
+            acquire_buffer();
+        }
+    }
+
+    if (output_buf && !output_buf->empty())
+    {
+        flush_tasks.enqueue(output_buf);
+        writer_cv.notify_one();
+    }
+
+    if (!it->status().ok())
+    {
+        std::cerr << "Range scan iterator error: " << it->status().ToString()
+                  << std::endl;
+    }
+}
+
+void RocksdbCloud2RDB(const std::string &base_url,
+                      const std::string &output_fpath,
+                      const std::string &aws_key_id,
+                      const std::string &aws_secret,
+                      const std::string &region,
+                      const std::string &local_db_path_base,
+                      uint32_t shard_num,
+                      uint32_t threads_cnt,
+                      uint32_t round_batch_size,
+                      uint32_t read_parse_ratio,
+                      const std::vector<std::string> &snapshot_names)
+{
+    std::cout << "Starting RocksDB Cloud export" << std::endl;
+
+#if defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB_CLOUD_S3)
+    if (!aws_key_id.empty() && !aws_secret.empty())
+    {
+        setenv("AWS_EC2_METADATA_DISABLED", "true", 0);
+    }
+    Aws::SDKOptions aws_options;
+    aws_options.httpOptions.installSigPipeHandler = true;
+    aws_options.loggingOptions.logLevel = Aws::Utils::Logging::LogLevel::Info;
+    Aws::InitAPI(aws_options);
+#endif
+
+    if (base_url.empty())
+    {
+        LOG(ERROR) << "No object store URL provided";
+        return;
+    }
+
+    outfile.open(output_fpath, std::ios::binary);
+    if (!outfile.is_open())
+    {
+        LOG(ERROR) << "Failed to open output file: " << output_fpath;
+        return;
+    }
+
+    // Write RDB header
+    {
+        std::unique_lock<std::mutex> write_lk(write_mux);
+        std::string buf;
+        RedisRdbUtil::ParseHeader(buf);
+        outfile << buf;
+        crc_val = crc64speed(crc_val, buf.data(), buf.size());
+    }
+
+    // Init buffer pool for async writes. Scan threads fill buffers and hand
+    // them off to a dedicated WriteWorker via flush_tasks, so the scan is
+    // never blocked on disk I/O.
+    const uint32_t write_buf_cnt = std::max<uint32_t>(threads_cnt * 4, 64);
+    write_buf_pool.clear();
+    write_buf_pool.resize(write_buf_cnt);
+    for (size_t i = 0; i < write_buf_pool.size(); i++)
+    {
+        write_buf_pool[i].reserve(write_block_size_bytes * 2);
+        free_flush_tasks.enqueue(&write_buf_pool[i]);
+    }
+
+    // Parse base URL to get common cloud config (matching DSS pattern)
+    std::string base = base_url;
+    while (!base.empty() && base.back() == '/')
+    {
+        base.pop_back();
+    }
+
+    S3UrlComponents url_parts = ParseS3Url(base);
+    if (!url_parts.is_valid)
+    {
+        LOG(ERROR) << "Failed to parse URL: " << base_url
+                   << ", error: " << url_parts.error_message;
+        return;
+    }
+
+    // Set up base CloudFileSystemOptions. Each shard gets its own object path,
+    // matching RocksDBCloudDataStoreFactory's /ds_{shard_id} suffix.
+    rocksdb::CloudFileSystemOptions cfs_options;
+
+#if defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB_CLOUD_S3)
+    if (!aws_key_id.empty() && !aws_secret.empty())
+    {
+        cfs_options.credentials.InitializeSimple(aws_key_id, aws_secret);
+    }
+    else
+    {
+        cfs_options.credentials.type = rocksdb::AwsAccessType::kUndefined;
+    }
+    rocksdb::Status cred_status = cfs_options.credentials.HasValid();
+    if (!cred_status.ok())
+    {
+        LOG(ERROR) << "Invalid AWS credentials: " << cred_status.ToString();
+        return;
+    }
+#endif
+
+    cfs_options.src_bucket.SetBucketName(url_parts.bucket_name);
+    cfs_options.src_bucket.SetBucketPrefix("");
+    cfs_options.src_bucket.SetRegion(region);
+    cfs_options.src_bucket.SetObjectPath(url_parts.object_path);
+    cfs_options.dest_bucket.SetBucketName(url_parts.bucket_name);
+    cfs_options.dest_bucket.SetBucketPrefix("");
+    cfs_options.dest_bucket.SetRegion(region);
+    cfs_options.dest_bucket.SetObjectPath(url_parts.object_path);
+
+#if defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB_CLOUD_S3)
+    if (!url_parts.endpoint_url.empty())
+    {
+        std::string ep_lower = url_parts.endpoint_url;
+        std::transform(ep_lower.begin(),
+                       ep_lower.end(),
+                       ep_lower.begin(),
+                       [](unsigned char c) { return std::tolower(c); });
+        bool use_https = (ep_lower.rfind("https://", 0) == 0);
+        std::string host;
+        if (ep_lower.rfind("http://", 0) == 0)
+        {
+            host = url_parts.endpoint_url.substr(7);
+        }
+        else if (use_https)
+        {
+            host = url_parts.endpoint_url.substr(8);
+        }
+        else
+        {
+            host = url_parts.endpoint_url;
+        }
+        cfs_options.s3_client_factory =
+            [host = std::move(host), use_https](
+                const std::shared_ptr<Aws::Auth::AWSCredentialsProvider>
+                    &cred_provider,
+                const Aws::Client::ClientConfiguration &base_config)
+            -> std::shared_ptr<Aws::S3::S3Client>
+        {
+            Aws::Client::ClientConfiguration config = base_config;
+            config.endpointOverride = host;
+            config.scheme =
+                use_https ? Aws::Http::Scheme::HTTPS : Aws::Http::Scheme::HTTP;
+            config.verifySSL = false;
+            if (cred_provider)
+            {
+                return std::make_shared<Aws::S3::S3Client>(
+                    cred_provider,
+                    config,
+                    Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never,
+                    false /* path-style for MinIO */);
+            }
+            return std::make_shared<Aws::S3::S3Client>(
+                config,
+                Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never,
+                false /* path-style for MinIO */);
+        };
+    }
+#endif
+
+    cfs_options.constant_sst_file_size_in_sst_file_manager = 64 * 1024 * 1024L;
+    cfs_options.skip_cloud_files_in_getchildren = true;
+    uint64_t sst_file_cache_size = 0;
+    if (!ParseSizeBytes(FLAGS_rocksdb_cloud_sst_file_cache_size,
+                        sst_file_cache_size))
+    {
+        LOG(ERROR) << "Invalid --rocksdb_cloud_sst_file_cache_size: "
+                   << FLAGS_rocksdb_cloud_sst_file_cache_size
+                   << ", expected a positive size ending with MB, GB, or TB";
+        return;
+    }
+    cfs_options.sst_file_cache = rocksdb::NewLRUCache(
+        sst_file_cache_size, FLAGS_rocksdb_cloud_sst_file_cache_num_shard_bits);
+    std::cout << "SST file cache size: "
+              << FLAGS_rocksdb_cloud_sst_file_cache_size << " ("
+              << sst_file_cache_size << " bytes), shard bits: "
+              << FLAGS_rocksdb_cloud_sst_file_cache_num_shard_bits << std::endl;
+    cfs_options.resync_on_open = true;
+    cfs_options.roll_cloud_manifest_on_open = false;
+    cfs_options.disable_cloud_file_deletion = true;
+    cfs_options.delete_cloud_invisible_files_on_open = false;
+#if defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB_CLOUD_S3)
+    cfs_options.use_aws_transfer_manager = url_parts.endpoint_url.empty();
+#endif
+
+    uint64_t clock_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+                            std::chrono::system_clock::now().time_since_epoch())
+                            .count();
+
+    for (uint32_t shard_id = 0; shard_id < shard_num; shard_id++)
+    {
+        std::cout << "Processing shard " << shard_id << std::endl;
+        ShardProgressPrinter progress(shard_id);
+        progress.Start("creating-fs");
+
+        const std::string shard_object_path =
+            BuildShardObjectPath(url_parts.object_path, shard_id);
+        rocksdb::CloudFileSystemOptions shard_cfs_options = cfs_options;
+        shard_cfs_options.src_bucket.SetObjectPath(shard_object_path);
+        shard_cfs_options.dest_bucket.SetObjectPath(shard_object_path);
+
+        rocksdb::CloudFileSystem *cfs = nullptr;
+#if defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB_CLOUD_S3)
+        rocksdb::Status fs_status =
+            rocksdb::CloudFileSystemEnv::NewAwsFileSystem(
+                rocksdb::FileSystem::Default(),
+                shard_cfs_options,
+                nullptr,
+                &cfs);
+#elif defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB_CLOUD_GCS)
+        rocksdb::Status fs_status =
+            rocksdb::CloudFileSystemEnv::NewGcpFileSystem(
+                rocksdb::FileSystem::Default(),
+                shard_cfs_options,
+                nullptr,
+                &cfs);
+#endif
+        if (!fs_status.ok())
+        {
+            progress.Finish("failed");
+            std::cerr << "Failed to create cloud file system for shard "
+                      << shard_id << ": " << fs_status.ToString() << std::endl;
+            continue;
+        }
+
+        std::shared_ptr<rocksdb::FileSystem> cloud_fs(cfs);
+
+        auto &mutable_cfs_options = cfs->GetMutableCloudFileSystemOptions();
+        mutable_cfs_options.cookie_on_open = snapshot_names[shard_id];
+        mutable_cfs_options.new_cookie_on_open.clear();
+
+        std::unique_ptr<rocksdb::Env> cloud_env =
+            rocksdb::NewCompositeEnv(cloud_fs);
+
+        rocksdb::Options options;
+        options.env = cloud_env.get();
+        options.create_if_missing = false;
+        options.info_log_level = rocksdb::InfoLogLevel::INFO_LEVEL;
+        options.paranoid_checks = false;
+        options.max_open_files = 0;
+        options.disable_auto_compactions = true;
+        options.best_efforts_recovery = false;
+        options.skip_checking_sst_file_sizes_on_db_open = true;
+        options.skip_stats_update_on_db_open = true;
+        options.atomic_flush = true;
+
+        std::string db_subpath =
+            local_db_path_base + "/ds_" + std::to_string(shard_id) + "/db/";
+        std::error_code create_ec;
+        std::filesystem::create_directories(db_subpath, create_ec);
+        if (create_ec.value() != 0)
+        {
+            progress.Finish("failed");
+            std::cerr << "Failed to create local cache dir " << db_subpath
+                      << ": " << create_ec.message() << std::endl;
+            continue;
+        }
+
+        rocksdb::DBCloud *db = nullptr;
+        progress.SetPhase("opening");
+        rocksdb::Status open_status =
+            rocksdb::DBCloud::Open(options, db_subpath, "", 0, &db, true);
+        if (!open_status.ok())
+        {
+            progress.Finish("failed");
+            std::cerr << "Failed to open DBCloud for shard " << shard_id << ": "
+                      << open_status.ToString() << std::endl;
+            continue;
+        }
+
+        // Restore skip_cloud_files_in_getchildren
+        cfs->GetMutableCloudFileSystemOptions()
+            .skip_cloud_files_in_getchildren = false;
+        rocksdb::Status set_open_files_status =
+            db->SetDBOptions({{"max_open_files", "-1"}});
+        if (!set_open_files_status.ok())
+        {
+            std::cerr << "Failed to restore max_open_files for shard "
+                      << shard_id << ": " << set_open_files_status.ToString()
+                      << std::endl;
+        }
+
+        const uint32_t scan_thread_count = std::max<uint32_t>(threads_cnt, 1);
+
+        WriteWorker write_worker;
+
+        if (scan_thread_count == 1)
+        {
+            progress.SetPhase("scanning");
+            ScanShardRange(
+                db, "", false, "", false, clock_ts, progress.counters_[0]);
+        }
+        else
+        {
+            progress.SetPhase("splitting");
+            std::vector<std::string> boundaries =
+                BuildShardRangeBoundaries(db, scan_thread_count);
+            const uint32_t actual_scan_thread_count = std::min<uint32_t>(
+                scan_thread_count,
+                static_cast<uint32_t>(boundaries.size() + 1));
+
+            progress.SetPhase("scanning");
+            if (actual_scan_thread_count <= 1)
+            {
+                ScanShardRange(
+                    db, "", false, "", false, clock_ts, progress.counters_[0]);
+            }
+            else
+            {
+                std::vector<std::thread> scan_threads;
+                scan_threads.reserve(actual_scan_thread_count);
+                for (uint32_t idx = 0; idx < actual_scan_thread_count; idx++)
+                {
+                    std::string lower_key =
+                        (idx == 0) ? "" : boundaries[idx - 1];
+                    std::string upper_key =
+                        (idx < boundaries.size()) ? boundaries[idx] : "";
+                    const bool has_lower_key = idx != 0;
+                    const bool has_upper_key = idx < boundaries.size();
+
+                    scan_threads.emplace_back(
+                        [db,
+                         lower_key = std::move(lower_key),
+                         upper_key = std::move(upper_key),
+                         has_lower_key,
+                         has_upper_key,
+                         clock_ts,
+                         counters = &progress.counters_[idx]]()
+                        {
+                            ScanShardRange(db,
+                                           lower_key,
+                                           has_lower_key,
+                                           upper_key,
+                                           has_upper_key,
+                                           clock_ts,
+                                           *counters);
+                        });
+                }
+
+                for (std::thread &scan_thread : scan_threads)
+                {
+                    scan_thread.join();
+                }
+            }
+        }
+
+        write_worker.Terminate();
+        writer_cv.notify_one();
+        write_worker.Join();
+
+        stat_read_key_count.fetch_add(progress.ReadKeyCount());
+        stat_written_key_count.fetch_add(progress.ExportedKeyCount());
+        stat_written_byte_count.fetch_add(progress.ExportedByteCount());
+        progress.SetPhase("closing");
+
+        rocksdb::Status close_status = db->Close();
+        delete db;
+        progress.Finish();
+        if (!close_status.ok())
+        {
+            std::cerr << "Failed to close DBCloud for shard " << shard_id
+                      << ": " << close_status.ToString() << std::endl;
+        }
+    }
+
+    // Write RDB footer with CRC64
+    {
+        std::unique_lock<std::mutex> write_lk(write_mux);
+        std::string buf;
+        RedisRdbUtil::ParseEnd(buf);
+        crc_val = crc64speed(crc_val, buf.data(), buf.size());
+        buf.append(reinterpret_cast<char *>(&crc_val), 8);
+        outfile << buf;
+        outfile.flush();
+        outfile.close();
+    }
+
+#if defined(DATA_STORE_TYPE_ELOQDSS_ROCKSDB_CLOUD_S3)
+    Aws::ShutdownAPI(aws_options);
+#endif
+}
+
+#endif  // ROCKSDB_CLOUD_EXPORT
 
 void Rocksdb2RDB(const std::string &db_path,
                  const std::string &output_fpath,
@@ -718,7 +2180,7 @@ void Rocksdb2RDB(const std::string &db_path,
     for (size_t i = 0; i < write_buf_pool.size(); i++)
     {
         // reserve 2* write block size to avoid resize
-        write_buf_pool[i].reserve(WriteBlockSize * 2);
+        write_buf_pool[i].reserve(write_block_size_bytes * 2);
         free_flush_tasks.enqueue(&write_buf_pool[i]);
     }
 
@@ -860,12 +2322,103 @@ bool CheckPathExists(const std::string &db_path)
 
 int main(int argc, char *argv[])
 {
+    google::SetUsageMessage("Export EloqKV data to Redis RDB format.");
+    if (EloqKV::Tools::MaybeHandleToolHelp(argc, argv))
+    {
+        return 0;
+    }
+
     google::ParseCommandLineFlags(&argc, &argv, true);
 
     FLAGS_logtostdout = true;
     google::InitGoogleLogging(argv[0]);
     crc64speed_init();
 
+    if (!EloqKV::Tools::ParseSizeBytes(FLAGS_write_block_size,
+                                       write_block_size_bytes))
+    {
+        LOG(ERROR)
+            << "Invalid --write_block_size: " << FLAGS_write_block_size
+            << ", expected a positive size ending with KB, MB, GB, or TB";
+        return -1;
+    }
+
+    if (FLAGS_thread_count >
+        EloqKV::Tools::ShardProgressPrinter::kMaxScanThreads)
+    {
+        LOG(ERROR) << "--thread_count " << FLAGS_thread_count
+                   << " exceeds maximum "
+                   << EloqKV::Tools::ShardProgressPrinter::kMaxScanThreads;
+        return -1;
+    }
+
+#if ROCKSDB_CLOUD_EXPORT
+    if (!EloqKV::Tools::ValidateRequiredCloudFlags())
+    {
+        return -1;
+    }
+
+    const std::string object_store_url =
+        EloqKV::Tools::BuildObjectStoreServiceUrl();
+    if (object_store_url.empty())
+    {
+        std::cerr << "Please specify non-empty --rocksdb_cloud_bucket_prefix, "
+                     "--rocksdb_cloud_bucket_name and "
+                     "--rocksdb_cloud_object_path"
+                  << std::endl;
+        return -1;
+    }
+
+    std::string db_path = FLAGS_db_path;
+    if (db_path.empty())
+    {
+        db_path = "/tmp/eloqkv_rdb_export";
+    }
+
+    std::cout << "Object store URL: " << object_store_url << std::endl;
+    std::cout << "Shard count: " << FLAGS_shard_num << std::endl;
+    std::cout << "Scan thread count: " << FLAGS_thread_count << std::endl;
+    std::cout << "Output file: " << FLAGS_output_file << std::endl;
+    std::cout << "Local cache dir: " << db_path << std::endl;
+    std::cout << "Snapshot name: " << FLAGS_snapshot_name << std::endl;
+    std::cout << "Region: " << FLAGS_rocksdb_cloud_region << std::endl;
+    std::cout << "==== Begin ====" << std::endl;
+
+    auto start_time = std::chrono::system_clock::now();
+
+    // Parse comma-separated snapshot names
+    std::vector<std::string> snapshot_names;
+    if (!FLAGS_snapshot_name.empty())
+    {
+        std::stringstream ss(FLAGS_snapshot_name);
+        std::string name;
+        while (std::getline(ss, name, ','))
+        {
+            snapshot_names.push_back(name);
+        }
+    }
+
+    if (snapshot_names.size() != FLAGS_shard_num)
+    {
+        LOG(ERROR) << "Snapshot name count (" << snapshot_names.size()
+                   << ") does not match shard count (" << FLAGS_shard_num
+                   << "). Please provide one snapshot name per shard, "
+                      "comma-separated.";
+        return -1;
+    }
+
+    EloqKV::Tools::RocksdbCloud2RDB(object_store_url,
+                                    FLAGS_output_file,
+                                    FLAGS_aws_access_key_id,
+                                    FLAGS_aws_secret_key,
+                                    FLAGS_rocksdb_cloud_region,
+                                    db_path,
+                                    FLAGS_shard_num,
+                                    FLAGS_thread_count,
+                                    FLAGS_round_batch_size,
+                                    FLAGS_pre_read_ratio,
+                                    snapshot_names);
+#else
     if (FLAGS_rocksdb_path.empty())
     {
         LOG(ERROR) << "Please specify rocksdb data path: --rocksdb_path";
@@ -916,6 +2469,7 @@ int main(int argc, char *argv[])
                                FLAGS_thread_count,
                                FLAGS_round_batch_size,
                                FLAGS_pre_read_ratio);
+#endif
 
     auto end_time = std::chrono::system_clock::now();
     auto seconds =
@@ -936,15 +2490,20 @@ int main(int argc, char *argv[])
     }
     time_str.append(std::to_string(remainingSeconds) + "sec");
 
-    LOG(INFO) << "====Finished====";
-
-    LOG(INFO) << "Used time: " << time_str;
-    LOG(INFO) << "Read keys from rocksdb: "
+    std::cout << "==== Finished ====" << std::endl;
+    std::cout << "Used time: " << time_str << std::endl;
+    std::cout << "Read keys from rocksdb: "
               << EloqKV::Tools::stat_read_key_count.load()
               << ", write keys to RDB: "
               << EloqKV::Tools::stat_written_key_count.load()
+#if ROCKSDB_CLOUD_EXPORT
+              << ", serialized data: "
+              << EloqKV::Tools::FormatBytes(
+                     EloqKV::Tools::stat_written_byte_count.load())
+#endif
               << ", expired keys:"
               << (EloqKV::Tools::stat_read_key_count.load() -
-                  EloqKV::Tools::stat_written_key_count.load());
+                  EloqKV::Tools::stat_written_key_count.load())
+              << std::endl;
     return 0;
 }

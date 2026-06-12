@@ -52,7 +52,7 @@ jobs:
             log_state_type: ROCKSDB_CLOUD_S3
             data_store_id: rocks_s3
             build_dss: true
-            build_rocksdb_tools: false
+            build_rocksdb_tools: true
             cmake_extra: '-DWITH_CLOUD_AZ_INFO=ON'
 
           - os_id: ubuntu24

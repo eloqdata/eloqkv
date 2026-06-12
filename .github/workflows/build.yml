@@ -127,18 +127,23 @@ jobs:
           cp eloqkv_src/build/data_substrate/host_manager $DEST_DIR/bin/
           cp redis-cli $DEST_DIR/bin/eloqkv-cli
 
-          if [[ "${{ inputs.build_rocksdb_tools }}" == "true" ]]; then
-            cp eloqkv_src/build/eloqkv_to_aof $DEST_DIR/bin/
-            cp eloqkv_src/build/eloqkv_to_rdb $DEST_DIR/bin/
+          if [ "${{ inputs.build_rocksdb_tools }}" = "true" ]; then
+            for tool in eloqkv_to_aof eloqkv_to_rdb; do
+              if [ -x "eloqkv_src/build/$tool" ]; then
+                cp "eloqkv_src/build/$tool" $DEST_DIR/bin/
+              else
+                echo "Skip $tool: not built for ${{ inputs.data_store_type }}"
+              fi
+            done
           fi
 
-          if [[ "${{ inputs.build_dss }}" == "true" ]]; then
+          if [ "${{ inputs.build_dss }}" = "true" ]; then
             DSS_SRC=$GITHUB_WORKSPACE/eloqkv_src/data_substrate/store_handler/eloq_data_store_service
-            cd $DSS_SRC
+            (cd $DSS_SRC
             mkdir -p build && cd build
             cmake .. -DCMAKE_BUILD_TYPE=RelWithDebInfo -DWITH_DATA_STORE=${{ inputs.data_store_type }}
             cmake --build . -j$(nproc)
-            cp dss_server $DEST_DIR/bin/
+            cp dss_server $DEST_DIR/bin/)
           fi
 
           # Exact copy_libraries() logic from concourse/scripts/build_tarball.bash
