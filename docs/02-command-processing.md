@@ -52,7 +52,7 @@ service layer only; engine internals are in `data_substrate/docs/` (esp. `02-thr
 
 ## 2. Request path end-to-end
 
-```
+```text
 client TCP/RESP
    │
    ▼  brpc worker bthread (EloqData brpc fork)
@@ -317,8 +317,6 @@ the special MOVED/READONLY translations of §6.
 
 ## 10. Gotchas / verified invariants
 
-- **MULTI error semantics differ from Redis**: first runtime error aborts the whole EXEC and
-  returns nil; vanilla Redis executes the remaining queued commands (`src/redis_service.cpp:2159-2352`).
 - **Three dispatch tables** (handler map, `ParseMultiCommand`, `GenericCommand`) must agree; a
   command registered only in the handler map silently becomes "Unsupported command in MULTI"
   and unusable from Lua.

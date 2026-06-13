@@ -157,14 +157,17 @@ composed key prefix; empty for default), and `ns_meta` (shared `NamespaceMetadat
 - **Entry**: only via `AUTH <token>` (or `AUTH <user> <token>`; the username is ignored by
   `AuthCommand::Execute`). There is no `HELLO AUTH` path — EloqKV has no HELLO handler; `hello`,
   `auth`, `quit`, `reset`, plus the special-case `NAMESPACE CURRENT`, are the only commands allowed
-  pre-auth (`AuthRequired`, `src/redis_service.cpp:5877-5915`). Because the 2-argument `AUTH` form
-  errors out when `requirepass` is empty (`src/redis_command.cpp:10558-10567`), namespaces are
-  effectively usable only on password-protected servers.
+  pre-auth (`AuthRequired`, `src/redis_service.cpp:5877-5915`). Namespace *management*
+  (`NAMESPACE ADD`/`REFRESH`/`DEL`) is refused when `requirepass` is empty
+  (`src/redis_command.cpp:1558-1562`), so namespace tokens can only be created on a
+  password-protected server. Authentication itself is token-based; note that only the 2-argument
+  `AUTH` form errors on an empty `requirepass` (`src/redis_command.cpp:10558-10567`) — the
+  3-argument `AUTH <user> <token>` form does not.
 - **Per-command re-validation** (`src/redis_service.cpp:5935-5956`): if `ctx->ns_meta` is set,
   dispatch re-fetches the live metadata by token and requires pointer equality with the cached
   object; on success it recomputes `ctx->ns_id` from the current epoch (so another connection's
-  `FLUSHDB` takes effect immediately via the shared atomic), otherwise it **resets the connection
-  to the default namespace** (see gotcha below). Then the `NamespaceGuard` scopes everything the
+  `FLUSHDB` takes effect immediately via the shared atomic), otherwise it resets the connection
+  to the default namespace. Then the `NamespaceGuard` scopes everything the
   command does.
 - **MULTI / Lua**: both run inside `DispatchCommand` under the guard
   (`src/redis_service.cpp:5999-6008`), and keys are prefixed at parse time, so queued transactions
@@ -177,39 +180,30 @@ composed key prefix; empty for default), and `ns_meta` (shared `NamespaceMetadat
   with `EloqKey::Raw` bounds (`src/redis_command.cpp:2224-2270`).
 - **SELECT** is forbidden inside a namespace (`src/redis_command.cpp:1736-1743`); `db_id` is
   ignored by table routing anyway for non-default namespaces.
-- **Pub/Sub is NOT namespace-scoped**: `src/pub_sub_manager.cpp` contains no namespace handling;
-  channels are global, so subscribers in one namespace receive messages published in another.
-  (Verified by absence of any `ns`/prefix use in the pub/sub path.)
 
 ## 6. Gotchas & invariants (verified unless marked inference)
 
-1. **Deleted/rotated token silently demotes the connection to `default` — while still
-   authenticated.** After `NAMESPACE DEL`/`REFRESH`, the next command on an old-token connection
-   fails metadata re-validation and dispatch sets `ns="default"`, `ns_id=""` *without clearing*
-   `ctx->authenticated` (`src/redis_service.cpp:5945-5950`). The tenant connection then operates on
-   the admin/default keyspace with no error. Security-relevant; treat token rotation as requiring
-   client reconnection.
-2. **Tokens are bearer credentials stored in plaintext.** 16 random bytes (OpenSSL `RAND_bytes`,
+1. **Tokens are bearer credentials stored in plaintext.** 16 random bytes (OpenSSL `RAND_bytes`,
    UUIDv4-formatted; falls back to `std::random_device` if OpenSSL fails,
    `src/namespace/token.cpp:11-30`) stored raw in `__ns_0` and listable by the admin via
    `NAMESPACE GET *`. A token equal to `requirepass` is rejected/re-rolled at every layer
    (`src/namespace/storage.cpp:69-72,156-159,334-337`; `src/redis_command.cpp:1620-1623`) so the
    admin password can never resolve as a namespace token.
-3. **Cluster mode**: namespace management is refused when `FLAGS_cluster_mode` is set
+2. **Cluster mode**: namespace management is refused when `FLAGS_cluster_mode` is set
    (`src/redis_command.cpp:1550-1556`). Inference: this is because the `NamespaceManager` RCU cache
    is per-process and has no cross-node invalidation.
-4. **GC vs. in-flight writes**: a command parsed before a concurrent flush/drop carries the
+3. **GC vs. in-flight writes**: a command parsed before a concurrent flush/drop carries the
    old-epoch prefix and may commit after the epoch bump; it is invisible to the namespace and is
    normally mopped up because GC rescans until empty. Inference: a write landing *after* GC's final
    empty scan (record already deleted) would leak an invisible orphan key in `ns_data_0`.
-5. **Epoch-in-prefix makes flush O(1) but defers space reclamation** to the GC daemon's paced
+4. **Epoch-in-prefix makes flush O(1) but defers space reclamation** to the GC daemon's paced
    range-deletes; large namespaces are deleted in scan-sized batches, each batch one engine
    transaction (`src/namespace/gc.cpp:355-403`).
-6. **`MemoryNamespaceStorage`** (`src/namespace/manager.cpp:13-133`) is an in-memory
+5. **`MemoryNamespaceStorage`** (`src/namespace/manager.cpp:13-133`) is an in-memory
    `INamespaceStorage` with no GC; no production call site constructs it (the service always wires
    `NamespaceStorage`, `src/redis_service.cpp:213`). Note it stores `b255prefix(id)` (with trailing
    `:`) as the id where the persistent storage stores bare `b255e(id)`
    (`manager.cpp:32` vs. `storage.cpp:243`) — harmless today but inconsistent if ever swapped in.
-7. **Default namespace fast path is zero-cost**: `ComposeNamespaceKey` returns the key untouched
+6. **Default namespace fast path is zero-cost**: `ComposeNamespaceKey` returns the key untouched
    for `default`/empty (`include/namespace/context.h:18-30`), so pre-namespace deployments see no
    key-format change and no overhead beyond the per-dispatch guard swap.

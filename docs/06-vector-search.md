@@ -23,7 +23,7 @@ Commands are registered in `src/redis_service.cpp:1896-1928` and parsed in `src/
 
 | Command | Syntax | Notes |
 |---|---|---|
-| `ELOQVEC.CREATE` | `index config_json [schema_json]` | `config_json` fields are **order-sensitive** (parsed with `nlohmann::ordered_json`): `dimension` (uint > 0), `metric` (`L2SQ`/`L2`, `IP`, `COSINE`), `algorithm` (`HNSW` only), `persist_strategy` (`EVERY_N` requires `threshold` > 0; `MANUAL` → threshold −1), then optional HNSW params `m`, `ef_construction`, `ef_search` (`src/redis_command.cpp:20520-20767`, allowed-key check `src/vector/hnsw_vector_index.cpp:138-161`). `schema_json` is an ordered `{"field": "INT32|INT64|DOUBLE|BOOL|STRING"}` object defining the metadata schema. |
+| `ELOQVEC.CREATE` | `index config_json [schema_json]` | `config_json` fields are **order-sensitive** (parsed with `nlohmann::ordered_json`): `dimension` (uint > 0), `metric` (`L2SQ`/`L2`, `IP`, `COSINE`), `algorithm` (`HNSW` only), `persist_strategy` (`EVERY_N` requires `threshold` > 0; `MANUAL` → threshold −1), then optional HNSW params `m`, `ef_construction`, `ef_search` (`src/redis_command.cpp:20520-20767`, allowed-key check `src/vector/hnsw_vector_index.cpp:138-161`). `schema_json` is an ordered object defining the metadata schema; each field maps to a type from `INT32 / INT64 / DOUBLE / BOOL / STRING`. |
 | `ELOQVEC.ADD` | `index key vector ["metadata_json"]` | `key` is a uint64; `vector` is whitespace-separated floats; `metadata_json` is a **JSON array** of values in schema order, not an object (`VectorRecordMetadata::Encode`, `src/vector/vector_type.cpp:199-234`). |
 | `ELOQVEC.BADD` | `index key_count key1 vec1 [meta1] key2 vec2 [meta2] …` | all-with-meta or all-without; max 10000 entries (`MAX_BATCH_ADD_SIZE`, `include/redis_command.h:7092`). |
 | `ELOQVEC.UPDATE` | `index key vector ["metadata_json"]` | fails if `key` is not in the index. |
@@ -105,8 +105,6 @@ The trigger dedupe set `pending_persist_indexes_` guarantees at most one queued 
 
 ## 7. Gotchas / verified invariants
 
-- **Stale cache after DROP + re-CREATE on other nodes.** `Drop` erases the cache entry only on the executing node (`vector_handler.cpp:312-317`). The header comment for `GetOrCreateIndex` promises "version compatibility" checking (`vector_handler.h:233`), but the implementation never compares versions (`vector_handler.cpp:975-1014`) — a node holding the old instance will keep serving it for a recreated index of the same name.
-- **UPDATE compensation can mix old vector with new metadata.** On commit failure the rollback re-adds the *old* vector under the `VectorId` that carries the *new* metadata blob (`vector_handler.cpp:651-657`).
 - **Persist trigger is a coarse estimate**: per-shard count × 1024 assumes uniform shard fill (`vector_handler.cpp:545`).
 - **`PersistIndex(force)` is dead**: the `force` parameter is never read in the body (`vector_handler.cpp:1091`).
 - **Metadata for ADD is a positional JSON array** matching schema order — an object is rejected (`vector_type.cpp:215-219`). Filters, in contrast, are objects keyed by field name.
