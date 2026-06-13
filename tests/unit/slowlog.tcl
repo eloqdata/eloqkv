@@ -37,13 +37,16 @@ start_server {tags {"slowlog"} overrides {slowlog-log-slower-than 1000000}} {
     } {0}
 
     test {SLOWLOG - logged entry sanity check} {
+        set before [clock seconds]
         r client setname foobar
         r debug sleep 0.2
+        set after [clock seconds]
         set e [lindex [r slowlog get] 0]
         assert_equal [llength $e] 6
         if {!$::external} {
             assert_equal [lindex $e 0] 107
         }
+        assert_equal [expr {[lindex $e 1] >= $before && [lindex $e 1] <= $after}] 1
         assert_equal [expr {[lindex $e 2] > 100000}] 1
         assert_equal [lindex $e 3] {debug sleep 0.2}
         assert_equal {foobar} [lindex $e 5]
