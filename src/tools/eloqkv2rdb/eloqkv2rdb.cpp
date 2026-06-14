@@ -19,8 +19,10 @@
  *    <http://www.gnu.org/licenses/>.
  *
  */
+#include <algorithm>
 #include <array>
 #include <atomic>
+#include <cctype>
 #include <chrono>
 #include <condition_variable>
 #include <cstdlib>
@@ -64,7 +66,6 @@
 #include <rocksdb/env.h>
 #include <rocksdb/options.h>
 
-#include <algorithm>
 #include <sstream>
 #endif
 extern "C"
@@ -818,6 +819,66 @@ private:
     std::thread thd_;
 };
 
+// Parses a human-readable size string ("512KB", "1MB", "2GB", "1TB") into a
+// byte count. Shared by both the cloud and non-cloud RDB writers as the
+// write-buffer flush threshold, so it must be available regardless of
+// ROCKSDB_CLOUD_EXPORT.
+inline bool ParseSizeBytes(const std::string &size_str, uint64_t &bytes)
+{
+    if (size_str.size() <= 2)
+    {
+        return false;
+    }
+
+    std::string number_part = size_str.substr(0, size_str.size() - 2);
+    std::string unit_part = size_str.substr(size_str.size() - 2);
+    std::transform(unit_part.begin(),
+                   unit_part.end(),
+                   unit_part.begin(),
+                   [](unsigned char c) { return std::toupper(c); });
+
+    uint64_t multiplier = 0;
+    if (unit_part == "KB")
+    {
+        multiplier = 1024ULL;
+    }
+    else if (unit_part == "MB")
+    {
+        multiplier = 1024ULL * 1024ULL;
+    }
+    else if (unit_part == "GB")
+    {
+        multiplier = 1024ULL * 1024ULL * 1024ULL;
+    }
+    else if (unit_part == "TB")
+    {
+        multiplier = 1024ULL * 1024ULL * 1024ULL * 1024ULL;
+    }
+    else
+    {
+        return false;
+    }
+
+    if (number_part.empty() ||
+        !std::all_of(number_part.begin(),
+                     number_part.end(),
+                     [](unsigned char c) { return std::isdigit(c); }))
+    {
+        return false;
+    }
+
+    try
+    {
+        bytes = std::stoull(number_part) * multiplier;
+    }
+    catch (...)
+    {
+        return false;
+    }
+
+    return bytes > 0;
+}
+
 #if ROCKSDB_CLOUD_EXPORT
 
 struct S3UrlComponents
@@ -1247,62 +1308,6 @@ private:
     uint64_t last_exported_byte_count_{0};
     size_t last_line_size_{0};
 };
-
-inline bool ParseSizeBytes(const std::string &size_str, uint64_t &bytes)
-{
-    if (size_str.size() <= 2)
-    {
-        return false;
-    }
-
-    std::string number_part = size_str.substr(0, size_str.size() - 2);
-    std::string unit_part = size_str.substr(size_str.size() - 2);
-    std::transform(unit_part.begin(),
-                   unit_part.end(),
-                   unit_part.begin(),
-                   [](unsigned char c) { return std::toupper(c); });
-
-    uint64_t multiplier = 0;
-    if (unit_part == "KB")
-    {
-        multiplier = 1024ULL;
-    }
-    else if (unit_part == "MB")
-    {
-        multiplier = 1024ULL * 1024ULL;
-    }
-    else if (unit_part == "GB")
-    {
-        multiplier = 1024ULL * 1024ULL * 1024ULL;
-    }
-    else if (unit_part == "TB")
-    {
-        multiplier = 1024ULL * 1024ULL * 1024ULL * 1024ULL;
-    }
-    else
-    {
-        return false;
-    }
-
-    if (number_part.empty() ||
-        !std::all_of(number_part.begin(),
-                     number_part.end(),
-                     [](unsigned char c) { return std::isdigit(c); }))
-    {
-        return false;
-    }
-
-    try
-    {
-        bytes = std::stoull(number_part) * multiplier;
-    }
-    catch (...)
-    {
-        return false;
-    }
-
-    return bytes > 0;
-}
 
 // DSS value format constants and helpers.
 // Value layout: [version_ts(8B, MSB=has_ttl)][ttl(8B optional)][record_data]
@@ -2343,6 +2348,7 @@ int main(int argc, char *argv[])
         return -1;
     }
 
+#if ROCKSDB_CLOUD_EXPORT
     if (FLAGS_thread_count >
         EloqKV::Tools::ShardProgressPrinter::kMaxScanThreads)
     {
@@ -2352,7 +2358,6 @@ int main(int argc, char *argv[])
         return -1;
     }
 
-#if ROCKSDB_CLOUD_EXPORT
     if (!EloqKV::Tools::ValidateRequiredCloudFlags())
     {
         return -1;
