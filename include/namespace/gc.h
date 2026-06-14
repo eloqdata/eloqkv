@@ -27,6 +27,7 @@ private:
     std::vector<std::string> ScanGCRecords();
     bool CleanPrefixKeys(const std::string &old_prefix);
     void DeleteGCRecord(const std::string &gc_key);
+    void SleepWithStopCheck(int hundred_ms_units);
 
 private:
     RedisServiceImpl *server_;
