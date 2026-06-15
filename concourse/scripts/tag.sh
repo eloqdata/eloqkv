@@ -6,13 +6,6 @@ sudo chown -R $USER $PWD
 cd $HOME
 ln -s ${WORKSPACE}/eloqkv_src eloqkv
 cd eloqkv
-# Prefer linking to expected path used by build scripts: eloq_log_service
-if [ -d "$WORKSPACE/logservice_src" ]; then
-  ln -s $WORKSPACE/logservice_src data_substrate/eloq_log_service
-fi
-pushd data_substrate/tx_service
-ln -s $WORKSPACE/raft_host_manager_src raft_host_manager
-popd
 
 git config --global user.email "concourse@noreply.com"
 git config --global user.name "concourse-ci"

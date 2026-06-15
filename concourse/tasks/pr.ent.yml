@@ -2,10 +2,8 @@ platform: linux
 image_resource:
   type: registry-image
 inputs:
-  - name: logservice_src
   - name: redis_pr
   - name: eloq_test_src
-  - name: raft_host_manager_src
 run:
   path: redis_pr/concourse/scripts/pr.ent.bash
   args: ["((minio-endpoint))", "((minio-access-key))", "((minio-secret-key))", "((git-ssh-key))"]

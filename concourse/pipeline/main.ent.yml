@@ -7,14 +7,6 @@ resources:
       uri: git@github.com:eloqdata/eloqkv.git
       private_key: ((git-key))
 
-  - name: logservice_src
-    type: git
-    check_every: 3m
-    source:
-      branch: main
-      uri: git@github.com:eloqdata/eloq_log_service.git
-      private_key: ((git-key))
-
   - name: eloq_test_src
     type: git
     check_every: 3m
@@ -23,14 +15,6 @@ resources:
       uri: git@github.com:eloqdata/eloq-test.git
       private_key: ((git-key))
 
-  - name: raft_host_manager_src
-    type: git
-    check_every: 3m
-    source:
-      branch: main
-      uri: git@github.com:eloqdata/raft_host_manager.git
-      private_key: ((git-key))
-  
   - name: eloq_ubuntu_2404
     type: registry-image
     source:
@@ -46,10 +30,6 @@ jobs:
       - in_parallel:
           steps:
             - get: redis_src
-              trigger: true
-            - get: logservice_src
-              trigger: true
-            - get: raft_host_manager_src
               trigger: true
             - get: eloq_test_src
               trigger: true

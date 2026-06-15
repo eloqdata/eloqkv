@@ -55,31 +55,6 @@ jobs:
           submodules: recursive
           path: eloqkv_src
 
-      - name: Setup private dependencies
-        env:
-          GIT_SSH_COMMAND: "ssh -o StrictHostKeyChecking=accept-new"
-        run: |
-          git config --global --add safe.directory '*'
-          cd $GITHUB_WORKSPACE
-
-          # Derive branch name from tag: 1.2.2 -> rel_1_2_2_eloqkv
-          REL_BRANCH="rel_$(echo "${{ inputs.tag_name }}" | sed 's/^v//' | tr '.' '_')_eloqkv"
-
-          git clone --recurse-submodules git@github.com:eloqdata/eloq_log_service.git logservice_src
-          git -C logservice_src checkout $REL_BRANCH
-          git -C logservice_src submodule update --recursive
-
-          git clone git@github.com:eloqdata/raft_host_manager.git raft_host_manager_src
-          git -C raft_host_manager_src checkout $REL_BRANCH
-          git -C raft_host_manager_src submodule update --recursive
-
-          rm -rf eloqkv_src/data_substrate/eloq_log_service
-          rm -rf eloqkv_src/data_substrate/tx_service/raft_host_manager
-          ln -s $GITHUB_WORKSPACE/logservice_src \
-                $GITHUB_WORKSPACE/eloqkv_src/data_substrate/eloq_log_service
-          ln -s $GITHUB_WORKSPACE/raft_host_manager_src \
-                $GITHUB_WORKSPACE/eloqkv_src/data_substrate/tx_service/raft_host_manager
-
       - name: Install build dependencies
         run: |
           case "${{ inputs.package_manager }}" in
@@ -113,8 +88,6 @@ jobs:
             -DDISABLE_CKPT_REPORT=ON \
             -DDISABLE_CODE_LINE_IN_LOG=ON \
             -DWITH_ASAN=OFF \
-            -DOPEN_LOG_SERVICE=OFF \
-            -DFORK_HM_PROCESS=ON \
             ${{ inputs.cmake_extra }}
           cmake --build . -j$(nproc)
 

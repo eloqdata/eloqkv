@@ -16,20 +16,6 @@ resources:
     source:
       repository: eloqdata/eloq-dev-ci-ubuntu2404
 
-  - name: logservice_src_main
-    type: git
-    source:
-      branch: main
-      private_key: ((git-key))
-      uri: git@github.com:eloqdata/eloq_log_service.git
-
-  - name: raft_host_manager_src_main
-    type: git
-    source:
-      branch: main
-      private_key: ((git-key))
-      uri: git@github.com:eloqdata/raft_host_manager.git
-
 jobs:
   - name: ubuntu2204-main
     plan:
@@ -38,10 +24,6 @@ jobs:
           steps:
             - get: eloqkv_src
               resource: eloqkv_src_main
-            - get: logservice_src
-              resource: logservice_src_main
-            - get: raft_host_manager_src
-              resource: raft_host_manager_src_main
             - get: image_ubuntu2204
               resource: image_ubuntu2204_main
 
@@ -122,10 +104,6 @@ jobs:
           steps:
             - get: eloqkv_src
               resource: eloqkv_src_main
-            - get: logservice_src
-              resource: logservice_src_main
-            - get: raft_host_manager_src
-              resource: raft_host_manager_src_main
             - get: image_ubuntu2404
               resource: image_ubuntu2404_main
 

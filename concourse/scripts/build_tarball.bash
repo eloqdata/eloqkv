@@ -14,13 +14,6 @@ ssh-keyscan github.com >> ~/.ssh/known_hosts
 
 ln -s ${WORKSPACE}/eloqkv_src eloqkv
 cd eloqkv
-# ensure log service under expected path
-if [ -d "$WORKSPACE/logservice_src" ]; then
-  ln -s $WORKSPACE/logservice_src data_substrate/eloq_log_service
-fi
-pushd data_substrate/tx_service
-ln -s $WORKSPACE/raft_host_manager_src raft_host_manager
-popd
 
 ELOQKV_SRC=${PWD}
 
@@ -53,8 +46,6 @@ if [[ "$OS_ID" == rhel* ]]; then
         INSTALL_PSQL="sudo dnf install -y postgresql"
         # detected dubious ownership
         git config --global --add safe.directory ${WORKSPACE}/eloqkv_src
-        git config --global --add safe.directory ${WORKSPACE}/logservice_src
-        git config --global --add safe.directory ${WORKSPACE}/raft_host_manager_src
         ;;
     esac
 elif [[ "$OS_ID" == ubuntu* ]]; then
@@ -213,7 +204,7 @@ fi
 
 cmake .. -DCMAKE_BUILD_TYPE=$BUILD_TYPE -DWITH_DATA_STORE=$DATA_STORE_TYPE $CMAKE_ARGS \
     -DWITH_LOG_SERVICE=ON -DDISABLE_CKPT_REPORT=${CKPT_REPORT_FLAG} -DDISABLE_CODE_LINE_IN_LOG=${CODE_LINE_FLAG} \
-    -DWITH_ASAN=$ASAN -DOPEN_LOG_SERVICE=OFF -DFORK_HM_PROCESS=ON -DWITH_LOG_STATE=${LOG_STATE_TYPE}
+    -DWITH_ASAN=$ASAN -DWITH_LOG_STATE=${LOG_STATE_TYPE}
 cmake --build . --config ${BUILD_TYPE} -j${NCORE}
 copy_libraries eloqkv ${DEST_DIR}/lib
 mv eloqkv ${DEST_DIR}/bin/
