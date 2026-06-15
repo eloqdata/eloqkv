@@ -3639,7 +3639,9 @@ void SlowLogCommand::OutputResult(OutputHandler *reply) const
         {
             reply->OnArrayStart(6);
             reply->OnInt(entry.id_);
-            reply->OnInt(entry.timestamp_);
+            // timestamp_ is stored in nanoseconds for accurate cross-core
+            // ordering; SLOWLOG GET reports whole unix seconds like Redis.
+            reply->OnInt(entry.timestamp_ / 1000000000);
             reply->OnInt(entry.execution_time_);
             reply->OnArrayStart(entry.cmd_.size());
             for (const auto &cmd : entry.cmd_)
