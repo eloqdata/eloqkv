@@ -1370,10 +1370,8 @@ function start_dss_server() {
   rm -rf ${dss_data_path}
   mkdir ${dss_data_path}
   echo "starting dss_server"
-  local dss_node_memory_limit_mb=${DSS_NODE_MEMORY_LIMIT_MB:-1024}
   ${eloqkv_base_path}/data_substrate/store_handler/eloq_data_store_service/bld/dss_server \
     ${dss_server_configs} \
-    --node_memory_limit_mb=${dss_node_memory_limit_mb} \
     --data_path=${dss_data_path} \
     --ip=$dss_ip \
     --port=$dss_port \
