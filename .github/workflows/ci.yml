@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: eloqdata/eloq-dev-ci-ubuntu2404:latest
-      options: --user root --security-opt seccomp=unconfined --ulimit memlock=-1:-1
+      options: --user root --privileged --security-opt seccomp=unconfined --ulimit memlock=-1:-1
 
     steps:
       - uses: actions/checkout@v4
@@ -32,17 +32,32 @@ jobs:
         shell: bash
         working-directory: eloqkv
         run: |
+          ulimit -c unlimited
           ulimit -l
           ulimit -n
+
+          # Route cores to a known location so dump_core_backtraces can find
+          # them (this container runs --privileged, so writing core_pattern works).
+          echo '/tmp/core.%e.%p.%t' | tee /proc/sys/kernel/core_pattern >/dev/null \
+            || echo "warning: could not set core_pattern"
 
           source .github/scripts/common.sh
 
           ./build/eloqkv --port 6379 --eloq_store_buffer_pool_size=1MB --eloq_store_open_files_limit=512 --logtostderr > /tmp/eloqkv.log 2>&1 &
+          server_pid=$!
+
           wait_until_ready || { cat /tmp/eloqkv.log; exit 1; }
 
-          run_tcl_tests all Debug
+          # run_tcl_tests calls `exit 1` internally on failure, so run it in a
+          # subshell to contain that exit and still reach the diagnostics below.
+          if ! ( run_tcl_tests all Debug ); then
+            echo "===== eloqkv.log ====="
+            tail -n 400 /tmp/eloqkv.log
+            dump_core_backtraces
+            exit 1
+          fi
 
-          kill $(jobs -p) 2>/dev/null || true
+          kill "$server_pid" 2>/dev/null || true
 
   # Enterprise CI matrix — full build + test suite across build types and KV stores
   ent-ci:

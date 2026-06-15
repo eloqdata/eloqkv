@@ -4,6 +4,13 @@ set -Eexo pipefail
 ulimit -n
 ulimit -l
 
+# Enable core dumps and route them to a known, retrievable location so that
+# dump_ci_failure_logs/dump_core_backtraces can symbolize crashes. The ent-ci
+# container runs --privileged, so writing the host core_pattern works here.
+ulimit -c unlimited
+echo '/tmp/core.%e.%p.%t' | tee /proc/sys/kernel/core_pattern >/dev/null 2>&1 \
+  || echo "warning: could not set core_pattern (need privileged); cores may be intercepted by apport"
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/common.sh"
 
@@ -27,7 +34,10 @@ PR_BRANCH_NAME=${PR_BRANCH_NAME:-}
 export ELOQKV_BASE_PATH="${GITHUB_WORKSPACE}/eloqkv"
 export ELOQ_TEST_PATH="${GITHUB_WORKSPACE}/eloq_test_src"
 
-trap 'rc=$?; failed_command=$BASH_COMMAND; set +x; dump_ci_failure_logs "$rc" "$failed_command"; exit "$rc"' ERR
+# Use an EXIT trap rather than ERR: the test helpers call `exit 1` directly on
+# failure, which does not trigger ERR. EXIT catches both command failures (via
+# set -e) and explicit exits. Guard on rc so success is not treated as failure.
+trap 'rc=$?; failed_command=$BASH_COMMAND; set +x; if [ "$rc" -ne 0 ]; then dump_ci_failure_logs "$rc" "$failed_command"; fi' EXIT
 
 # Compute txlog_log_state from kv_store_type (same as pr.ent.bash)
 if [ "$KV_STORE_TYPE" == "ELOQDSS_ROCKSDB_CLOUD_S3" ]; then
