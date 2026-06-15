@@ -177,6 +177,20 @@ std::string ExecCommand(const std::string &cmd)
 
 namespace EloqKV
 {
+namespace
+{
+// Wall-clock unix time in nanoseconds. Stored on each slow-log entry so the
+// cross-core merge in GetSlowLog() can order entries by actual execution time;
+// SLOWLOG GET converts it to whole seconds on output for Redis compatibility.
+// (Seconds alone is too coarse: entries on different cores within the same
+// second tie, and the merge then orders them by core index, not by time.)
+uint64_t SlowLogUnixTimeNanos()
+{
+    return std::chrono::duration_cast<std::chrono::nanoseconds>(
+               std::chrono::system_clock::now().time_since_epoch())
+        .count();
+}
+}  // namespace
 
 const auto NUM_VCPU = std::thread::hardware_concurrency();
 
@@ -2260,7 +2274,7 @@ TxErrorCode RedisServiceImpl::MultiExec(
                         next_slow_log_unique_id_[group_id]++;
                     slow_log_[group_id][next_idx].execution_time_ = duration;
                     slow_log_[group_id][next_idx].timestamp_ =
-                        end.time_since_epoch().count();
+                        SlowLogUnixTimeNanos();
                     slow_log_[group_id][next_idx].cmd_.clear();
                     for (auto &arg : *cmd_args_ptr)
                     {
@@ -4395,7 +4409,7 @@ void RedisServiceImpl::GenericCommand(RedisConnectionContext *ctx,
                     next_slow_log_unique_id_[group_id]++;
                 slow_log_[group_id][next_idx].execution_time_ = duration;
                 slow_log_[group_id][next_idx].timestamp_ =
-                    end.time_since_epoch().count();
+                    SlowLogUnixTimeNanos();
                 slow_log_[group_id][next_idx].cmd_.clear();
                 for (auto &arg : cmd_args)
                 {
@@ -6115,7 +6129,7 @@ brpc::RedisCommandHandlerResult RedisServiceImpl::DispatchCommand(
                     next_slow_log_unique_id_[group_id]++;
                 slow_log_[group_id][next_idx].execution_time_ = duration;
                 slow_log_[group_id][next_idx].timestamp_ =
-                    end.time_since_epoch().count();
+                    SlowLogUnixTimeNanos();
                 slow_log_[group_id][next_idx].cmd_.clear();
                 for (auto &arg : args)
                 {
