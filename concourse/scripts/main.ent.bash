@@ -42,12 +42,6 @@ cd eloqkv
 git submodule sync
 git submodule update --init --recursive
 
-ln -s $WORKSPACE/logservice_src data_substrate/eloq_log_service
-
-cd /home/$current_user/workspace/eloqkv/data_substrate/tx_service
-
-ln -s $WORKSPACE/raft_host_manager_src raft_host_manager
-
 cd /home/$current_user/workspace/eloqkv
 
 cmake_version=$(cmake --version 2>&1)

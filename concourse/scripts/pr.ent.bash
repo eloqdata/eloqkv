@@ -63,26 +63,6 @@ if [ -n "$pr_branch_name" ] && git ls-remote --exit-code --heads origin "$pr_bra
 fi
 cd ..
 
-cd eloqkv
-ln -s $WORKSPACE/logservice_src data_substrate/eloq_log_service
-cd data_substrate/eloq_log_service
-if [ -n "$pr_branch_name" ] && git ls-remote --exit-code --heads origin "$pr_branch_name" > /dev/null; then
-  git fetch origin "${pr_branch_name}:refs/remotes/origin/${pr_branch_name}"
-  git checkout -b ${pr_branch_name} origin/${pr_branch_name}
-  git submodule update --init --recursive
-fi
-
-cd /home/$current_user/workspace/eloqkv/data_substrate/tx_service
-
-ln -s $WORKSPACE/raft_host_manager_src raft_host_manager
-cd raft_host_manager
-if [ -n "$pr_branch_name" ] && git ls-remote --exit-code --heads origin "$pr_branch_name" > /dev/null; then
-  git fetch origin "${pr_branch_name}:refs/remotes/origin/${pr_branch_name}"
-  git checkout -b ${pr_branch_name} origin/${pr_branch_name}
-  git submodule update --init --recursive
-fi
-cd ..
-
 cd /home/$current_user/workspace/eloqkv
 
 cmake_version=$(cmake --version 2>&1)

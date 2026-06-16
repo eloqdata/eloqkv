@@ -306,9 +306,7 @@ function run_build_ent() {
     -DELOQ_MODULE_ENABLED=ON \
     -DEXT_TX_PROC_ENABLED=ON \
     -DBUILD_WITH_TESTS=ON \
-    -DWITH_LOG_SERVICE=ON \
-    -DOPEN_LOG_SERVICE=OFF \
-    -DFORK_HM_PROCESS=ON
+    -DWITH_LOG_SERVICE=ON
 
   # Define the output log file
   log_file="/tmp/compile_info.log"

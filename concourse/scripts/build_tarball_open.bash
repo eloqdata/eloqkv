@@ -31,15 +31,6 @@ cd "$HOME"
 ln -sfn "${WORKSPACE}/eloqkv_src" eloqkv
 ELOQKV_SRC="${HOME}/eloqkv"
 
-# ensure log service under expected path
-if [ -d "${WORKSPACE}/logservice_src" ]; then
-  ln -sfn "${WORKSPACE}/logservice_src" "${ELOQKV_SRC}/data_substrate/log_service"
-fi
-
-pushd "${ELOQKV_SRC}/data_substrate/tx_service" >/dev/null
-ln -sfn "${WORKSPACE}/raft_host_manager_src" raft_host_manager
-popd >/dev/null
-
 # Install dependencies for Ubuntu 24.04
 pushd "${ELOQKV_SRC}" >/dev/null
 bash scripts/install_dependency_ubuntu2404.sh
@@ -71,10 +62,8 @@ cmake .. \
   -DCMAKE_BUILD_TYPE="${BUILD_TYPE}" \
   -DWITH_DATA_STORE="${DATA_STORE_TYPE}" \
   -DWITH_LOG_SERVICE=ON \
-  -DOPEN_LOG_SERVICE=ON \
   -DDISABLE_CKPT_REPORT=ON \
   -DDISABLE_CODE_LINE_IN_LOG=ON \
-  -DFORK_HM_PROCESS=OFF \
   -DWITH_ASAN="${ASAN}"
 
 cmake --build . --config "${BUILD_TYPE}" -j"${NCORE}"

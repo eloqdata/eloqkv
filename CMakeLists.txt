@@ -93,13 +93,6 @@ if(WITH_LOG_SERVICE)
     add_compile_definitions(WITH_LOG_SERVICE=1)
 endif()
 
-option(OPEN_LOG_SERVICE "Compile with open log service." ON)
-message("OPEN_LOG_SERVICE: " ${OPEN_LOG_SERVICE})
-
-if(OPEN_LOG_SERVICE)
-    add_compile_definitions(OPEN_LOG_SERVICE=1)
-endif()
-
 option(EXT_TX_PROC_ENABLED "Allows runtime threads to move forward the tx service." ON)
 
 if(EXT_TX_PROC_ENABLED)

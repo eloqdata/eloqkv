@@ -12,20 +12,6 @@ resources:
       repository: ubuntu
       tag: "24.04"
 
-  - name: logservice_src_main
-    type: git
-    source:
-      branch: main
-      private_key: ((git-key))
-      uri: git@github.com:eloqdata/log_service.git
-
-  - name: raft_host_manager_src_main
-    type: git
-    source:
-      branch: main
-      private_key: ((git-key))
-      uri: git@github.com:eloqdata/raft_host_manager.git
-
 jobs:
   - name: ubuntu2404-debug-openlog
     plan:
@@ -34,10 +20,6 @@ jobs:
           steps:
             - get: eloqkv_src
               resource: eloqkv_src_main
-            - get: logservice_src
-              resource: logservice_src_main
-            - get: raft_host_manager_src
-              resource: raft_host_manager_src_main
             - get: image_ubuntu2404
               resource: image_ubuntu2404_main
 

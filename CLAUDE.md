@@ -23,7 +23,6 @@ cmake .. -DCMAKE_BUILD_TYPE=Debug \
     -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
     -DWITH_DATA_STORE=ELOQDSS_ROCKSDB \
     -DWITH_LOG_STATE=ROCKSDB \
-    -DOPEN_LOG_SERVICE=OFF \
     -DCMAKE_INSTALL_PREFIX=../install
 cmake --build . --parallel 16
 cmake --install . --prefix ../install
@@ -49,7 +48,7 @@ Verify behavior manually with `redis-cli -h 127.0.0.1 -p 6379`.
 Notes:
 - Dependencies: use the `eloqdata/eloq-dev-ci-ubuntu2404` Docker image or run `scripts/install_dependency_ubuntu2404.sh` (ubuntu2404 preferred).
 - Debug builds enable fault injection (`WITH_FAULT_INJECT`); add `--tags -needs:fault_inject` to the TCL command on non-Debug builds.
-- Key CMake options: `WITH_DATA_STORE` (storage backend: `ELOQDSS_ELOQSTORE` default, `ELOQDSS_ROCKSDB` common for local dev, also DynamoDB/BigTable/RocksDB-Cloud variants), `WITH_LOG_STATE`, `WITH_LOG_SERVICE`, `OPEN_LOG_SERVICE`, `BUILD_ELOQKV_AS_LIBRARY` (build as library for a converged binary instead of the `eloqkv` executable).
+- Key CMake options: `WITH_DATA_STORE` (storage backend: `ELOQDSS_ELOQSTORE` default, `ELOQDSS_ROCKSDB` common for local dev, also DynamoDB/BigTable/RocksDB-Cloud variants), `WITH_LOG_STATE`, `WITH_LOG_SERVICE`, `BUILD_ELOQKV_AS_LIBRARY` (build as library for a converged binary instead of the `eloqkv` executable).
 
 ## Architecture
 
