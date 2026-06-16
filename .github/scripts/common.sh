@@ -3,8 +3,8 @@
 # Auto-detect environment in GitHub Actions
 if [ -n "${GITHUB_WORKSPACE}" ]; then
   # Set ELOQKV_BASE_PATH if not explicitly provided.
-  # For single-repo workflows (smoke), the checkout is directly at GITHUB_WORKSPACE.
-  # For multi-repo workflows (ent CI), the main repo is checked out to GITHUB_WORKSPACE/eloqkv.
+  # The ent CI workflow checks the main repo out to GITHUB_WORKSPACE/eloqkv;
+  # fall back to GITHUB_WORKSPACE itself when there is no eloqkv subdir.
   if [ -z "${ELOQKV_BASE_PATH}" ]; then
     if [ -d "${GITHUB_WORKSPACE}/eloqkv" ]; then
       export ELOQKV_BASE_PATH="${GITHUB_WORKSPACE}/eloqkv"

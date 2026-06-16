@@ -8,57 +8,6 @@ on:
     branches: [main]
 
 jobs:
-  # Quick smoke test — build + TCL tests (fast feedback)
-  smoke:
-    runs-on: ubuntu-latest
-    container:
-      image: eloqdata/eloq-dev-ci-ubuntu2404:latest
-      options: --user root --privileged --security-opt seccomp=unconfined --ulimit memlock=-1:-1
-
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: recursive
-          path: eloqkv
-
-      - name: Build
-        working-directory: eloqkv
-        run: |
-          export BUILD_JOBS=$(nproc)
-          cmake -B build -DCMAKE_BUILD_TYPE=Debug
-          cmake --build build -j${BUILD_JOBS}
-
-      - name: Run TCL tests
-        shell: bash
-        working-directory: eloqkv
-        run: |
-          ulimit -c unlimited
-          ulimit -l
-          ulimit -n
-
-          # Route cores to a known location so dump_core_backtraces can find
-          # them (this container runs --privileged, so writing core_pattern works).
-          echo '/tmp/core.%e.%p.%t' | tee /proc/sys/kernel/core_pattern >/dev/null \
-            || echo "warning: could not set core_pattern"
-
-          source .github/scripts/common.sh
-
-          ./build/eloqkv --port 6379 --eloq_store_buffer_pool_size=1MB --eloq_store_open_files_limit=512 --logtostderr > /tmp/eloqkv.log 2>&1 &
-          server_pid=$!
-
-          wait_until_ready || { cat /tmp/eloqkv.log; exit 1; }
-
-          # run_tcl_tests calls `exit 1` internally on failure, so run it in a
-          # subshell to contain that exit and still reach the diagnostics below.
-          if ! ( run_tcl_tests all Debug ); then
-            echo "===== eloqkv.log ====="
-            tail -n 400 /tmp/eloqkv.log
-            dump_core_backtraces
-            exit 1
-          fi
-
-          kill "$server_pid" 2>/dev/null || true
-
   # Enterprise CI matrix — full build + test suite across build types and KV stores
   ent-ci:
     concurrency:
@@ -94,9 +43,7 @@ jobs:
           GIT_SSH_COMMAND: "ssh -o StrictHostKeyChecking=accept-new"
         run: |
           git config --global --add safe.directory '*'
-          git clone --recurse-submodules git@github.com:eloqdata/eloq_log_service.git logservice_src
           git clone --recurse-submodules git@github.com:eloqdata/eloq-test.git eloq_test_src
-          git clone --recurse-submodules git@github.com:eloqdata/raft_host_manager.git raft_host_manager_src
 
       - name: Run CI (${{ matrix.build_type }}, ${{ matrix.kv_store_type }})
         env:

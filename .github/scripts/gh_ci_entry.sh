@@ -125,25 +125,9 @@ if [ -n "$PR_BRANCH_NAME" ] && git ls-remote --exit-code --heads origin "$PR_BRA
   git submodule update --init --recursive
 fi
 
-# --- Setup log service symlink and branch matching ---
-cd ${ELOQKV_BASE_PATH}
-ln -sf ${GITHUB_WORKSPACE}/logservice_src data_substrate/eloq_log_service
-cd data_substrate/eloq_log_service
-if [ -n "$PR_BRANCH_NAME" ] && git ls-remote --exit-code --heads origin "$PR_BRANCH_NAME" > /dev/null 2>&1; then
-  git fetch origin "${PR_BRANCH_NAME}:refs/remotes/origin/${PR_BRANCH_NAME}"
-  git checkout -b ${PR_BRANCH_NAME} origin/${PR_BRANCH_NAME}
-  git submodule update --init --recursive
-fi
-
-# --- Setup raft_host_manager symlink and branch matching ---
-cd ${ELOQKV_BASE_PATH}/data_substrate/tx_service
-ln -sf ${GITHUB_WORKSPACE}/raft_host_manager_src raft_host_manager
-cd raft_host_manager
-if [ -n "$PR_BRANCH_NAME" ] && git ls-remote --exit-code --heads origin "$PR_BRANCH_NAME" > /dev/null 2>&1; then
-  git fetch origin "${PR_BRANCH_NAME}:refs/remotes/origin/${PR_BRANCH_NAME}"
-  git checkout -b ${PR_BRANCH_NAME} origin/${PR_BRANCH_NAME}
-  git submodule update --init --recursive
-fi
+# eloq_log_service and raft_host_manager now live in-tree within the
+# data_substrate submodule, so they are populated by the submodule update above;
+# no separate clone or symlink is needed.
 
 # --- CMake version check ---
 cd ${ELOQKV_BASE_PATH}
