@@ -258,6 +258,99 @@ function dump_file_tail() {
   fi
 }
 
+function dump_matching_log_lines() {
+  local title=$1
+  local pattern=$2
+  shift 2
+
+  echo ""
+  echo "===== ${title} ====="
+
+  local file
+  local matched_file=false
+  for file in "$@"; do
+    if [ ! -f "$file" ]; then
+      continue
+    fi
+
+    matched_file=true
+    echo ""
+    echo "----- ${file} -----"
+    if command -v rg >/dev/null 2>&1; then
+      rg -n -i "$pattern" "$file" | tail -n 250 || true
+    else
+      grep -E -n -i "$pattern" "$file" | tail -n 250 || true
+    fi
+  done
+
+  if [ "$matched_file" = false ]; then
+    echo "No matching files"
+  fi
+}
+
+function dump_eloq_test_focused_logs() {
+  local runtime_dir=$1
+
+  if [ ! -d "$runtime_dir" ]; then
+    return 0
+  fi
+
+  echo ""
+  echo "===== focused eloq_test rolling-upgrade diagnostics ====="
+
+  echo ""
+  echo "===== redis/node configs ====="
+  local file
+  local found_config=false
+  for file in "$runtime_dir"/my_*.cnf; do
+    if [ ! -f "$file" ]; then
+      continue
+    fi
+
+    found_config=true
+    echo ""
+    echo "----- ${file} -----"
+    if command -v rg >/dev/null 2>&1; then
+      rg -n '^(eloqkv_port|tx_port|tx_ip|txlog_service_list|txlog_group_replica_num|cluster_config_file|eloq_dss_peer_node|checkpointer_delay_secs)=' "$file" || true
+    else
+      grep -E -n '^(eloqkv_port|tx_port|tx_ip|txlog_service_list|txlog_group_replica_num|cluster_config_file|eloq_dss_peer_node|checkpointer_delay_secs)=' "$file" || true
+    fi
+  done
+  if [ "$found_config" = false ]; then
+    echo "No runtime/my_*.cnf files found"
+  fi
+
+  echo ""
+  echo "===== cluster configs ====="
+  local found_cluster_config=false
+  for file in "$runtime_dir"/test_data/cluster_config*.cnf; do
+    if [ ! -f "$file" ]; then
+      continue
+    fi
+
+    found_cluster_config=true
+    dump_file_tail "$file" 80
+  done
+  if [ "$found_cluster_config" = false ]; then
+    echo "No runtime/test_data/cluster_config*.cnf files found"
+  fi
+
+  dump_file_tail "$runtime_dir/multi_cluster_rolling_upgrade_log" 250
+
+  dump_matching_log_lines \
+    "logservice replay diagnostics" \
+    'ReplayLog|replay|shipping|log shipping|LogServer|raft|leader|term|ng:|failed|error|fatal' \
+    "$runtime_dir"/log_service/node*_log
+
+  dump_matching_log_lines \
+    "node recovery and redis startup diagnostics" \
+    'Requesting log replay|no recovery connection|ReplayLog|replay service|Failed to ReplayLog|leader|WaitClusterReady|redis|listening|connect|failed|error|fatal|checkpoint|memory usage report' \
+    "$runtime_dir"/node*_log
+
+  dump_file_tail "$runtime_dir/node5_log" 250
+  dump_file_tail "$runtime_dir/node6_log" 250
+}
+
 function dump_core_backtraces() {
   # Print a full backtrace for every core dump we can find. Requires the
   # core_pattern to write a real file (set in gh_ci_entry.sh on the privileged
@@ -349,6 +442,7 @@ function dump_ci_failure_logs() {
   echo ""
   echo "===== eloq_test runtime files ====="
   if [ -n "${ELOQ_TEST_PATH:-}" ] && [ -d "${ELOQ_TEST_PATH}/runtime" ]; then
+    dump_eloq_test_focused_logs "${ELOQ_TEST_PATH}/runtime"
     find "${ELOQ_TEST_PATH}/runtime" -maxdepth 3 -type f -printf '%p\n' | sort || true
     while IFS= read -r file; do
       dump_file_tail "$file" 400
