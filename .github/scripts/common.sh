@@ -344,9 +344,10 @@ function dump_eloq_test_focused_logs() {
 
   dump_matching_log_lines \
     "node recovery and redis startup diagnostics" \
-    'Requesting log replay|no recovery connection|ReplayLog|replay service|Failed to ReplayLog|leader|WaitClusterReady|redis|listening|connect|failed|error|fatal|checkpoint|memory usage report' \
+    'Requesting log replay|no recovery connection|ReplayLog|replay service|Failed to ReplayLog|leader|WaitClusterReady|redis|listening|connect|failed|error|fatal|Cluster scale|UpdateClusterConfig' \
     "$runtime_dir"/node*_log
 
+  dump_file_tail "$runtime_dir/log_service/node0_log" 250
   dump_file_tail "$runtime_dir/node5_log" 250
   dump_file_tail "$runtime_dir/node6_log" 250
 }
