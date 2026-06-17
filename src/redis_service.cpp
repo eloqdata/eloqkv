@@ -22,12 +22,15 @@
 #include "redis_service.h"
 
 #include <absl/types/span.h>
+#include <brpc/channel.h>
+#include <bthread/bthread.h>
 #include <bthread/mutex.h>
 #include <bthread/task_group.h>
 #include <butil/strings/string_piece.h>
 #include <butil/strings/string_util.h>
 #include <gflags/gflags.h>
 #include <glog/logging.h>
+#include <strings.h>
 #include <sys/resource.h>
 #include <sys/sysinfo.h>
 #include <sys/types.h>
@@ -73,6 +76,7 @@
 #include "redis_stats.h"
 #include "redis_string_match.h"
 #include "sharder.h"
+#include "str.h"
 #include "tx_key.h"
 // #include "store_handler/rocksdb_config.h"
 #include "eloqkv_catalog_factory.h"
@@ -416,11 +420,11 @@ bool RedisServiceImpl::Init(brpc::Server &brpc_server)
     IsolationLevel iso_level;
     CcProtocol protocol;
     // Support ReadCommitted and RepeatableRead.
-    if (strcasecmp(isolation_level.c_str(), "RepeatableRead") == 0)
+    if (IsEq(isolation_level, "RepeatableRead"))
     {
         iso_level = txservice::IsolationLevel::RepeatableRead;
     }
-    else if (strcasecmp(isolation_level.c_str(), "ReadCommitted") == 0)
+    else if (IsEq(isolation_level, "ReadCommitted"))
     {
         iso_level = txservice::IsolationLevel::ReadCommitted;
     }
@@ -430,15 +434,15 @@ bool RedisServiceImpl::Init(brpc::Server &brpc_server)
         return false;
     }
     // Support OCC, OccRead and Locking.
-    if (strcasecmp(cc_protocol.c_str(), "OCC") == 0)
+    if (IsEq(cc_protocol, "OCC"))
     {
         protocol = txservice::CcProtocol::OCC;
     }
-    else if (strcasecmp(cc_protocol.c_str(), "OCCRead") == 0)
+    else if (IsEq(cc_protocol, "OCCRead"))
     {
         protocol = txservice::CcProtocol::OccRead;
     }
-    else if (strcasecmp(cc_protocol.c_str(), "Locking") == 0)
+    else if (IsEq(cc_protocol, "Locking"))
     {
         protocol = txservice::CcProtocol::Locking;
     }
@@ -465,11 +469,11 @@ bool RedisServiceImpl::Init(brpc::Server &brpc_server)
                   "local", "txn_protocol", FLAGS_txn_protocol);
 
     // Support ReadCommitted and RepeatableRead.
-    if (strcasecmp(txn_iso_level.c_str(), "RepeatableRead") == 0)
+    if (IsEq(txn_iso_level, "RepeatableRead"))
     {
         txn_isolation_level_ = IsolationLevel::RepeatableRead;
     }
-    else if (strcasecmp(txn_iso_level.c_str(), "ReadCommitted") == 0)
+    else if (IsEq(txn_iso_level, "ReadCommitted"))
     {
         txn_isolation_level_ = IsolationLevel::ReadCommitted;
     }
@@ -481,15 +485,15 @@ bool RedisServiceImpl::Init(brpc::Server &brpc_server)
     }
 
     // Support OCC, OccRead and Locking.
-    if (strcasecmp(txn_protocol.c_str(), "OCC") == 0)
+    if (IsEq(txn_protocol, "OCC"))
     {
         txn_protocol_ = CcProtocol::OCC;
     }
-    else if (strcasecmp(txn_protocol.c_str(), "OCCRead") == 0)
+    else if (IsEq(txn_protocol, "OCCRead"))
     {
         txn_protocol_ = CcProtocol::OccRead;
     }
-    else if (strcasecmp(txn_protocol.c_str(), "Locking") == 0)
+    else if (IsEq(txn_protocol, "Locking"))
     {
         txn_protocol_ = CcProtocol::Locking;
     }
@@ -816,6 +820,178 @@ uint32_t RedisServiceImpl::RedisClusterSize()
 uint32_t RedisServiceImpl::RedisClusterNodesCount()
 {
     return txservice::Sharder::Instance().GetNodeCount();
+}
+
+bool RedisServiceImpl::IsLeader(uint32_t ng_id) const
+{
+    if (!FLAGS_cluster_mode)
+    {
+        return true;
+    }
+    return txservice::Sharder::Instance().NodeId() ==
+           txservice::Sharder::Instance().LeaderNodeId(ng_id);
+}
+
+bool RedisServiceImpl::BroadcastNsFlush(const std::string &ns)
+{
+    if (!FLAGS_cluster_mode)
+    {
+        return true;
+    }
+
+    auto node_id = txservice::Sharder::Instance().NodeId();
+    auto ng_configs = txservice::Sharder::Instance().GetNodeGroupConfigs();
+    std::unordered_set<uint32_t> visited_nodes;
+    std::vector<std::string> peer_endpoints_to_call;
+
+    for (const auto &[ng_id, nodes] : ng_configs)
+    {
+        for (const auto &node : nodes)
+        {
+            if (node.node_id_ == node_id)
+            {
+                continue;  // Skip self
+            }
+            if (visited_nodes.count(node.node_id_))
+            {
+                continue;  // Skip already visited node
+            }
+            visited_nodes.insert(node.node_id_);
+
+            std::string endpoint =
+                node.host_name_ + ":" +
+                std::to_string(RedisServiceImpl::TxPortToRedisPort(node.port_));
+            peer_endpoints_to_call.push_back(std::move(endpoint));
+        }
+    }
+
+    if (peer_endpoints_to_call.empty())
+    {
+        return true;
+    }
+
+    struct PeerCall
+    {
+        std::string endpoint;
+        std::unique_ptr<brpc::Channel> channel;
+        std::unique_ptr<brpc::Controller> controller;
+        std::unique_ptr<brpc::RedisRequest> request;
+        std::unique_ptr<brpc::RedisResponse> response;
+    };
+
+    std::vector<PeerCall> peer_calls;
+    peer_calls.reserve(peer_endpoints_to_call.size());
+
+    bool success = true;
+
+    for (const auto &endpoint : peer_endpoints_to_call)
+    {
+        auto channel = std::make_unique<brpc::Channel>();
+        brpc::ChannelOptions options;
+        options.protocol = brpc::PROTOCOL_REDIS;
+        options.timeout_ms = 500;
+        if (enable_tls_)
+        {
+            options.mutable_ssl_options();
+        }
+
+        if (channel->Init(endpoint.c_str(), &options) == 0)
+        {
+            auto request = std::make_unique<brpc::RedisRequest>();
+            butil::StringPiece components[4];
+            components[0] = "NAMESPACE";
+            components[1] = NamespaceCommand::kOpNsFlush;
+            components[2] = ns;
+            size_t num_components = 3;
+            if (!requirepass.empty())
+            {
+                components[3] = requirepass;
+                num_components = 4;
+            }
+
+            if (request->AddCommandByComponents(components, num_components))
+            {
+                auto controller = std::make_unique<brpc::Controller>();
+                auto response = std::make_unique<brpc::RedisResponse>();
+
+                channel->CallMethod(NULL,
+                                    controller.get(),
+                                    request.get(),
+                                    response.get(),
+                                    brpc::DoNothing());
+
+                peer_calls.push_back(PeerCall{endpoint,
+                                              std::move(channel),
+                                              std::move(controller),
+                                              std::move(request),
+                                              std::move(response)});
+            }
+            else
+            {
+                LOG(WARNING)
+                    << "Failed to add command components for NS flush to "
+                    << endpoint;
+                success = false;
+            }
+        }
+        else
+        {
+            LOG(WARNING) << "Failed to initialize brpc channel to " << endpoint;
+            success = false;
+        }
+    }
+
+    for (auto &call : peer_calls)
+    {
+        brpc::Join(call.controller->call_id());
+        if (call.controller->Failed())
+        {
+            LOG(WARNING) << "Failed to send NS flush asynchronously to peer "
+                         << call.endpoint << ": "
+                         << call.controller->ErrorText();
+            success = false;
+        }
+        else
+        {
+            const auto &res = *call.response;
+            if (res.reply_size() == 0)
+            {
+                LOG(WARNING)
+                    << "Received empty redis response for NS flush from peer "
+                    << call.endpoint;
+                success = false;
+            }
+            else
+            {
+                const auto &reply = res.reply(0);
+                if (reply.is_error())
+                {
+                    LOG(WARNING) << "NS flush failed on peer " << call.endpoint
+                                 << " with error: " << reply.error_message();
+                    success = false;
+                }
+                else if (reply.is_string())
+                {
+                    if (reply.data() != "OK")
+                    {
+                        LOG(WARNING)
+                            << "NS flush failed on peer " << call.endpoint
+                            << " with response: " << reply.data();
+                        success = false;
+                    }
+                }
+                else
+                {
+                    LOG(WARNING) << "NS flush failed on peer " << call.endpoint
+                                 << " with unexpected response type: "
+                                 << brpc::RedisReplyTypeToString(reply.type());
+                    success = false;
+                }
+            }
+        }
+    }
+
+    return success;
 }
 
 void RedisServiceImpl::GetReplicaNodesStatus(
@@ -5906,26 +6082,24 @@ bool RedisServiceImpl::AuthRequired(
         return false;
     }
 
-    // Bypass auth for "NAMESPACE CURRENT"
-    if (args.size() >= 2)
+    const auto &cmd = args[0];
+    if (IsEqAny(cmd, "auth", "quit", "hello", "reset"))
     {
-        std::string first(args[0].data(), args[0].size());
-        std::string second(args[1].data(), args[1].size());
-        std::transform(first.begin(), first.end(), first.begin(), ::tolower);
-        std::transform(second.begin(), second.end(), second.begin(), ::tolower);
-        if (first == "namespace" && second == "current")
+        return false;
+    }
+    else if (IsEq(cmd, "namespace"))
+    {
+        if (args.size() >= 2)
         {
-            return false;
+            const auto &subcmd = args[1];
+            if (IsEqAny(subcmd, "current", "ns_flush"))
+            {
+                return false;
+            }
         }
     }
 
-    constexpr std::array<std::string_view, 4> cmds_no_auth = {
-        "auth", "hello", "quit", "reset"};
-    std::string cmd_name(args[0].data(), args[0].size());
-    std::transform(
-        cmd_name.begin(), cmd_name.end(), cmd_name.begin(), ::tolower);
-    return std::find(cmds_no_auth.begin(), cmds_no_auth.end(), cmd_name) ==
-           cmds_no_auth.end();
+    return true;
 }
 
 std::unique_ptr<brpc::ConnectionContext> RedisServiceImpl::NewConnectionContext(

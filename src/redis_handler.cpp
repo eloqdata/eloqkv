@@ -44,6 +44,7 @@
 #include "redis_replier.h"
 #include "redis_service.h"
 #include "sharder.h"
+#include "str.h"
 #include "tx_key.h"
 #include "tx_request.h"
 #include "tx_service.h"
@@ -1989,7 +1990,7 @@ brpc::RedisCommandHandlerResult ScriptHandler::Run(
         return brpc::REDIS_CMD_HANDLED;
     }
 
-    if (strcasecmp(args[1].data(), "flush") == 0)
+    if (IsEq(args[1], "flush"))
     {
         if (args.size() > 2)
         {
@@ -2007,7 +2008,7 @@ brpc::RedisCommandHandlerResult ScriptHandler::Run(
         output->SetStatus("OK");
         return brpc::REDIS_CMD_HANDLED;
     }
-    if (strcasecmp(args[1].data(), "exists") == 0)
+    if (IsEq(args[1], "exists"))
     {
         if (args.size() == 2)
         {
@@ -2018,7 +2019,7 @@ brpc::RedisCommandHandlerResult ScriptHandler::Run(
         redis_impl_->ScriptExists(args, output);
         return brpc::REDIS_CMD_HANDLED;
     }
-    if (strcasecmp(args[1].data(), "load") == 0)
+    if (IsEq(args[1], "load"))
     {
         if (args.size() == 2)
         {
