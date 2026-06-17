@@ -1404,11 +1404,14 @@ function stop_and_clean_dss_server() {
   local kv_store_type=$1
 
   pkill -x dss_server || true
+  if ! wait_dss_until_finished; then
+    pkill -9 -x dss_server || true
+    wait_dss_until_finished
+  fi
+
   rm -f data_store_config.ini
   rm -f /tmp/data_store_config.ini
   rm -rf /tmp/eloq_dss_data
-
-  wait_dss_until_finished
 
   if [[ $kv_store_type = "ELOQDSS_ROCKSDB_CLOUD_S3" ]]; then
     # clean up bucket in minio
