@@ -104,232 +104,283 @@
 
 namespace EloqKV
 {
+// RedisCommandType is an ON-DISK / ON-WIRE FORMAT.
+//
+// The enum value is cast to uint8_t and written as the first byte of every
+// serialized command; that byte is persisted in the WAL and shipped over
+// replication, and RedisTableSchema::CreateTxCommand() switches on it to
+// rebuild the command on followers and during recovery. The numbers are a
+// stable contract:
+//   * Every member has an EXPLICIT value; never rely on declaration order.
+//   * NEVER renumber or reorder an existing member.
+//   * Only APPEND new members, at the next free number (currently 186+).
+//   * Build-flag-gated (#ifdef) members live in the reserved trailing block
+//     with fixed numbers, so toggling a flag never shifts a base command.
+//   * uint8_t cap is 255. Exceeding it needs a wider code (a separate,
+//     breaking format change).
+// Guarded by scripts/check_command_type_numbering.py and the static_asserts
+// below.
 enum struct RedisCommandType
 {
     NOOP = 0,
 
     // Connection management
-    ECHO,
-    PING,
-    AUTH,
-    QUIT,
-    SELECT,
-    CLIENT,
-    UNKNOWN,
+    ECHO = 1,
+    PING = 2,
+    AUTH = 3,
+    QUIT = 4,
+    SELECT = 5,
+    CLIENT = 6,
+    UNKNOWN = 7,
 
     // string commands
-    GET,
-    SET,
-    GETDEL,
-    SETNX,
-    GETSET,
-    MGET,
-    MSET,
-    MSETNX,
-    STRLEN,
-    PSETEX,
-    SETEX,
-    GETBIT,
-    GETRANGE,
-    INCRBYFLOAT,
-    SETBIT,
-    SETRANGE,
-    APPEND,
-    SUBSTR,
-    INCR,
-    INCRBY,
-    DECR,
-    DECRBY,
-    BITCOUNT,
-    BITFIELD,
-    BITFIELD_RO,
-    BITPOS,
-    BITOP,
+    GET = 8,
+    SET = 9,
+    GETDEL = 10,
+    SETNX = 11,
+    GETSET = 12,
+    MGET = 13,
+    MSET = 14,
+    MSETNX = 15,
+    STRLEN = 16,
+    PSETEX = 17,
+    SETEX = 18,
+    GETBIT = 19,
+    GETRANGE = 20,
+    INCRBYFLOAT = 21,
+    SETBIT = 22,
+    SETRANGE = 23,
+    APPEND = 24,
+    SUBSTR = 25,
+    INCR = 26,
+    INCRBY = 27,
+    DECR = 28,
+    DECRBY = 29,
+    BITCOUNT = 30,
+    BITFIELD = 31,
+    BITFIELD_RO = 32,
+    BITPOS = 33,
+    BITOP = 34,
 
     // list commands
-    BLOCKPOP,
-    BLOCKDISCARD,
-    BLMOVE,
-    BLMPOP,
-    BLPOP,
-    BRPOP,
-    BRPOPLPUSH,
-    LINDEX,
-    LINSERT,
-    LPOS,
-    LLEN,
-    LPOP,
-    LPUSH,
-    LPUSHX,
-    LRANGE,
-    LMOVE,
-    LMOVEPOP,
-    LMOVEPUSH,
-    LREM,
-    LSET,
-    LTRIM,
+    BLOCKPOP = 35,
+    BLOCKDISCARD = 36,
+    BLMOVE = 37,
+    BLMPOP = 38,
+    BLPOP = 39,
+    BRPOP = 40,
+    BRPOPLPUSH = 41,
+    LINDEX = 42,
+    LINSERT = 43,
+    LPOS = 44,
+    LLEN = 45,
+    LPOP = 46,
+    LPUSH = 47,
+    LPUSHX = 48,
+    LRANGE = 49,
+    LMOVE = 50,
+    LMOVEPOP = 51,
+    LMOVEPUSH = 52,
+    LREM = 53,
+    LSET = 54,
+    LTRIM = 55,
 
-    RPOP,
-    RPOPLPUSH,
-    RPUSH,
-    RPUSHX,
-    LMPOP,
+    RPOP = 56,
+    RPOPLPUSH = 57,
+    RPUSH = 58,
+    RPUSHX = 59,
+    LMPOP = 60,
 
     // hash commands
-    HGET,
-    HSET,
-    HSETNX,
-    HLEN,
-    HSTRLEN,
-    HINCRBY,
-    HINCRBYFLOAT,
-    HMGET,
-    HKEYS,
-    HVALS,
-    HGETALL,
-    HEXISTS,
-    HDEL,
-    HRANDFIELD,
-    HSCAN,
+    HGET = 61,
+    HSET = 62,
+    HSETNX = 63,
+    HLEN = 64,
+    HSTRLEN = 65,
+    HINCRBY = 66,
+    HINCRBYFLOAT = 67,
+    HMGET = 68,
+    HKEYS = 69,
+    HVALS = 70,
+    HGETALL = 71,
+    HEXISTS = 72,
+    HDEL = 73,
+    HRANDFIELD = 74,
+    HSCAN = 75,
 
     // sorted set commands
-    ZADD,
-    ZCOUNT,
-    ZCARD,
-    ZRANGE,
-    ZRANGESTORE,
-    ZREM,
-    ZSCORE,
-    ZRANGEBYSCORE,
-    ZRANGEBYLEX,
-    ZRANGEBYRANK,
-    ZREMRANGE,
-    ZLEXCOUNT,
-    ZPOPMIN,
-    ZPOPMAX,
-    ZSCAN,
-    ZUNION,
-    ZUNIONSTORE,
-    ZINTER,
-    ZINTERCARD,
-    ZINTERSTORE,
-    ZRANDMEMBER,
-    ZRANK,
-    ZREVRANK,
-    ZREVRANGE,
-    ZREVRANGEBYSCORE,
-    ZREVRANGEBYLEX,
-    ZMSCORE,
-    ZMPOP,
-    ZDIFF,
-    ZDIFFSTORE,
-    ZINCRBY,
-    SZSCAN,
+    ZADD = 76,
+    ZCOUNT = 77,
+    ZCARD = 78,
+    ZRANGE = 79,
+    ZRANGESTORE = 80,
+    ZREM = 81,
+    ZSCORE = 82,
+    ZRANGEBYSCORE = 83,
+    ZRANGEBYLEX = 84,
+    ZRANGEBYRANK = 85,
+    ZREMRANGE = 86,
+    ZLEXCOUNT = 87,
+    ZPOPMIN = 88,
+    ZPOPMAX = 89,
+    ZSCAN = 90,
+    ZUNION = 91,
+    ZUNIONSTORE = 92,
+    ZINTER = 93,
+    ZINTERCARD = 94,
+    ZINTERSTORE = 95,
+    ZRANDMEMBER = 96,
+    ZRANK = 97,
+    ZREVRANK = 98,
+    ZREVRANGE = 99,
+    ZREVRANGEBYSCORE = 100,
+    ZREVRANGEBYLEX = 101,
+    ZMSCORE = 102,
+    ZMPOP = 103,
+    ZDIFF = 104,
+    ZDIFFSTORE = 105,
+    ZINCRBY = 106,
+    SZSCAN = 107,
 
     // set commands
-    SADD,
-    SMEMBERS,
-    SREM,
-    SCARD,
-    SDIFF,
-    SDIFFSTORE,
-    SINTER,
-    SINTERCARD,
-    SINTERSTORE,
-    SISMEMBER,
-    SMISMEMBER,
-    SMOVE,
-    SPOP,
-    SRANDMEMBER,
-    SUNION,
-    SUNIONSTORE,
-    SSCAN,
+    SADD = 108,
+    SMEMBERS = 109,
+    SREM = 110,
+    SCARD = 111,
+    SDIFF = 112,
+    SDIFFSTORE = 113,
+    SINTER = 114,
+    SINTERCARD = 115,
+    SINTERSTORE = 116,
+    SISMEMBER = 117,
+    SMISMEMBER = 118,
+    SMOVE = 119,
+    SPOP = 120,
+    SRANDMEMBER = 121,
+    SUNION = 122,
+    SUNIONSTORE = 123,
+    SSCAN = 124,
 
-    STORE_LIST,
-    SORTABLE_LOAD,
-    MHGET,
-    SORT,
+    STORE_LIST = 125,
+    SORTABLE_LOAD = 126,
+    MHGET = 127,
+    SORT = 128,
 
     // transaction commands
-    WATCH,
-    UNWATCH,
-    MULTI,
-    EXEC,
-    DISCARD,
-    BEGIN,
-    COMMIT,
-    ROLLBACK,
+    WATCH = 129,
+    UNWATCH = 130,
+    MULTI = 131,
+    EXEC = 132,
+    DISCARD = 133,
+    BEGIN = 134,
+    COMMIT = 135,
+    ROLLBACK = 136,
 
     // generic commands
-    SCAN,
-    KEYS,
-    TYPE,
-    DEL,
-    EXISTS,
-    DUMP,
-    RESTORE,
+    SCAN = 137,
+    KEYS = 138,
+    TYPE = 139,
+    DEL = 140,
+    EXISTS = 141,
+    DUMP = 142,
+    RESTORE = 143,
 
     // server managment commands
-    DBSIZE,
-    INFO,
-    COMMAND,
-    CONFIG,
-    CLUSTER,
-    FAILOVER,
-    FLUSHDB,
-    FLUSHALL,
-    READONLY,
-    SLOWLOG,
+    DBSIZE = 144,
+    INFO = 145,
+    COMMAND = 146,
+    CONFIG = 147,
+    CLUSTER = 148,
+    FAILOVER = 149,
+    FLUSHDB = 150,
+    FLUSHALL = 151,
+    READONLY = 152,
+    SLOWLOG = 153,
 
     // scripting and functions commands
-    EVAL,
-    EVALSHA,
-#ifdef WITH_FAULT_INJECT
-    // debug commands
-    FAULT_INJECT,
-#endif
+    EVAL = 154,
+    EVALSHA = 155,
 
-    MEMORY_USAGE,
+    MEMORY_USAGE = 156,
 
     // ttl commands
-    TTL,
-    PTTL,
-    EXPIRETIME,
-    PEXPIRETIME,
-    EXPIRE,
-    PEXPIRE,
-    EXPIREAT,
-    PEXPIREAT,
-    PERSIST,
-    GETEX,
-    RECOVER,
-    TIME,
+    TTL = 157,
+    PTTL = 158,
+    EXPIRETIME = 159,
+    PEXPIRETIME = 160,
+    EXPIRE = 161,
+    PEXPIRE = 162,
+    EXPIREAT = 163,
+    PEXPIREAT = 164,
+    PERSIST = 165,
+    GETEX = 166,
+    RECOVER = 167,
+    TIME = 168,
 
     // pubsub commands
-    PUBLISH,
-    SUBSCRIBE,
-    UNSUBSCRIBE,
-    PSUBSCRIBE,
-    PUNSUBSCRIBE,
+    PUBLISH = 169,
+    SUBSCRIBE = 170,
+    UNSUBSCRIBE = 171,
+    PSUBSCRIBE = 172,
+    PUNSUBSCRIBE = 173,
 
+    UNLINK = 174,
+    NAMESPACE = 175,
+
+// -----------------------------------------------------------------
+// Optional / build-flag-gated commands.
+//
+// Kept OUT of the inline sequence above with RESERVED, fixed numbers
+// so that toggling a build flag never renumbers a base command.
+// Never reorder, never inline. Append new optional commands here.
+// -----------------------------------------------------------------
+#ifdef ELOQKV_WITH_DSS_ROCKSDB_CLOUD
+    COMPACT = 176,
+#endif
+#ifdef WITH_FAULT_INJECT
+    // debug commands
+    FAULT_INJECT = 177,
+#endif
 #ifdef VECTOR_INDEX_ENABLED
     // vector index commands
-    ELOQVEC_CREATE,
-    ELOQVEC_INFO,
-    ELOQVEC_DROP,
-    ELOQVEC_ADD,
-    ELOQVEC_BADD,
-    ELOQVEC_UPDATE,
-    ELOQVEC_DELETE,
-    ELOQVEC_SEARCH,
-#endif
-
-    UNLINK,
-    NAMESPACE,
-#ifdef ELOQKV_WITH_DSS_ROCKSDB_CLOUD
-    COMPACT,
+    ELOQVEC_CREATE = 178,
+    ELOQVEC_INFO = 179,
+    ELOQVEC_DROP = 180,
+    ELOQVEC_ADD = 181,
+    ELOQVEC_BADD = 182,
+    ELOQVEC_UPDATE = 183,
+    ELOQVEC_DELETE = 184,
+    ELOQVEC_SEARCH = 185,
 #endif
 };
+
+// Anchors: fail the build if any value above is accidentally shifted
+// (section boundaries + EXPIRE, the code from the 1.2.3/1.3.1 incident).
+static_assert(static_cast<int>(RedisCommandType::NOOP) == 0);
+static_assert(static_cast<int>(RedisCommandType::GET) == 8);
+static_assert(static_cast<int>(RedisCommandType::SET) == 9);
+static_assert(static_cast<int>(RedisCommandType::BLOCKPOP) == 35);
+static_assert(static_cast<int>(RedisCommandType::HGET) == 61);
+static_assert(static_cast<int>(RedisCommandType::ZADD) == 76);
+static_assert(static_cast<int>(RedisCommandType::SADD) == 108);
+static_assert(static_cast<int>(RedisCommandType::WATCH) == 129);
+static_assert(static_cast<int>(RedisCommandType::SCAN) == 137);
+static_assert(static_cast<int>(RedisCommandType::MEMORY_USAGE) == 156);
+static_assert(static_cast<int>(RedisCommandType::EXPIRE) == 161);
+static_assert(static_cast<int>(RedisCommandType::RECOVER) == 167);
+static_assert(static_cast<int>(RedisCommandType::PUBLISH) == 169);
+static_assert(static_cast<int>(RedisCommandType::UNLINK) == 174);
+static_assert(static_cast<int>(RedisCommandType::NAMESPACE) == 175);
+#ifdef ELOQKV_WITH_DSS_ROCKSDB_CLOUD
+static_assert(static_cast<int>(RedisCommandType::COMPACT) == 176);
+#endif
+#ifdef WITH_FAULT_INJECT
+static_assert(static_cast<int>(RedisCommandType::FAULT_INJECT) == 177);
+#endif
+#ifdef VECTOR_INDEX_ENABLED
+static_assert(static_cast<int>(RedisCommandType::ELOQVEC_CREATE) == 178);
+static_assert(static_cast<int>(RedisCommandType::ELOQVEC_SEARCH) == 185);
+#endif
 
 enum RedisResultType
 {
