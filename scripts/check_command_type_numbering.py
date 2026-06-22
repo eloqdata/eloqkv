@@ -62,6 +62,7 @@ RESERVED = {
 
 
 def expected():
+    """Return the frozen {name: value} map (base table + reserved range)."""
     exp = dict(RESERVED)
     for tok in BASE.replace("\n", " ").split(","):
         tok = tok.strip()
@@ -73,20 +74,23 @@ def expected():
 
 
 def actual():
+    """Parse the enum body and return the {name: value} map it declares."""
     with open(HEADER) as f:
         lines = f.read().splitlines()
-    i0 = next(i for i, l in enumerate(lines)
-              if l.strip() == "enum struct RedisCommandType")
-    i1 = next(i for i, l in enumerate(lines[i0:], i0) if l.strip() == "};")
+    i0 = next(i for i, line in enumerate(lines)
+              if line.strip() == "enum struct RedisCommandType")
+    i1 = next(i for i, line in enumerate(lines[i0:], i0)
+              if line.strip() == "};")
     out = {}
-    for l in lines[i0:i1]:
-        m = re.match(r"\s*([A-Za-z_]\w*)\s*=\s*(\d+)\s*,", l)
+    for line in lines[i0:i1]:
+        m = re.match(r"\s*([A-Za-z_]\w*)\s*=\s*(\d+)\s*,", line)
         if m:
             out[m.group(1)] = int(m.group(2))
     return out
 
 
 def main():
+    """Compare the header against the frozen table; print and return status."""
     exp, act = expected(), actual()
     errs = []
     for name, v in exp.items():
