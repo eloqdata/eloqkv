@@ -1799,7 +1799,6 @@ void InfoCommand::Execute(RedisServiceImpl *redis_impl,
         multi_cmd_count_ = RedisStats::GetMultiObjectCommandsCount();
         //  cmds_per_sec_ = RedisStats::GetCommandsPerSecond();
     }
-
 }
 
 void MemoryStatsCommand::Execute(RedisServiceImpl *redis_impl,
@@ -1834,7 +1833,8 @@ void KeyspaceCommand::Execute(RedisServiceImpl *redis_impl,
 
     dbsizes_ = DBSizeCommand::FetchDBSize(std::move(table_names));
     auto *store_hd = redis_impl->GetStoreHandler();
-    store_disk_keys_ = store_hd == nullptr ? 0 : store_hd->ApproxStoreKeyCount();
+    store_disk_keys_ =
+        store_hd == nullptr ? 0 : store_hd->ApproxStoreKeyCount();
 }
 
 void CompactCommand::Execute(RedisServiceImpl *redis_impl,
@@ -10785,8 +10785,7 @@ std::tuple<bool, KeyspaceCommand> ParseKeyspaceCommand(
 {
     if (args.size() != 1)
     {
-        output->OnError(
-            "ERR wrong number of arguments for 'keyspace' command");
+        output->OnError("ERR wrong number of arguments for 'keyspace' command");
         return {false, KeyspaceCommand()};
     }
 

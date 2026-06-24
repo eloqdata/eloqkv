@@ -5018,7 +5018,8 @@ brpc::RedisCommandHandlerResult MemoryHandler::Run(
     {
         if (cmd_arg_list.size() != 2)
         {
-            reply.OnError("wrong number of arguments for 'memory stats' command");
+            reply.OnError(
+                "wrong number of arguments for 'memory stats' command");
         }
         else
         {
