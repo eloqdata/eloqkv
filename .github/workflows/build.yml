@@ -70,12 +70,6 @@ jobs:
               ;;
           esac
 
-      - name: Download eloqkv-cli
-        run: |
-          curl -fSL -o redis-cli \
-            "https://download.eloqdata.com/eloqkv/client/eloqkv-cli-7.2.5-${{ inputs.os_id }}-amd64"
-          chmod +x redis-cli
-
       - name: Build eloqkv
         working-directory: ${{ github.workspace }}/eloqkv_src
         run: |
@@ -98,7 +92,6 @@ jobs:
 
           cp eloqkv_src/build/eloqkv $DEST_DIR/bin/
           cp eloqkv_src/build/data_substrate/host_manager $DEST_DIR/bin/
-          cp redis-cli $DEST_DIR/bin/eloqkv-cli
 
           if [ "${{ inputs.build_rocksdb_tools }}" = "true" ]; then
             for tool in eloqkv_to_aof eloqkv_to_rdb; do
