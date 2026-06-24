@@ -1418,6 +1418,10 @@ void RedisServiceImpl::AddHandlers()
     AddCommandHandler("info", info_hd.get());
 
 #ifdef ELOQKV_WITH_DSS_ROCKSDB_CLOUD
+    auto &keyspace_hd =
+        hd_vec_.emplace_back(std::make_unique<KeyspaceCommandHandler>(this));
+    AddCommandHandler("keyspace", keyspace_hd.get());
+
     auto &compact_hd =
         hd_vec_.emplace_back(std::make_unique<CompactCommandHandler>(this));
     AddCommandHandler("compact", compact_hd.get());
