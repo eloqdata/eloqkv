@@ -27,7 +27,7 @@ set -x
 
 BUILD_TYPE=${BUILD_TYPE:?BUILD_TYPE env var not set}
 CI_MODE=${CI_MODE:-pr}             # "pr" or "main"
-PR_BRANCH_NAME=${PR_BRANCH_NAME:-}
+ELOQ_TEST_BRANCH=${ELOQ_TEST_BRANCH:-github-action}
 
 # The main repo is now checked out to GITHUB_WORKSPACE/eloqkv.
 # All auxiliary repos are cloned alongside it under GITHUB_WORKSPACE/.
@@ -49,16 +49,6 @@ elif [ "$KV_STORE_TYPE" == "ROCKSDB" ]; then
 fi
 
 echo "CI_MODE=$CI_MODE BUILD_TYPE=$BUILD_TYPE KV_STORE_TYPE=$KV_STORE_TYPE txlog_log_state=$txlog_log_state"
-
-# --- SSH key setup (only for PR mode) ---
-if [ -n "$GIT_SSH_KEY" ]; then
-  set +x  # disable trace to avoid leaking SSH key in logs
-  mkdir -p ~/.ssh
-  echo "$GIT_SSH_KEY" > ~/.ssh/id_rsa
-  chmod 600 ~/.ssh/id_rsa
-  ssh-keyscan github.com >> ~/.ssh/known_hosts
-  set -x
-fi
 
 # --- Minio env exports ---
 MINIO_ENDPOINT_ESCAPE=$(sed 's/\//\\\//g' <<< $MINIO_ENDPOINT)
@@ -117,13 +107,11 @@ cd ${ELOQKV_BASE_PATH}
 git submodule sync
 git submodule update --init --recursive
 
-# --- PR branch matching for eloq_test (PR mode only) ---
+# --- eloq_test branch setup ---
 cd ${ELOQ_TEST_PATH}
-if [ -n "$PR_BRANCH_NAME" ] && git ls-remote --exit-code --heads origin "$PR_BRANCH_NAME" > /dev/null 2>&1; then
-  git fetch origin "${PR_BRANCH_NAME}:refs/remotes/origin/${PR_BRANCH_NAME}"
-  git checkout -b ${PR_BRANCH_NAME} origin/${PR_BRANCH_NAME}
-  git submodule update --init --recursive
-fi
+git fetch origin "${ELOQ_TEST_BRANCH}:refs/remotes/origin/${ELOQ_TEST_BRANCH}"
+git checkout -B "${ELOQ_TEST_BRANCH}" "origin/${ELOQ_TEST_BRANCH}"
+git submodule update --init --recursive
 
 # eloq_log_service and raft_host_manager now live in-tree within the
 # data_substrate submodule, so they are populated by the submodule update above;

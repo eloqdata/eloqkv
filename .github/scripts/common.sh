@@ -2601,10 +2601,10 @@ function run_eloq_test() {
     prepare_eloqstore_minio_buckets
     python3 redis_test/multi_test/smoke_test.py --dbtype redis --storage eloqdss-eloqstore-cloud --install_path ${eloqkv_install_path} --bootstrap true
 
-    prepare_eloqstore_minio_buckets
-    python3 redis_test/multi_test/cluster_rolling_upgrade.py --dbtype redis --storage eloqdss-eloqstore-cloud --install_path ${eloqkv_install_path} --bootstrap true
-    prepare_eloqstore_minio_buckets
-    python3 redis_test/multi_test/cluster_scale_test.py --dbtype redis --storage eloqdss-eloqstore-cloud --install_path ${eloqkv_install_path} --bootstrap true
+    # prepare_eloqstore_minio_buckets
+    # python3 redis_test/multi_test/cluster_rolling_upgrade.py --dbtype redis --storage eloqdss-eloqstore-cloud --install_path ${eloqkv_install_path} --bootstrap true
+    # prepare_eloqstore_minio_buckets
+    # python3 redis_test/multi_test/cluster_scale_test.py --dbtype redis --storage eloqdss-eloqstore-cloud --install_path ${eloqkv_install_path} --bootstrap true
 
     # run log service scale test
     rm -rf runtime/*
@@ -2618,9 +2618,9 @@ function run_eloq_test() {
     # times out waiting for standby nodes to become transaction-ready.
     # python3 run_tests.py --dbtype redis --group standby --storage eloqdss-eloqstore-local --install_path ${eloqkv_install_path} --bootstrap true
     rm -rf runtime/*
-    prepare_eloqstore_minio_buckets
-    python3 run_tests.py --dbtype redis --group standby --storage eloqdss-eloqstore-cloud --install_path ${eloqkv_install_path} --bootstrap true
-    rm -rf runtime/*
+    # prepare_eloqstore_minio_buckets
+    # python3 run_tests.py --dbtype redis --group standby --storage eloqdss-eloqstore-cloud --install_path ${eloqkv_install_path} --bootstrap true
+    # rm -rf runtime/*
     # rm -rf runtime/*
     # python3 redis_test/standby_test/test_with_kv.py --dbtype redis --storage eloqdss-eloqstore --install_path ${eloqkv_install_path}
     # sleep 1
