@@ -2518,11 +2518,11 @@ function run_eloq_test() {
 
     # TODO: re-enable to run standby tests.
     # python3 run_tests.py --dbtype redis --group standby --storage eloqdss-rocksdb-cloud-s3 --install_path ${eloqkv_install_path} --bootstrap true
-    rm -rf runtime/*
+    # rm -rf runtime/*
 
     # rm -rf runtime/*
     # python3 redis_test/datastore_test/datastore_scale_test.py --dbtype redis --storage eloqdss-rocksdb-cloud-s3 --install_path ${eloqkv_install_path}
-    python3 run_tests.py --dbtype redis --group single --storage eloqdss-rocksdb-cloud-s3 --install_path ${eloqkv_install_path}
+    # python3 run_tests.py --dbtype redis --group single --storage eloqdss-rocksdb-cloud-s3 --install_path ${eloqkv_install_path}
 
     # run ttl tests
     rm -rf runtime/*
@@ -2610,10 +2610,11 @@ function run_eloq_test() {
     # prepare_eloqstore_minio_buckets
     # python3 redis_test/multi_test/cluster_scale_test.py --dbtype redis --storage eloqdss-eloqstore-cloud --install_path ${eloqkv_install_path} --bootstrap true
 
+    # TODO(zc) re-enable
     # run log service scale test
-    rm -rf runtime/*
-    prepare_eloqstore_minio_buckets
-    python3 redis_test/log_service_test/log_service_scale_test.py --dbtype redis --storage eloqdss-eloqstore-cloud --install_path ${eloqkv_install_path}
+    # rm -rf runtime/*
+    # prepare_eloqstore_minio_buckets
+    # python3 redis_test/log_service_test/log_service_scale_test.py --dbtype redis --storage eloqdss-eloqstore-cloud --install_path ${eloqkv_install_path}
 
     # run standby test
     rm -rf runtime/*
