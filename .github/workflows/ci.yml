@@ -54,7 +54,6 @@ jobs:
           KV_STORE_TYPE: ${{ matrix.kv_store_type }}
           CI_MODE: ${{ github.event_name == 'push' && 'main' || 'pr' }}
           NODE_MEMORY_LIMIT_MB: 2048
-          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
         run: |
           NPROC=$(nproc)
           if [ "$BUILD_TYPE" = "Debug" ]; then
@@ -66,5 +65,4 @@ jobs:
             "$MINIO_ENDPOINT" \
             "$MINIO_ACCESS_KEY" \
             "$MINIO_SECRET_KEY" \
-            "$KV_STORE_TYPE" \
-            "$SSH_PRIVATE_KEY"
+            "$KV_STORE_TYPE"

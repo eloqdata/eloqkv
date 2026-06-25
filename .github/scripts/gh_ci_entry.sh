@@ -17,13 +17,10 @@ source "$SCRIPT_DIR/common.sh"
 ls
 export WORKSPACE=$PWD
 
-MINIO_ENDPOINT=${1:?usage: $0 minio_endpoint minio_access_key minio_secret_key kv_store_type [git_ssh_key]}
-MINIO_ACCESS_KEY=${2:?usage: $0 minio_endpoint minio_access_key minio_secret_key kv_store_type [git_ssh_key]}
-MINIO_SECRET_KEY=${3:?usage: $0 minio_endpoint minio_access_key minio_secret_key kv_store_type [git_ssh_key]}
-KV_STORE_TYPE=${4:?usage: $0 minio_endpoint minio_access_key minio_secret_key kv_store_type [git_ssh_key]}
-set +x  # don't trace SSH key value
-GIT_SSH_KEY=${5:-}
-set -x
+MINIO_ENDPOINT=${1:?usage: $0 minio_endpoint minio_access_key minio_secret_key kv_store_type}
+MINIO_ACCESS_KEY=${2:?usage: $0 minio_endpoint minio_access_key minio_secret_key kv_store_type}
+MINIO_SECRET_KEY=${3:?usage: $0 minio_endpoint minio_access_key minio_secret_key kv_store_type}
+KV_STORE_TYPE=${4:?usage: $0 minio_endpoint minio_access_key minio_secret_key kv_store_type}
 
 BUILD_TYPE=${BUILD_TYPE:?BUILD_TYPE env var not set}
 CI_MODE=${CI_MODE:-pr}             # "pr" or "main"
