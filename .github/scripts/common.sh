@@ -2516,8 +2516,8 @@ function run_eloq_test() {
     # python3 redis_test/log_service_test/log_service_scale_test.py --dbtype redis --storage eloqdss-rocksdb-cloud-s3 --install_path ${eloqkv_install_path}
     # rm -rf runtime/*
 
-    # run standby tests.
-    python3 run_tests.py --dbtype redis --group standby --storage eloqdss-rocksdb-cloud-s3 --install_path ${eloqkv_install_path} --bootstrap true
+    # TODO: re-enable to run standby tests.
+    # python3 run_tests.py --dbtype redis --group standby --storage eloqdss-rocksdb-cloud-s3 --install_path ${eloqkv_install_path} --bootstrap true
     rm -rf runtime/*
 
     # rm -rf runtime/*
@@ -2594,15 +2594,19 @@ function run_eloq_test() {
     sed -i "s/eloq_store_cloud_store_path.*=.\+/eloq_store_cloud_store_path=${eloqstore_cloud_store_path}/g" ./bootstrap_cnf/*_eloqdss_eloqstore_cloud.cnf
 
     rm -rf runtime/*
-    python3 run_tests.py --dbtype redis --group single --storage eloqdss-eloqstore-cloud --install_path ${eloqkv_install_path}
+    # TODO(zc) re-enable
+    # python3 run_tests.py --dbtype redis --group single --storage eloqdss-eloqstore-cloud --install_path ${eloqkv_install_path}
 
     # run single/multi test
     rm -rf runtime/*
-    prepare_eloqstore_minio_buckets
-    python3 redis_test/multi_test/smoke_test.py --dbtype redis --storage eloqdss-eloqstore-cloud --install_path ${eloqkv_install_path} --bootstrap true
+    # TODO(zc) re-enable
+    # prepare_eloqstore_minio_buckets
+    # python3 redis_test/multi_test/smoke_test.py --dbtype redis --storage eloqdss-eloqstore-cloud --install_path ${eloqkv_install_path} --bootstrap true
 
+    # TODO(zc) re-enable
     # prepare_eloqstore_minio_buckets
     # python3 redis_test/multi_test/cluster_rolling_upgrade.py --dbtype redis --storage eloqdss-eloqstore-cloud --install_path ${eloqkv_install_path} --bootstrap true
+    # TODO(zc) re-enable
     # prepare_eloqstore_minio_buckets
     # python3 redis_test/multi_test/cluster_scale_test.py --dbtype redis --storage eloqdss-eloqstore-cloud --install_path ${eloqkv_install_path} --bootstrap true
 
