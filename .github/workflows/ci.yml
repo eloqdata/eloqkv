@@ -34,6 +34,7 @@ jobs:
 
       - uses: actions/checkout@v4
         with:
+          persist-credentials: false
           submodules: recursive
           path: eloqkv
           ref: ${{ github.event.pull_request.head.sha || '' }}
