@@ -111,6 +111,7 @@ const std::vector<std::pair<const char *, RedisCommandType>> command_types{{
     {"dbsize", RedisCommandType::DBSIZE},
 #ifdef ELOQKV_WITH_DSS_ROCKSDB_CLOUD
     {"compact", RedisCommandType::COMPACT},
+    {"keyspace", RedisCommandType::KEYSPACE},
 #endif
     {"time", RedisCommandType::TIME},
     {"slowlog", RedisCommandType::SLOWLOG},
@@ -1779,28 +1780,6 @@ void InfoCommand::Execute(RedisServiceImpl *redis_impl,
     enable_wal_ = redis_impl->GetEnableWal();
     node_memory_limit_mb_ = redis_impl->GetNodeMemoryLimitMB();
 
-    if (set_section_.size() == 0 ||
-        set_section_.find("memory") != set_section_.end())
-    {
-        auto &local_shards = redis_impl->GetTxService()->CcShards();
-        size_t cnt = local_shards.Count();
-        CkptTsCc ckpt_req(cnt, node_id_);
-        for (size_t i = 0; i < cnt; i++)
-        {
-            local_shards.EnqueueCcRequest(i, &ckpt_req);
-        }
-        ckpt_req.Wait();
-        data_memory_allocated_ = ckpt_req.GetMemUsage();
-        data_memory_committed_ = ckpt_req.GetMemCommited();
-        last_ckpt_ts_ = ckpt_req.GetCkptTs();
-    }
-    else
-    {
-        data_memory_allocated_ = -1;
-        data_memory_committed_ = -1;
-        last_ckpt_ts_ = -1;
-    }
-
     event_dispatcher_num_ = redis_impl->GetEventDispatcherNum();
     version_ = redis_impl->GetVersion();
     os_info_ = redis_impl->GetOsInfo();
@@ -1820,29 +1799,44 @@ void InfoCommand::Execute(RedisServiceImpl *redis_impl,
         multi_cmd_count_ = RedisStats::GetMultiObjectCommandsCount();
         //  cmds_per_sec_ = RedisStats::GetCommandsPerSecond();
     }
+}
 
-#ifdef ELOQKV_WITH_DSS_ROCKSDB_CLOUD
-    if (set_section_.size() == 0 ||
-        set_section_.find("keyspace") != set_section_.end())
+void MemoryStatsCommand::Execute(RedisServiceImpl *redis_impl,
+                                 RedisConnectionContext *ctx)
+{
+    uint32_t node_id = Sharder::Instance().NodeId();
+    auto &local_shards = redis_impl->GetTxService()->CcShards();
+    size_t cnt = local_shards.Count();
+    CkptTsCc ckpt_req(cnt, node_id);
+    for (size_t i = 0; i < cnt; i++)
     {
-        std::vector<TableName> table_names;
-        size_t total_redis_table_cnt = redis_impl->GetRedisTableCount();
-        for (size_t db_id = 0; db_id < total_redis_table_cnt; ++db_id)
-        {
-            const TableName *tbn = redis_impl->RedisTableName(db_id);
-            table_names.emplace_back(
-                tbn->StringView(), tbn->Type(), TableEngine::EloqKv);
-        }
-
-        dbsizes_ = DBSizeCommand::FetchDBSize(std::move(table_names));
-        auto *store_hd = redis_impl->GetStoreHandler();
-        store_disk_keys_ =
-            store_hd == nullptr ? 0 : store_hd->ApproxStoreKeyCount();
+        local_shards.EnqueueCcRequest(i, &ckpt_req);
     }
-#endif
+    ckpt_req.Wait();
+    data_memory_allocated_ = ckpt_req.GetMemUsage();
+    data_memory_committed_ = ckpt_req.GetMemCommited();
+    last_ckpt_ts_ = ckpt_req.GetCkptTs();
 }
 
 #ifdef ELOQKV_WITH_DSS_ROCKSDB_CLOUD
+void KeyspaceCommand::Execute(RedisServiceImpl *redis_impl,
+                              RedisConnectionContext *ctx)
+{
+    std::vector<TableName> table_names;
+    size_t total_redis_table_cnt = redis_impl->GetRedisTableCount();
+    for (size_t db_id = 0; db_id < total_redis_table_cnt; ++db_id)
+    {
+        const TableName *tbn = redis_impl->RedisTableName(db_id);
+        table_names.emplace_back(
+            tbn->StringView(), tbn->Type(), TableEngine::EloqKv);
+    }
+
+    dbsizes_ = DBSizeCommand::FetchDBSize(std::move(table_names));
+    auto *store_hd = redis_impl->GetStoreHandler();
+    store_disk_keys_ =
+        store_hd == nullptr ? 0 : store_hd->ApproxStoreKeyCount();
+}
+
 void CompactCommand::Execute(RedisServiceImpl *redis_impl,
                              RedisConnectionContext *ctx)
 {
@@ -2585,11 +2579,6 @@ void InfoCommand::OutputResult(OutputHandler *reply) const
                   std::to_string(GetProcessVmRSSKb(getpid())) + " kb";
         result += "\r\ntotal_system_memory:" +
                   std::to_string(total_system_memory_kb_) + " kb";
-        result += "\r\ndata_memory_allocated:" +
-                  std::to_string(data_memory_allocated_) + " kb";
-        result += "\r\ndata_memory_committed:" +
-                  std::to_string(data_memory_committed_) + " kb";
-        // result += "data_memory_frag_ratio: " + ;  // TODO
         result +=
             "\r\nnode_memory_limit:" + std::to_string(node_memory_limit_mb_) +
             " mb ";
@@ -2605,7 +2594,6 @@ void InfoCommand::OutputResult(OutputHandler *reply) const
 
         result += "# Persistence";
 
-        result += "\r\nlast_success_ckpt_ts:" + std::to_string(last_ckpt_ts_);
         result += "\r\nenable_data_store:" + enable_data_store_;
         result += "\r\nenable_wal:" + enable_wal_;
     }
@@ -2680,31 +2668,48 @@ void InfoCommand::OutputResult(OutputHandler *reply) const
         }
     }
 
-#ifdef ELOQKV_WITH_DSS_ROCKSDB_CLOUD
-    if (set_section_.size() == 0 ||
-        set_section_.find("keyspace") != set_section_.end())
-    {
-        if (result.size() > 0)
-        {
-            result += "\r\n";
-        }
-
-        result += "# Keyspace";
-        for (size_t idx = 0; idx < dbsizes_.size(); ++idx)
-        {
-            if (dbsizes_[idx] > 0)
-            {
-                result += "\r\ndb" + std::to_string(idx) +
-                          ":keys=" + std::to_string(dbsizes_[idx]);
-            }
-        }
-        result += "\r\nstore:disk_keys=" + std::to_string(store_disk_keys_);
-    }
-#endif
-
     result += "\r\n";
     reply->OnString(result);
 }
+
+void MemoryStatsCommand::OutputResult(OutputHandler *reply) const
+{
+    reply->OnArrayStart(6);
+    reply->OnString("data_memory_allocated");
+    reply->OnInt(data_memory_allocated_);
+    reply->OnString("data_memory_committed");
+    reply->OnInt(data_memory_committed_);
+    reply->OnString("last_success_ckpt_ts");
+    reply->OnInt(last_ckpt_ts_);
+    reply->OnArrayEnd();
+}
+
+#ifdef ELOQKV_WITH_DSS_ROCKSDB_CLOUD
+void KeyspaceCommand::OutputResult(OutputHandler *reply) const
+{
+    size_t db_count = 0;
+    for (int64_t dbsize : dbsizes_)
+    {
+        if (dbsize > 0)
+        {
+            ++db_count;
+        }
+    }
+
+    reply->OnArrayStart(db_count * 2 + 2);
+    for (size_t idx = 0; idx < dbsizes_.size(); ++idx)
+    {
+        if (dbsizes_[idx] > 0)
+        {
+            reply->OnString("db" + std::to_string(idx) + ":keys");
+            reply->OnInt(dbsizes_[idx]);
+        }
+    }
+    reply->OnString("store:disk_keys");
+    reply->OnInt(store_disk_keys_);
+    reply->OnArrayEnd();
+}
+#endif
 
 void ClusterCommand::OutputResult(OutputHandler *reply) const
 {
@@ -8452,6 +8457,17 @@ ParseMultiCommand(RedisServiceImpl *redis_impl,
             DirectRequest(ctx, std::make_unique<InfoCommand>(std::move(cmd)))};
     }
 #ifdef ELOQKV_WITH_DSS_ROCKSDB_CLOUD
+    case RedisCommandType::KEYSPACE:
+    {
+        auto [success, cmd] = ParseKeyspaceCommand(args, output);
+        if (!success)
+        {
+            return {false, DirectRequest{}};
+        }
+        return {success,
+                DirectRequest(
+                    ctx, std::make_unique<KeyspaceCommand>(std::move(cmd)))};
+    }
     case RedisCommandType::COMPACT:
     {
         auto [success, cmd] = ParseCompactCommand(args, output);
@@ -10764,6 +10780,18 @@ std::tuple<bool, InfoCommand> ParseInfoCommand(
 }
 
 #ifdef ELOQKV_WITH_DSS_ROCKSDB_CLOUD
+std::tuple<bool, KeyspaceCommand> ParseKeyspaceCommand(
+    const std::vector<std::string_view> &args, OutputHandler *output)
+{
+    if (args.size() != 1)
+    {
+        output->OnError("ERR wrong number of arguments for 'keyspace' command");
+        return {false, KeyspaceCommand()};
+    }
+
+    return {true, KeyspaceCommand()};
+}
+
 std::tuple<bool, CompactCommand> ParseCompactCommand(
     const std::vector<std::string_view> &args, OutputHandler *output)
 {

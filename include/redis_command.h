@@ -352,6 +352,9 @@ enum struct RedisCommandType
     ELOQVEC_DELETE = 184,
     ELOQVEC_SEARCH = 185,
 #endif
+#ifdef ELOQKV_WITH_DSS_ROCKSDB_CLOUD
+    KEYSPACE = 186,
+#endif
 };
 
 // Anchors: fail the build if any value above is accidentally shifted
@@ -380,6 +383,9 @@ static_assert(static_cast<int>(RedisCommandType::FAULT_INJECT) == 177);
 #ifdef VECTOR_INDEX_ENABLED
 static_assert(static_cast<int>(RedisCommandType::ELOQVEC_CREATE) == 178);
 static_assert(static_cast<int>(RedisCommandType::ELOQVEC_SEARCH) == 185);
+#endif
+#ifdef ELOQKV_WITH_DSS_ROCKSDB_CLOUD
+static_assert(static_cast<int>(RedisCommandType::KEYSPACE) == 186);
 #endif
 
 enum RedisResultType
@@ -883,9 +889,6 @@ struct InfoCommand : public DirectCommand
     std::string enable_wal_;
     uint32_t node_memory_limit_mb_{0};
 
-    int64_t data_memory_allocated_{0};
-    int64_t data_memory_committed_{0};
-    uint64_t last_ckpt_ts_{0};
     int event_dispatcher_num_{0};
     std::string os_info_;
     std::string executable_path_;
@@ -902,13 +905,33 @@ struct InfoCommand : public DirectCommand
     int64_t multi_cmd_count_{0};
     int64_t cmds_per_sec_{0};
     double cmd_latency_{0};
-    std::vector<int64_t> dbsizes_;
-#ifdef ELOQKV_WITH_DSS_ROCKSDB_CLOUD
-    uint64_t store_disk_keys_{0};
-#endif
+};
+
+struct MemoryStatsCommand : public DirectCommand
+{
+    void Execute(RedisServiceImpl *redis_impl,
+                 RedisConnectionContext *ctx) override;
+
+    void OutputResult(OutputHandler *reply) const override;
+
+    uint64_t data_memory_allocated_{0};
+    uint64_t data_memory_committed_{0};
+    uint64_t last_ckpt_ts_{0};
 };
 
 #ifdef ELOQKV_WITH_DSS_ROCKSDB_CLOUD
+struct KeyspaceCommand : public DirectCommand
+{
+    KeyspaceCommand() = default;
+
+    void Execute(RedisServiceImpl *redis_impl,
+                 RedisConnectionContext *ctx) override;
+    void OutputResult(OutputHandler *reply) const override;
+
+    std::vector<int64_t> dbsizes_;
+    uint64_t store_disk_keys_{0};
+};
+
 struct CompactCommand : public DirectCommand
 {
     CompactCommand() = default;
@@ -7945,6 +7968,9 @@ std::tuple<bool, InfoCommand> ParseInfoCommand(
     const std::vector<std::string_view> &args, OutputHandler *output);
 
 #ifdef ELOQKV_WITH_DSS_ROCKSDB_CLOUD
+std::tuple<bool, KeyspaceCommand> ParseKeyspaceCommand(
+    const std::vector<std::string_view> &args, OutputHandler *output);
+
 std::tuple<bool, CompactCommand> ParseCompactCommand(
     const std::vector<std::string_view> &args, OutputHandler *output);
 #endif

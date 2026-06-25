@@ -259,6 +259,24 @@ private:
 };
 
 #ifdef ELOQKV_WITH_DSS_ROCKSDB_CLOUD
+class KeyspaceCommandHandler : public RedisCommandHandler
+{
+public:
+    explicit KeyspaceCommandHandler(RedisServiceImpl *redis_impl)
+        : redis_impl_(redis_impl)
+    {
+    }
+
+    brpc::RedisCommandHandlerResult Run(
+        RedisConnectionContext *ctx,
+        const std::vector<butil::StringPiece> &args,
+        brpc::RedisReply *output,
+        bool /*flush_batched*/) override;
+
+private:
+    RedisServiceImpl *redis_impl_;
+};
+
 class CompactCommandHandler : public RedisCommandHandler
 {
 public:

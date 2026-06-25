@@ -650,6 +650,26 @@ brpc::RedisCommandHandlerResult InfoCommandHandler::Run(
 }
 
 #ifdef ELOQKV_WITH_DSS_ROCKSDB_CLOUD
+brpc::RedisCommandHandlerResult KeyspaceCommandHandler::Run(
+    RedisConnectionContext *ctx,
+    const std::vector<butil::StringPiece> &args,
+    brpc::RedisReply *output,
+    bool /*flush_batched*/)
+{
+    assert(args[0] == "keyspace");
+
+    RedisReplier reply(output);
+    std::vector<std::string_view> cmd_arg_list = Transform(args);
+
+    auto [success, cmd] = ParseKeyspaceCommand(cmd_arg_list, &reply);
+    if (success)
+    {
+        redis_impl_->ExecuteCommand(ctx, &cmd, &reply);
+    }
+
+    return brpc::REDIS_CMD_HANDLED;
+}
+
 brpc::RedisCommandHandlerResult CompactCommandHandler::Run(
     RedisConnectionContext *ctx,
     const std::vector<butil::StringPiece> &args,
@@ -4962,7 +4982,11 @@ brpc::RedisCommandHandlerResult MemoryHandler::Run(
 
     RedisReplier reply(output);
     std::vector<std::string_view> cmd_arg_list = Transform(args);
-    assert(cmd_arg_list.size() > 1);
+    if (cmd_arg_list.size() < 2)
+    {
+        reply.OnError("ERR wrong number of arguments for 'memory' command");
+        return brpc::REDIS_CMD_HANDLED;
+    }
 
     if (stringcomp(cmd_arg_list[1], "usage", 1))
     {
@@ -4988,6 +5012,19 @@ brpc::RedisCommandHandlerResult MemoryHandler::Run(
                                         &reply,
                                         in_tx ? false : auto_commit_,
                                         in_tx);
+        }
+    }
+    else if (stringcomp(cmd_arg_list[1], "stats", 1))
+    {
+        if (cmd_arg_list.size() != 2)
+        {
+            reply.OnError(
+                "wrong number of arguments for 'memory stats' command");
+        }
+        else
+        {
+            MemoryStatsCommand cmd;
+            redis_impl_->ExecuteCommand(ctx, &cmd, &reply);
         }
     }
     else
