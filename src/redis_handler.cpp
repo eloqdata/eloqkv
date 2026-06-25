@@ -4984,7 +4984,7 @@ brpc::RedisCommandHandlerResult MemoryHandler::Run(
     std::vector<std::string_view> cmd_arg_list = Transform(args);
     if (cmd_arg_list.size() < 2)
     {
-        reply.OnError("wrong number of arguments for 'memory' command");
+        reply.OnError("ERR wrong number of arguments for 'memory' command");
         return brpc::REDIS_CMD_HANDLED;
     }
 
