@@ -61,6 +61,7 @@ start_server {
     }
 
     test {SMISMEMBER SMEMBERS SCARD against non existing key} {
+        r del myset1
         assert_equal {0} [r smismember myset1 foo]
         assert_equal {0 0} [r smismember myset1 foo bar]
         assert_equal {} [r smembers myset1]

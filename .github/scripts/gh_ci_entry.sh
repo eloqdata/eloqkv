@@ -1,0 +1,161 @@
+#!/bin/bash
+set -Eexo pipefail
+
+ulimit -n
+ulimit -l
+
+# Enable core dumps and route them to a known, retrievable location so that
+# dump_ci_failure_logs/dump_core_backtraces can symbolize crashes. The ent-ci
+# container runs --privileged, so writing the host core_pattern works here.
+ulimit -c unlimited
+echo '/tmp/core.%e.%p.%t' | tee /proc/sys/kernel/core_pattern >/dev/null 2>&1 \
+  || echo "warning: could not set core_pattern (need privileged); cores may be intercepted by apport"
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/common.sh"
+
+ls
+export WORKSPACE=$PWD
+
+MINIO_ENDPOINT=${1:?usage: $0 minio_endpoint minio_access_key minio_secret_key kv_store_type}
+MINIO_ACCESS_KEY=${2:?usage: $0 minio_endpoint minio_access_key minio_secret_key kv_store_type}
+MINIO_SECRET_KEY=${3:?usage: $0 minio_endpoint minio_access_key minio_secret_key kv_store_type}
+KV_STORE_TYPE=${4:?usage: $0 minio_endpoint minio_access_key minio_secret_key kv_store_type}
+
+BUILD_TYPE=${BUILD_TYPE:?BUILD_TYPE env var not set}
+CI_MODE=${CI_MODE:-pr}             # "pr" or "main"
+ELOQ_TEST_BRANCH=${ELOQ_TEST_BRANCH:-github-action}
+
+# The main repo is now checked out to GITHUB_WORKSPACE/eloqkv.
+# All auxiliary repos are cloned alongside it under GITHUB_WORKSPACE/.
+export ELOQKV_BASE_PATH="${GITHUB_WORKSPACE}/eloqkv"
+export ELOQ_TEST_PATH="${GITHUB_WORKSPACE}/eloq_test_src"
+
+# Use an EXIT trap rather than ERR: the test helpers call `exit 1` directly on
+# failure, which does not trigger ERR. EXIT catches both command failures (via
+# set -e) and explicit exits. Guard on rc so success is not treated as failure.
+trap 'rc=$?; failed_command=$BASH_COMMAND; set +x; if [ "$rc" -ne 0 ]; then dump_ci_failure_logs "$rc" "$failed_command"; fi' EXIT
+
+# Compute txlog_log_state from kv_store_type (same as pr.ent.bash)
+if [ "$KV_STORE_TYPE" == "ELOQDSS_ROCKSDB_CLOUD_S3" ]; then
+  txlog_log_state="ROCKSDB_CLOUD_S3"
+elif [ "$KV_STORE_TYPE" == "ELOQDSS_ELOQSTORE" ]; then
+  txlog_log_state="ROCKSDB_CLOUD_S3"
+elif [ "$KV_STORE_TYPE" == "ROCKSDB" ]; then
+  txlog_log_state="ROCKSDB"
+fi
+
+echo "CI_MODE=$CI_MODE BUILD_TYPE=$BUILD_TYPE KV_STORE_TYPE=$KV_STORE_TYPE txlog_log_state=$txlog_log_state"
+
+# --- Minio env exports ---
+MINIO_ENDPOINT_ESCAPE=$(sed 's/\//\\\//g' <<< $MINIO_ENDPOINT)
+export ROCKSDB_CLOUD_S3_ENDPOINT=${MINIO_ENDPOINT}
+export ROCKSDB_CLOUD_S3_ENDPOINT_ESCAPE=${MINIO_ENDPOINT_ESCAPE}
+export ROCKSDB_CLOUD_AWS_ACCESS_KEY_ID=${MINIO_ACCESS_KEY}
+export ROCKSDB_CLOUD_AWS_SECRET_ACCESS_KEY=${MINIO_SECRET_KEY}
+export ROCKSDB_CLOUD_BUCKET_PREFIX="eloqkv-"
+export ROCKSDB_CLOUD_BUCKET_NAME="test"
+export ELOQSTORE_BUCKET_NAME="eloqkv-eloqstore-test"
+export ROCKSDB_CLOUD_OBJECT_PATH="dss"
+export TXLOG_ROCKSDB_CLOUD_OBJECT_PATH="txlog"
+
+# --- Download & start Minio ---
+echo "Downloading and starting Minio..."
+wget -q https://dl.min.io/server/minio/release/linux-amd64/minio
+chmod +x minio
+mkdir -p /tmp/minio_data
+MINIO_ROOT_USER=$MINIO_ACCESS_KEY MINIO_ROOT_PASSWORD=$MINIO_SECRET_KEY \
+  ./minio server /tmp/minio_data --address :9900 --console-address :9901 > /tmp/minio.log 2>&1 &
+MINIO_PID=$!
+
+echo "Waiting for Minio to be ready..."
+for i in $(seq 1 30); do
+  if curl -sf http://localhost:9900/minio/health/live > /dev/null 2>&1; then
+    echo "Minio is ready."
+    break
+  fi
+  if ! kill -0 $MINIO_PID 2>/dev/null; then
+    echo "Minio process died. Log:"
+    cat /tmp/minio.log
+    exit 1
+  fi
+  sleep 1
+done
+
+if ! curl -sf http://localhost:9900/minio/health/live > /dev/null 2>&1; then
+  echo "Minio failed to start after 30s. Log:"
+  cat /tmp/minio.log
+  exit 1
+fi
+
+# --- Setup mc (MinIO Client) ---
+echo "Downloading and configuring mc..."
+wget -q https://dl.min.io/client/mc/release/linux-amd64/mc
+chmod +x mc
+mv mc /usr/local/bin/mc
+mc alias set local http://localhost:9900 $MINIO_ACCESS_KEY $MINIO_SECRET_KEY
+
+# --- Workspace setup ---
+# All repos live under GITHUB_WORKSPACE.
+# Symlink auxiliary repos into their expected locations within the main repo.
+cd ${ELOQKV_BASE_PATH}
+
+# --- Submodule init ---
+git submodule sync
+git submodule update --init --recursive
+
+# --- eloq_test branch setup ---
+cd ${ELOQ_TEST_PATH}
+git fetch origin "${ELOQ_TEST_BRANCH}:refs/remotes/origin/${ELOQ_TEST_BRANCH}"
+git checkout -B "${ELOQ_TEST_BRANCH}" "origin/${ELOQ_TEST_BRANCH}"
+git submodule update --init --recursive
+
+# eloq_log_service and raft_host_manager now live in-tree within the
+# data_substrate submodule, so they are populated by the submodule update above;
+# no separate clone or symlink is needed.
+
+# --- CMake version check ---
+cd ${ELOQKV_BASE_PATH}
+
+cmake_version=$(cmake --version 2>&1)
+if [[ $? -eq 0 ]]; then
+  echo "cmake version: $cmake_version"
+else
+  echo "fail to get cmake version"
+fi
+
+# --- Install Python 3.8 + OpenSSH server ---
+apt-get update
+apt-get install software-properties-common -y
+add-apt-repository ppa:deadsnakes/ppa -y
+apt-get update
+apt-get install python3.8 python3.8-venv python3.8-dev -y
+
+apt-get install openssh-server -y
+service ssh start
+sed -i "s/#\s*StrictHostKeyChecking ask/    StrictHostKeyChecking no/g" /etc/ssh/ssh_config
+
+python3.8 -m venv my_env
+source my_env/bin/activate
+pip install -r ${ELOQKV_BASE_PATH}/tests/unit/eloq/log_replay_test/requirements.txt
+deactivate
+
+# --- Run build + tests for single (build_type, kv_store_type) ---
+rm -rf ${ELOQKV_BASE_PATH}/eloq_data
+
+run_build_ent $BUILD_TYPE $KV_STORE_TYPE $txlog_log_state
+
+source my_env/bin/activate
+run_eloq_test $BUILD_TYPE $KV_STORE_TYPE
+run_eloqkv_tests $BUILD_TYPE $KV_STORE_TYPE
+run_eloqkv_cluster_tests $BUILD_TYPE $KV_STORE_TYPE
+deactivate
+
+# --- Cleanup Minio ---
+echo "Stopping Minio (pid $MINIO_PID)..."
+kill $MINIO_PID 2>/dev/null || true
+wait $MINIO_PID 2>/dev/null || true
+rm -rf /tmp/minio_data
+rm -f ./minio
+
+echo "CI completed successfully for $CI_MODE BUILD_TYPE=$BUILD_TYPE KV_STORE_TYPE=$KV_STORE_TYPE"

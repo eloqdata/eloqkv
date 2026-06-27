@@ -1,0 +1,69 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+
+jobs:
+  # Enterprise CI matrix — full build + test suite across build types and KV stores
+  ent-ci:
+    concurrency:
+      group: ent-ci-${{ github.event.pull_request.number || github.ref }}-${{ matrix.build_type }}-${{ matrix.kv_store_type }}
+      cancel-in-progress: true
+
+    strategy:
+      fail-fast: false
+      matrix:
+        build_type: [Debug, RelWithDebInfo]
+        kv_store_type: [ELOQDSS_ELOQSTORE, ELOQDSS_ROCKSDB_CLOUD_S3, ROCKSDB]
+
+    runs-on: ubuntu-latest
+    container:
+      image: eloqdata/eloq-dev-ci-ubuntu2404:latest
+      options: --user root --privileged --security-opt seccomp=unconfined --ulimit memlock=-1:-1
+
+    name: ${{ github.event_name == 'push' && 'main' || 'PR' }} ${{ matrix.build_type }}-${{ matrix.kv_store_type }}
+
+    steps:
+      - uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          submodules: recursive
+          path: eloqkv
+          ref: ${{ github.event.pull_request.head.sha || '' }}
+
+      - name: Clone private dependencies
+        env:
+          GIT_SSH_COMMAND: "ssh -o StrictHostKeyChecking=accept-new"
+        run: |
+          git config --global --add safe.directory '*'
+          git clone --recurse-submodules git@github.com:eloqdata/eloq-test.git eloq_test_src
+
+      - name: Run CI (${{ matrix.build_type }}, ${{ matrix.kv_store_type }})
+        env:
+          MINIO_ENDPOINT: http://127.0.0.1:9900
+          MINIO_ACCESS_KEY: minioadmin
+          MINIO_SECRET_KEY: minioadmin
+          BUILD_TYPE: ${{ matrix.build_type }}
+          KV_STORE_TYPE: ${{ matrix.kv_store_type }}
+          CI_MODE: ${{ github.event_name == 'push' && 'main' || 'pr' }}
+          NODE_MEMORY_LIMIT_MB: 2048
+        run: |
+          NPROC=$(nproc)
+          if [ "$BUILD_TYPE" = "Debug" ]; then
+            export BUILD_JOBS=$NPROC
+          else
+            export BUILD_JOBS=$(( (NPROC + 1) / 2 ))
+          fi
+          bash ./eloqkv/.github/scripts/gh_ci_entry.sh \
+            "$MINIO_ENDPOINT" \
+            "$MINIO_ACCESS_KEY" \
+            "$MINIO_SECRET_KEY" \
+            "$KV_STORE_TYPE"
