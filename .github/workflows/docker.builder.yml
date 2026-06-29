@@ -27,8 +27,10 @@ jobs:
     with:
       dockerfile: ./scripts/docker/builder.docker
       image-name: eloqkv-builder
-      force-latest: true
-      latest-only: true
+      # Only publish the production `latest` tag from main; branch / manual
+      # dispatch builds publish a dated tag so they can't clobber it.
+      force-latest: ${{ github.ref == 'refs/heads/main' }}
+      latest-only: ${{ github.ref == 'refs/heads/main' }}
       checkout-submodules: "false"
       checkout-command: |
         git submodule update --init data_substrate
