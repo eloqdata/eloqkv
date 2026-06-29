@@ -44,6 +44,11 @@ jobs:
     name: ${{ inputs.tag_name }}-${{ inputs.data_store_id }}-${{ inputs.os_id }}
     env:
       TAGGED: ${{ inputs.tag_name }}
+      ELOQ_THIRD_PARTY_PREFIX: /opt/eloq/third_party
+      CMAKE_PREFIX_PATH: /opt/eloq/third_party
+      CMAKE_INCLUDE_PATH: /opt/eloq/third_party/include
+      CMAKE_LIBRARY_PATH: /opt/eloq/third_party/lib
+      LD_LIBRARY_PATH: /opt/eloq/third_party/lib
 
     steps:
       - uses: webfactory/ssh-agent@v0.9.0
@@ -52,8 +57,25 @@ jobs:
 
       - uses: actions/checkout@v4
         with:
-          submodules: recursive
+          submodules: false
           path: eloqkv_src
+
+      - name: Checkout product submodules
+        run: |
+          git config --global --add safe.directory '*'
+          cd "$GITHUB_WORKSPACE/eloqkv_src"
+          bash scripts/checkout_product_submodules.sh
+
+          if [ -e data_substrate/third_party/src/brpc/.git ]; then
+            echo "Unexpected third-party source checkout: data_substrate/third_party/src/brpc" >&2
+            exit 1
+          fi
+
+      - name: Verify builder third-party prefix
+        run: |
+          test -f /opt/eloq/third_party/share/eloq/third_party-manifest.yml
+          test -d /opt/eloq/third_party/include
+          test -d /opt/eloq/third_party/lib
 
       - name: Install build dependencies
         run: |
@@ -82,6 +104,8 @@ jobs:
             -DDISABLE_CKPT_REPORT=ON \
             -DDISABLE_CODE_LINE_IN_LOG=ON \
             -DWITH_ASAN=OFF \
+            -DELOQ_THIRD_PARTY_PREFIX=/opt/eloq/third_party \
+            -DELOQ_THIRD_PARTY_REQUIRED=ON \
             ${{ inputs.cmake_extra }}
           cmake --build . -j$(nproc)
 
@@ -107,7 +131,11 @@ jobs:
             DSS_SRC=$GITHUB_WORKSPACE/eloqkv_src/data_substrate/store_handler/eloq_data_store_service
             (cd $DSS_SRC
             mkdir -p build && cd build
-            cmake .. -DCMAKE_BUILD_TYPE=RelWithDebInfo -DWITH_DATA_STORE=${{ inputs.data_store_type }}
+            cmake .. \
+              -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+              -DWITH_DATA_STORE=${{ inputs.data_store_type }} \
+              -DELOQ_THIRD_PARTY_PREFIX=/opt/eloq/third_party \
+              -DELOQ_THIRD_PARTY_REQUIRED=ON
             cmake --build . -j$(nproc)
             cp dss_server $DEST_DIR/bin/)
           fi
@@ -176,6 +204,8 @@ jobs:
             -DWITH_LOG_STATE=${{ inputs.log_state_type }} \
             -DWITH_ASAN=OFF \
             -DDISABLE_CODE_LINE_IN_LOG=ON \
+            -DELOQ_THIRD_PARTY_PREFIX=/opt/eloq/third_party \
+            -DELOQ_THIRD_PARTY_REQUIRED=ON \
             ${{ inputs.cmake_extra }}
           cmake --build . -j$(nproc)
 

@@ -20,6 +20,21 @@ on:
         type: boolean
         default: false
         description: "Whether manually triggered builds should be tagged as latest version"
+      latest-only:
+        required: false
+        type: boolean
+        default: false
+        description: "Only publish the latest tag for this image"
+      checkout-submodules:
+        required: false
+        type: string
+        default: "false"
+        description: "actions/checkout submodules value: false, true, or recursive"
+      checkout-command:
+        required: false
+        type: string
+        default: ""
+        description: "Optional command to initialize the exact source tree needed by the Dockerfile"
 
 jobs:
   build:
@@ -38,7 +53,13 @@ jobs:
       - name: Check out the repo
         uses: actions/checkout@v4
         with:
-          submodules: recursive
+          submodules: ${{ inputs.checkout-submodules }}
+
+      - name: Prepare Docker build sources
+        if: ${{ inputs.checkout-command != '' }}
+        shell: bash
+        run: |
+          ${{ inputs.checkout-command }}
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -55,10 +76,10 @@ jobs:
         with:
           images: ${{ secrets.DOCKER_ORG }}/${{ inputs.image-name }}
           tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=raw,value={{date 'YYYY-MM-DD'}},enable=${{ github.event_name == 'workflow_dispatch' }}
-            type=raw,value=latest,enable=${{ github.ref_type == 'tag' || inputs.force-latest == true }}
+            type=semver,pattern={{version}},enable=${{ inputs.latest-only != true }}
+            type=semver,pattern={{major}}.{{minor}},enable=${{ inputs.latest-only != true }}
+            type=raw,value={{date 'YYYY-MM-DD'}},enable=${{ inputs.latest-only != true && github.event_name == 'workflow_dispatch' }}
+            type=raw,value=latest,enable=${{ github.ref_type == 'tag' || inputs.force-latest == true || inputs.latest-only == true }}
 
       - name: Generate suffixed tags
         id: suffixed_tags
@@ -107,10 +128,10 @@ jobs:
         with:
           images: ${{ secrets.DOCKER_ORG }}/${{ inputs.image-name }}
           tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=raw,value={{date 'YYYY-MM-DD'}},enable=${{ github.event_name == 'workflow_dispatch' }}
-            type=raw,value=latest,enable=${{ github.ref_type == 'tag' || inputs.force-latest == true }}
+            type=semver,pattern={{version}},enable=${{ inputs.latest-only != true }}
+            type=semver,pattern={{major}}.{{minor}},enable=${{ inputs.latest-only != true }}
+            type=raw,value={{date 'YYYY-MM-DD'}},enable=${{ inputs.latest-only != true && github.event_name == 'workflow_dispatch' }}
+            type=raw,value=latest,enable=${{ github.ref_type == 'tag' || inputs.force-latest == true || inputs.latest-only == true }}
 
       - name: Create and push manifest list
         id: merge
