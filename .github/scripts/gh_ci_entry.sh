@@ -60,8 +60,13 @@ export ROCKSDB_CLOUD_OBJECT_PATH="dss"
 export TXLOG_ROCKSDB_CLOUD_OBJECT_PATH="txlog"
 
 # --- Download & start Minio ---
-echo "Downloading and starting Minio..."
-wget -q https://dl.min.io/server/minio/release/linux-amd64/minio
+case "$(uname -m)" in
+  x86_64) MINIO_ARCH=amd64 ;;
+  aarch64|arm64) MINIO_ARCH=arm64 ;;
+  *) echo "Unsupported arch $(uname -m) for minio" >&2; exit 1 ;;
+esac
+echo "Downloading and starting Minio (linux-${MINIO_ARCH})..."
+wget -q https://dl.min.io/server/minio/release/linux-${MINIO_ARCH}/minio
 chmod +x minio
 mkdir -p /tmp/minio_data
 MINIO_ROOT_USER=$MINIO_ACCESS_KEY MINIO_ROOT_PASSWORD=$MINIO_SECRET_KEY \
@@ -90,7 +95,7 @@ fi
 
 # --- Setup mc (MinIO Client) ---
 echo "Downloading and configuring mc..."
-wget -q https://dl.min.io/client/mc/release/linux-amd64/mc
+wget -q https://dl.min.io/client/mc/release/linux-${MINIO_ARCH}/mc
 chmod +x mc
 mv mc /usr/local/bin/mc
 mc alias set local http://localhost:9900 $MINIO_ACCESS_KEY $MINIO_SECRET_KEY
@@ -124,28 +129,20 @@ else
   echo "fail to get cmake version"
 fi
 
-# --- Install Python 3.8 + OpenSSH server ---
-apt-get update
-apt-get install software-properties-common -y
-add-apt-repository ppa:deadsnakes/ppa -y
-apt-get update
-apt-get install python3.8 python3.8-venv python3.8-dev -y
-
-apt-get install openssh-server -y
+# --- OpenSSH + Python 3.8 test venv come pre-baked in the ubuntu-dev image ---
+# (python3.8 + log_replay_test/requirements.txt live in $LOG_REPLAY_VENV; see
+# eloq-docker/ubuntu-dev/Dockerfile). Nothing is apt/pip-installed at CI time.
 service ssh start
 sed -i "s/#\s*StrictHostKeyChecking ask/    StrictHostKeyChecking no/g" /etc/ssh/ssh_config
 
-python3.8 -m venv my_env
-source my_env/bin/activate
-pip install -r ${ELOQKV_BASE_PATH}/tests/unit/eloq/log_replay_test/requirements.txt
-deactivate
+VENV="${LOG_REPLAY_VENV:-/opt/eloq/log-replay-venv}"
 
 # --- Run build + tests for single (build_type, kv_store_type) ---
 rm -rf ${ELOQKV_BASE_PATH}/eloq_data
 
 run_build_ent $BUILD_TYPE $KV_STORE_TYPE $txlog_log_state
 
-source my_env/bin/activate
+source "$VENV/bin/activate"
 run_eloq_test $BUILD_TYPE $KV_STORE_TYPE
 run_eloqkv_tests $BUILD_TYPE $KV_STORE_TYPE
 run_eloqkv_cluster_tests $BUILD_TYPE $KV_STORE_TYPE
