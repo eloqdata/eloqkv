@@ -1,0 +1,64 @@
+name: Build All Variants
+
+# Compile-only validation of the from-scratch build path on a PLAIN ubuntu
+# runner (no prebuilt eloq-dev-ci image). It provisions dependencies with the
+# same scripts that build the dev image, then compiles every shipped eloqkv
+# variant. Functional tests stay in ci.yml (which runs on the dev image).
+#
+# No dependency caching yet — the third-party libraries are rebuilt from source
+# on every run so we can measure the true cold-build cost before deciding on a
+# caching strategy.
+
+on:
+  workflow_dispatch:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+  push:
+    branches: [main]
+
+concurrency:
+  group: build-all-variants-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-all:
+    name: Compile all variants (plain ubuntu-24.04)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    env:
+      # Build and consume the third-party prefix inside the workspace so no
+      # privileged /opt write is needed and cmake resolves the same tree.
+      ELOQ_THIRD_PARTY_PREFIX: ${{ github.workspace }}/data_substrate/third_party/install
+      DEBIAN_FRONTEND: noninteractive
+      GIT_SSH_COMMAND: "ssh -o StrictHostKeyChecking=accept-new"
+
+    steps:
+      - name: Free up runner disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android \
+            /usr/local/share/boost "${AGENT_TOOLSDIRECTORY:-}" || true
+          df -h /
+
+      - uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          submodules: false
+          ref: ${{ github.event.pull_request.head.sha || '' }}
+
+      - name: Checkout product submodules
+        run: |
+          git config --global --add safe.directory '*'
+          bash scripts/checkout_product_submodules.sh
+
+      - name: Install dependencies (system + python + third-party)
+        run: |
+          bash scripts/install_dependency_ubuntu2404.sh
+
+      - name: Compile all eloqkv variants
+        run: |
+          bash .github/scripts/compile_all_variants.sh
