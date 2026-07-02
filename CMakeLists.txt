@@ -512,8 +512,10 @@ if(NOT BUILD_ELOQKV_AS_LIBRARY)
         target_link_libraries(eloqkv_to_aof ${DYNAMIC_LIB} ${RESELOQ_LIBRARY} ${ABSEIL} lua fpconv)
         add_executable(eloqkv_to_rdb src/tools/eloqkv2rdb/eloqkv2rdb.cpp ${RESELOQ_RESOURCES})
         target_link_libraries(eloqkv_to_rdb ${DYNAMIC_LIB} ${RESELOQ_LIBRARY} ${ABSEIL} lua fpconv)
-    elseif(WITH_DATA_STORE STREQUAL "ELOQDSS_ROCKSDB_CLOUD_S3" OR
-           WITH_DATA_STORE STREQUAL "ELOQDSS_ROCKSDB_CLOUD_GCS")
+    elseif(WITH_DATA_STORE STREQUAL "ELOQDSS_ROCKSDB_CLOUD_S3")
+        # eloqkv_to_rdb references AWS-only gflags (FLAGS_aws_access_key_id /
+        # FLAGS_aws_secret_key), which are undefined for the GCS cloud store, so
+        # it is only built for the S3 variant.
         add_executable(eloqkv_to_rdb src/tools/eloqkv2rdb/eloqkv2rdb.cpp ${RESELOQ_RESOURCES})
         target_link_libraries(eloqkv_to_rdb ${DYNAMIC_LIB} ${RESELOQ_LIBRARY} ${ABSEIL} lua fpconv)
     endif()
@@ -558,8 +560,7 @@ if(NOT BUILD_ELOQKV_AS_LIBRARY)
             RUNTIME DESTINATION bin)
         install(TARGETS eloqkv_to_rdb
             RUNTIME DESTINATION bin)
-    elseif(WITH_DATA_STORE STREQUAL "ELOQDSS_ROCKSDB_CLOUD_S3" OR
-           WITH_DATA_STORE STREQUAL "ELOQDSS_ROCKSDB_CLOUD_GCS")
+    elseif(WITH_DATA_STORE STREQUAL "ELOQDSS_ROCKSDB_CLOUD_S3")
         install(TARGETS eloqkv_to_rdb
             RUNTIME DESTINATION bin)
     endif()
