@@ -23,10 +23,18 @@
 
 #include <vector>
 
+#include "absl/strings/string_view.h"
 #include "redis_string_match.h"
 
 namespace EloqKV
 {
+namespace
+{
+absl::string_view ToAbslStringView(std::string_view value)
+{
+    return absl::string_view(value.data(), value.size());
+}
+}  // namespace
 
 void PubSubManager::Subscribe(const std::vector<std::string_view> &chans,
                               EloqKV::RedisConnectionContext *client)
@@ -57,7 +65,7 @@ void PubSubManager::Subscribe(const std::vector<std::string_view> &chans,
 bool PubSubManager::SubscribeChannel(std::string_view chan,
                                      EloqKV::RedisConnectionContext *client)
 {
-    auto [channel_it, _] = pub_sub_channels_.try_emplace(chan);
+    auto [channel_it, _] = pub_sub_channels_.try_emplace(std::string(chan));
     // clients that subscribed to `channel`
     absl::flat_hash_set<RedisConnectionContext *> &clients = channel_it->second;
     bool success = clients.emplace(client).second;
@@ -158,7 +166,7 @@ bool PubSubManager::UnsubscribeChannel(std::string_view chan,
                                        EloqKV::RedisConnectionContext *client)
 {
     // unsubscribe from the specified channel
-    auto it = pub_sub_channels_.find(chan);
+    auto it = pub_sub_channels_.find(ToAbslStringView(chan));
     if (it != pub_sub_channels_.end())
     {
         auto &clients = it->second;
@@ -260,7 +268,7 @@ void PubSubManager::PSubscribe(const std::vector<std::string_view> &patterns,
 bool PubSubManager::SubscribePattern(std::string_view pattern,
                                      EloqKV::RedisConnectionContext *client)
 {
-    auto [pattern_it, _] = pattern_subs_.try_emplace(pattern);
+    auto [pattern_it, _] = pattern_subs_.try_emplace(std::string(pattern));
     // clients that subscribed to `pattern`
     absl::flat_hash_set<RedisConnectionContext *> &clients = pattern_it->second;
     bool success = clients.emplace(client).second;
@@ -361,7 +369,7 @@ bool PubSubManager::UnsubscribePattern(std::string_view pattern,
                                        EloqKV::RedisConnectionContext *client)
 {
     // unsubscribe from the specified pattern
-    auto it = pattern_subs_.find(pattern);
+    auto it = pattern_subs_.find(ToAbslStringView(pattern));
     if (it != pattern_subs_.end())
     {
         auto &clients = it->second;
@@ -396,7 +404,7 @@ int PubSubManager::Publish(std::string_view chan, std::string_view msg)
 {
     std::unique_lock lk(pub_sub_mu_);
     int received = 0;
-    auto it = pub_sub_channels_.find(chan);
+    auto it = pub_sub_channels_.find(ToAbslStringView(chan));
     if (it != pub_sub_channels_.end())
     {
         auto clients = it->second;

@@ -5,5 +5,5 @@ DIR=$(realpath $0) && DIR=${DIR%/*}
 cd $DIR/..
 set -x
 
-git submodule update --init --recursive
+bash "$DIR/checkout_product_submodules.sh"
 docker build -f $DIR/docker/eloqkv.docker .
