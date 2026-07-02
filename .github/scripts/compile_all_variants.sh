@@ -31,16 +31,12 @@ VARIANTS=(
 )
 
 if [ "${ELOQ_SKIP_DEPS:-0}" != "1" ]; then
-  echo "::group::Install system + python dependencies"
-  bash "${REPO_ROOT}/scripts/dep/ubuntu/00-system.sh"
-  bash "${REPO_ROOT}/scripts/dep/ubuntu/02-python.sh" || true
-  echo "::endgroup::"
-fi
-
-if [ "${ELOQ_SKIP_THIRD_PARTY:-0}" != "1" ]; then
-  echo "::group::Build third-party workspace from source (prefix: ${PREFIX})"
+  echo "::group::Install dependencies (scripts/install_dependency_ubuntu2404.sh)"
+  # Use the exact entry point the docs tell users to run (README "Build from
+  # Source"), so this pipeline validates the documented build path — system
+  # packages, python deps, and the third-party workspace all come from it.
   ELOQ_THIRD_PARTY_PREFIX="${PREFIX}" \
-    bash "${REPO_ROOT}/data_substrate/scripts/third_party/install-ubuntu2404.sh"
+    bash "${REPO_ROOT}/scripts/install_dependency_ubuntu2404.sh"
   echo "::endgroup::"
 fi
 
