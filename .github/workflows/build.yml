@@ -117,6 +117,10 @@ jobs:
           cmake --build . -j$(nproc)
 
       - name: Package eloqkv tarball
+        env:
+          ARCH: ${{ inputs.arch }}
+          DATA_STORE_ID: ${{ inputs.data_store_id }}
+          OS_ID: ${{ inputs.os_id }}
         run: |
           DEST_DIR=$HOME/EloqKV
           mkdir -p $DEST_DIR/bin $DEST_DIR/lib $DEST_DIR/conf
@@ -197,9 +201,13 @@ jobs:
             'the law lies entirely with you.' \
             > $DEST_DIR/LICENSE.txt
 
-          tar -czvf $GITHUB_WORKSPACE/eloqkv-$TAGGED-${{ inputs.data_store_id }}-${{ inputs.os_id }}-${{ inputs.arch }}.tar.gz -C $HOME EloqKV
+          tar -czvf "$GITHUB_WORKSPACE/eloqkv-$TAGGED-${DATA_STORE_ID}-${OS_ID}-${ARCH}.tar.gz" -C "$HOME" EloqKV
 
       - name: Package log-service tarball
+        env:
+          ARCH: ${{ inputs.arch }}
+          DATA_STORE_ID: ${{ inputs.data_store_id }}
+          OS_ID: ${{ inputs.os_id }}
         run: |
           LOG_SRC=$GITHUB_WORKSPACE/eloqkv_src/data_substrate/eloq_log_service
           mkdir -p $LOG_SRC/LogServer/bin $LOG_SRC/LogServer/lib
@@ -228,7 +236,7 @@ jobs:
             esac
           done
 
-          tar -czvf $GITHUB_WORKSPACE/log-service-$TAGGED-${{ inputs.data_store_id }}-${{ inputs.os_id }}-${{ inputs.arch }}.tar.gz -C $LOG_SRC LogServer
+          tar -czvf "$GITHUB_WORKSPACE/log-service-$TAGGED-${DATA_STORE_ID}-${OS_ID}-${ARCH}.tar.gz" -C "$LOG_SRC" LogServer
 
       - name: Upload assets to release
         uses: softprops/action-gh-release@v2

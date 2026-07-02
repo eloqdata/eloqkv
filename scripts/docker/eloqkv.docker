@@ -11,7 +11,8 @@ WORKDIR /app
 
 COPY . .
 
-RUN apt-get update \
+RUN export DEBIAN_FRONTEND=noninteractive \
+  && apt-get update \
   && xargs -a data_substrate/third_party/system-packages.ubuntu2404.txt \
        apt-get install -y --no-install-recommends \
   && rm -rf /var/lib/apt/lists/*
