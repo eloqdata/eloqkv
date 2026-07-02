@@ -207,11 +207,12 @@ When running with full durability, EloqKV outperforms other Redis-compatible sto
 
 ## Build from Source  
 ### 1. Pull the Source Code
-We recommend using our Docker image with pre-installed dependencies and pull EloqKV source code in the container for a quick build and run of EloqKV.
+We recommend using our `eloqdata/ubuntu-dev:24.04` development image (build
+toolchain and CI test tooling pre-installed), then pulling EloqKV inside it.
 
 ```bash
-docker pull eloqdata/eloqkv-builder:latest
-docker run -it --name eloq eloqdata/eloqkv-builder:latest
+docker pull eloqdata/ubuntu-dev:24.04
+docker run -it --name eloq eloqdata/ubuntu-dev:24.04
 git clone https://github.com/eloqdata/eloqkv.git
 cd eloqkv
 ```
@@ -226,20 +227,18 @@ cd eloqkv
 
 ```
 bash scripts/checkout_product_submodules.sh
-```
-
-`scripts/checkout_product_submodules.sh` intentionally skips
-`data_substrate/third_party/src/*`. CI uses the prebuilt
-`eloqdata/eloqkv-builder:latest` image, whose third-party libraries are
-installed under `/opt/eloq/third_party`. To rebuild those dependencies locally,
-run `data_substrate/scripts/third_party/install-ubuntu2404.sh`.
-
-If you are not using the builder image, install dependencies after product
-submodules have been initialized:
-
-```
 bash scripts/install_dependency_ubuntu2404.sh
 ```
+
+`scripts/checkout_product_submodules.sh` checks out the product submodules.
+`scripts/install_dependency_ubuntu2404.sh` then installs the build
+dependencies: the system packages plus the third-party workspace (grpc,
+rocksdb-cloud, abseil, ...), which is fetched and built from source under
+`data_substrate/third_party/`. This is the same script the from-scratch build
+CI runs, so a successful local run matches CI.
+
+It installs build dependencies only — the Python test tooling is baked into the
+`eloqdata/ubuntu-dev` image and is not needed just to build.
 
 ### 3. Build EloqKV
 ```bash
