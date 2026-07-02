@@ -1,0 +1,54 @@
+name: Build Validation
+
+# Compile-only, from-scratch build validation on a bare ubuntu:24.04 image.
+# Installs system + python dependencies, builds the third-party workspace from
+# source, then compiles every shipped data-store variant. No functional tests
+# are run here (ci.yml owns those). Runs natively on amd64 and arm64.
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  compile-all-variants:
+    name: compile-all-variants (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    container:
+      image: ubuntu:24.04
+      options: --user root --privileged --security-opt seccomp=unconfined --ulimit memlock=-1:-1
+    steps:
+      - name: Bootstrap git + ssh (bare image)
+        run: |
+          apt-get update
+          # openssh-client provides ssh-agent, needed by webfactory/ssh-agent
+          # and for cloning private submodules over ssh.
+          apt-get install -y --no-install-recommends git ca-certificates sudo openssh-client
+
+      - uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          submodules: recursive
+          ref: ${{ github.event.pull_request.head.sha || '' }}
+
+      - name: Compile all variants from scratch
+        env:
+          GIT_SSH_COMMAND: "ssh -o StrictHostKeyChecking=accept-new"
+        run: |
+          git config --global --add safe.directory '*'
+          bash .github/scripts/compile_all_variants.sh

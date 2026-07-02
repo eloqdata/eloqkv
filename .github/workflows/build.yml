@@ -34,10 +34,14 @@ on:
       container_image:
         type: string
         required: true
+      arch:
+        type: string
+        default: amd64
+        description: 'amd64 or arm64'
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
     container:
       image: ${{ inputs.container_image }}
       options: --user root
@@ -71,8 +75,11 @@ jobs:
             exit 1
           fi
 
-      - name: Verify builder third-party prefix
+      - name: Build third-party from source
+        working-directory: ${{ github.workspace }}/eloqkv_src
         run: |
+          git config --global --add safe.directory '*'
+          bash data_substrate/scripts/third_party/install-ubuntu2404.sh
           test -f /opt/eloq/third_party/share/eloq/third_party-manifest.yml
           test -d /opt/eloq/third_party/include
           test -d /opt/eloq/third_party/lib
@@ -110,6 +117,10 @@ jobs:
           cmake --build . -j$(nproc)
 
       - name: Package eloqkv tarball
+        env:
+          ARCH: ${{ inputs.arch }}
+          DATA_STORE_ID: ${{ inputs.data_store_id }}
+          OS_ID: ${{ inputs.os_id }}
         run: |
           DEST_DIR=$HOME/EloqKV
           mkdir -p $DEST_DIR/bin $DEST_DIR/lib $DEST_DIR/conf
@@ -190,9 +201,13 @@ jobs:
             'the law lies entirely with you.' \
             > $DEST_DIR/LICENSE.txt
 
-          tar -czvf $GITHUB_WORKSPACE/eloqkv-$TAGGED-${{ inputs.data_store_id }}-${{ inputs.os_id }}-amd64.tar.gz -C $HOME EloqKV
+          tar -czvf "$GITHUB_WORKSPACE/eloqkv-$TAGGED-${DATA_STORE_ID}-${OS_ID}-${ARCH}.tar.gz" -C "$HOME" EloqKV
 
       - name: Package log-service tarball
+        env:
+          ARCH: ${{ inputs.arch }}
+          DATA_STORE_ID: ${{ inputs.data_store_id }}
+          OS_ID: ${{ inputs.os_id }}
         run: |
           LOG_SRC=$GITHUB_WORKSPACE/eloqkv_src/data_substrate/eloq_log_service
           mkdir -p $LOG_SRC/LogServer/bin $LOG_SRC/LogServer/lib
@@ -221,7 +236,7 @@ jobs:
             esac
           done
 
-          tar -czvf $GITHUB_WORKSPACE/log-service-$TAGGED-${{ inputs.data_store_id }}-${{ inputs.os_id }}-amd64.tar.gz -C $LOG_SRC LogServer
+          tar -czvf "$GITHUB_WORKSPACE/log-service-$TAGGED-${DATA_STORE_ID}-${OS_ID}-${ARCH}.tar.gz" -C "$LOG_SRC" LogServer
 
       - name: Upload assets to release
         uses: softprops/action-gh-release@v2
@@ -229,7 +244,7 @@ jobs:
           tag_name: ${{ inputs.tag_name }}
           name: ${{ inputs.tag_name }}
           files: |
-            eloqkv-${{ inputs.tag_name }}-${{ inputs.data_store_id }}-${{ inputs.os_id }}-amd64.tar.gz
-            log-service-${{ inputs.tag_name }}-${{ inputs.data_store_id }}-${{ inputs.os_id }}-amd64.tar.gz
+            eloqkv-${{ inputs.tag_name }}-${{ inputs.data_store_id }}-${{ inputs.os_id }}-${{ inputs.arch }}.tar.gz
+            log-service-${{ inputs.tag_name }}-${{ inputs.data_store_id }}-${{ inputs.os_id }}-${{ inputs.arch }}.tar.gz
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
