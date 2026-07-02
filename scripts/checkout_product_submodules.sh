@@ -8,9 +8,9 @@ cd "${REPO_ROOT}"
 
 git submodule update --init crcspeed data_substrate
 
+# tx_service/tx-log-protos and eloq_log_service are now bundled in-tree inside
+# data_substrate (no longer submodules); only eloqstore remains a submodule.
 git -C data_substrate submodule update --init \
-  tx_service/tx-log-protos \
-  log_service \
   store_handler/eloq_data_store_service/eloqstore
 
 ELOQSTORE_DIR=data_substrate/store_handler/eloq_data_store_service/eloqstore
