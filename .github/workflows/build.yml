@@ -38,6 +38,10 @@ on:
         type: string
         default: amd64
         description: 'amd64 or arm64'
+      prerelease:
+        type: boolean
+        default: false
+        description: 'mark the release as a prerelease (used by nightly)'
 
 jobs:
   build:
@@ -243,6 +247,7 @@ jobs:
         with:
           tag_name: ${{ inputs.tag_name }}
           name: ${{ inputs.tag_name }}
+          prerelease: ${{ inputs.prerelease }}
           files: |
             eloqkv-${{ inputs.tag_name }}-${{ inputs.data_store_id }}-${{ inputs.os_id }}-${{ inputs.arch }}.tar.gz
             log-service-${{ inputs.tag_name }}-${{ inputs.data_store_id }}-${{ inputs.os_id }}-${{ inputs.arch }}.tar.gz

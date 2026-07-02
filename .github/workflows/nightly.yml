@@ -1,0 +1,114 @@
+name: Nightly
+
+# Rolling nightly build. On every push to main it resets a single `nightly`
+# prerelease at the latest commit, then builds every shipped variant on amd64 +
+# arm64 and uploads the packages to it. Assets are always available at a stable
+# URL: <repo>/releases/download/nightly/<asset>.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Only one nightly build at a time; a newer push cancels the in-flight one so
+# the nightly release always reflects the latest main.
+concurrency:
+  group: nightly
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  # Serialize the destructive part (move the nightly tag + reset the release)
+  # into a single job, so the matrix jobs below only append their own
+  # uniquely-named assets and never race on the shared release/tag.
+  prepare:
+    name: Reset nightly release
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Recreate the rolling nightly prerelease at the current commit
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release delete nightly --yes --cleanup-tag --repo "$GITHUB_REPOSITORY" || true
+          gh release create nightly \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "Nightly" \
+            --notes "Rolling nightly build from ${GITHUB_SHA}." \
+            --prerelease
+
+  call-build:
+    needs: prepare
+    name: ${{ matrix.arch }}-${{ matrix.data_store_id }}
+    uses: ./.github/workflows/build.yml
+    with:
+      tag_name: nightly
+      prerelease: true
+      os_id: ${{ matrix.os_id }}
+      package_manager: ${{ matrix.pkg }}
+      container_image: ${{ matrix.container }}
+      arch: ${{ matrix.arch }}
+      data_store_type: ${{ matrix.data_store_type }}
+      log_state_type: ${{ matrix.log_state_type }}
+      data_store_id: ${{ matrix.data_store_id }}
+      cmake_extra: ${{ matrix.cmake_extra }}
+      build_dss: ${{ matrix.build_dss }}
+      build_rocksdb_tools: ${{ matrix.build_rocksdb_tools }}
+    secrets: inherit
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
+        data_store_id: [rocksdb, rocks_s3, eloqstore_local, eloqstore_s3, eloqstore_gcs]
+        include:
+          - data_store_id: rocksdb
+            os_id: ubuntu24
+            container: eloqdata/ubuntu-dev:24.04
+            pkg: apt
+            data_store_type: ROCKSDB
+            log_state_type: ROCKSDB
+            build_dss: false
+            build_rocksdb_tools: true
+            cmake_extra: ''
+
+          - data_store_id: rocks_s3
+            os_id: ubuntu24
+            container: eloqdata/ubuntu-dev:24.04
+            pkg: apt
+            data_store_type: ELOQDSS_ROCKSDB_CLOUD_S3
+            log_state_type: ROCKSDB_CLOUD_S3
+            build_dss: true
+            build_rocksdb_tools: true
+            cmake_extra: '-DWITH_CLOUD_AZ_INFO=ON'
+
+          - data_store_id: eloqstore_local
+            os_id: ubuntu24
+            container: eloqdata/ubuntu-dev:24.04
+            pkg: apt
+            data_store_type: ELOQDSS_ELOQSTORE
+            log_state_type: ROCKSDB
+            build_dss: true
+            build_rocksdb_tools: false
+            cmake_extra: ''
+
+          - data_store_id: eloqstore_s3
+            os_id: ubuntu24
+            container: eloqdata/ubuntu-dev:24.04
+            pkg: apt
+            data_store_type: ELOQDSS_ELOQSTORE
+            log_state_type: ROCKSDB_CLOUD_S3
+            build_dss: true
+            build_rocksdb_tools: false
+            cmake_extra: ''
+
+          - data_store_id: eloqstore_gcs
+            os_id: ubuntu24
+            container: eloqdata/ubuntu-dev:24.04
+            pkg: apt
+            data_store_type: ELOQDSS_ELOQSTORE
+            log_state_type: ROCKSDB_CLOUD_GCS
+            build_dss: true
+            build_rocksdb_tools: false
+            cmake_extra: ''
