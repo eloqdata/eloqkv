@@ -34,9 +34,12 @@ if [ "${ELOQ_SKIP_DEPS:-0}" != "1" ]; then
   echo "::group::Install dependencies (scripts/install_dependency_ubuntu2404.sh)"
   # Use the exact entry point the docs tell users to run (README "Build from
   # Source"), so this pipeline validates the documented build path — system
-  # packages, python deps, and the third-party workspace all come from it.
-  ELOQ_THIRD_PARTY_PREFIX="${PREFIX}" \
-    bash "${REPO_ROOT}/scripts/install_dependency_ubuntu2404.sh"
+  # packages and the third-party workspace both come from it.
+  if ! ELOQ_THIRD_PARTY_PREFIX="${PREFIX}" \
+      bash "${REPO_ROOT}/scripts/install_dependency_ubuntu2404.sh"; then
+    echo "Dependency installation failed." >&2
+    exit 1
+  fi
   echo "::endgroup::"
 fi
 
@@ -56,7 +59,8 @@ for entry in "${VARIANTS[@]}"; do
   echo "::group::Compile ${id} (WITH_DATA_STORE=${ds}, WITH_LOG_STATE=${ls})"
   start=$(date +%s)
   status="pass"
-  # shellcheck disable=SC2086 -- ${extra} is an intentionally-splittable flag list
+  # ${extra} is an intentionally-splittable flag list.
+  # shellcheck disable=SC2086
   if ! cmake -S "${REPO_ROOT}" -B "${build_dir}" -G Ninja \
         -DCMAKE_BUILD_TYPE=RelWithDebInfo \
         -DWITH_DATA_STORE="${ds}" \
