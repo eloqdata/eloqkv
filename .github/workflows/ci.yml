@@ -8,8 +8,43 @@ on:
     branches: [main]
 
 jobs:
+  # Build (and cache) the third-party workspace once per arch so the ent-ci
+  # matrix below restores it instead of each job rebuilding it from source on a
+  # cold cache (6 jobs per arch would otherwise all build in parallel).
+  prime-third-party:
+    name: prime-third-party (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
+    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
+    container:
+      image: eloqdata/ubuntu-dev:24.04
+      options: --user root
+    env:
+      ELOQ_THIRD_PARTY_PREFIX: /opt/eloq/third_party
+    steps:
+      - uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          submodules: recursive
+          path: eloqkv
+          ref: ${{ github.event.pull_request.head.sha || '' }}
+
+      - name: Setup third-party (cached)
+        uses: ./eloqkv/.github/actions/setup-third-party
+        with:
+          source-dir: ${{ github.workspace }}/eloqkv
+          arch: ${{ matrix.arch }}
+          cache-scope: ubuntu-dev
+
   # Enterprise CI matrix — full build + test suite across build types and KV stores
   ent-ci:
+    needs: prime-third-party
     concurrency:
       group: ent-ci-${{ github.event.pull_request.number || github.ref }}-${{ matrix.build_type }}-${{ matrix.kv_store_type }}-${{ matrix.arch }}
       cancel-in-progress: true
@@ -61,6 +96,7 @@ jobs:
         with:
           source-dir: ${{ github.workspace }}/eloqkv
           arch: ${{ matrix.arch }}
+          cache-scope: ubuntu-dev
 
       - name: Run CI (${{ matrix.build_type }}, ${{ matrix.kv_store_type }})
         env:

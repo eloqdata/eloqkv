@@ -13,6 +13,13 @@ inputs:
   arch:
     description: amd64 or arm64 (keeps per-arch caches separate).
     required: true
+  cache-scope:
+    description: >
+      Build-environment id folded into the cache key so binaries built in
+      different images are not shared. Use 'ubuntu-dev' for the ubuntu-dev image
+      (ci/release/nightly) and 'bare-ubuntu' for the bare ubuntu:24.04 image
+      (build-validation), so each environment validates its own build.
+    required: true
   prefix:
     description: Install prefix to cache.
     default: /opt/eloq/third_party
@@ -40,7 +47,7 @@ runs:
               third_party/src/brpc third_party/src/braft \
               third_party/src/mimalloc third_party/src/rocksdb-cloud \
             | sha256sum | cut -c1-16)
-        echo "key=tp-${{ inputs.arch }}-ubuntu2404-${h}" >> "$GITHUB_OUTPUT"
+        echo "key=tp-${{ inputs.arch }}-${{ inputs.cache-scope }}-${h}" >> "$GITHUB_OUTPUT"
 
     - name: Restore third-party cache
       id: tp-cache

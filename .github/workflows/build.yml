@@ -73,6 +73,7 @@ jobs:
         with:
           source-dir: ${{ github.workspace }}/eloqkv_src
           arch: ${{ inputs.arch }}
+          cache-scope: ubuntu-dev
 
       - name: Install build dependencies
         run: |
