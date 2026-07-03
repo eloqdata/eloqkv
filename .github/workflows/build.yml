@@ -37,6 +37,11 @@ jobs:
       image: ${{ inputs.container_image }}
       options: --user root
     name: ${{ inputs.tag_name }}-${{ inputs.arch }}
+    # In the container the default run shell is `sh` (dash); force bash so the
+    # packaging step's arrays / here-strings / `set -o pipefail` work.
+    defaults:
+      run:
+        shell: bash
     env:
       TAGGED: ${{ inputs.tag_name }}
       ARCH: ${{ inputs.arch }}
