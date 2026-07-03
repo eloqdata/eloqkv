@@ -56,10 +56,11 @@ jobs:
           git config --global --add safe.directory '*'
           git clone --recurse-submodules git@github.com:eloqdata/eloq-test.git eloq_test_src
 
-      - name: Build third-party from source
-        run: |
-          git config --global --add safe.directory '*'
-          bash ./eloqkv/data_substrate/scripts/third_party/install-ubuntu2404.sh
+      - name: Setup third-party (cached)
+        uses: ./eloqkv/.github/actions/setup-third-party
+        with:
+          source-dir: ${{ github.workspace }}/eloqkv
+          arch: ${{ matrix.arch }}
 
       - name: Run CI (${{ matrix.build_type }}, ${{ matrix.kv_store_type }})
         env:

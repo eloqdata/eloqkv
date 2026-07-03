@@ -1,0 +1,62 @@
+name: Setup third-party
+description: >
+  Restore the eloq third-party workspace from cache, or build it from source and
+  cache it. The cache key covers everything that determines the built prefix:
+  the third-party manifest, the third-party build scripts, and the pinned source
+  submodule commits (brpc / braft / mimalloc / rocksdb-cloud). Archive-based deps
+  are pinned by SHA inside the scripts, so hashing the scripts covers them too.
+
+inputs:
+  source-dir:
+    description: Path to the checked-out eloqkv repo (the one containing data_substrate/).
+    required: true
+  arch:
+    description: amd64 or arm64 (keeps per-arch caches separate).
+    required: true
+  prefix:
+    description: Install prefix to cache.
+    default: /opt/eloq/third_party
+
+outputs:
+  cache-hit:
+    description: 'true if the prefix was restored from cache.'
+    value: ${{ steps.tp-cache.outputs.cache-hit }}
+
+runs:
+  using: composite
+  steps:
+    - name: Compute third-party cache key
+      id: tp-key
+      shell: bash
+      working-directory: ${{ inputs.source-dir }}
+      run: |
+        git config --global --add safe.directory '*'
+        # ls-files -s emits the blob SHA for regular files and the gitlink SHA
+        # for submodule paths, so one hash captures both script/manifest content
+        # and the pinned source submodule commits — cheap (reads the index only).
+        h=$(git -C data_substrate ls-files -s -- \
+              third_party/manifest.yml \
+              scripts/third_party \
+              third_party/src/brpc third_party/src/braft \
+              third_party/src/mimalloc third_party/src/rocksdb-cloud \
+            | sha256sum | cut -c1-16)
+        echo "key=tp-${{ inputs.arch }}-ubuntu2404-${h}" >> "$GITHUB_OUTPUT"
+
+    - name: Restore third-party cache
+      id: tp-cache
+      uses: actions/cache@v4
+      with:
+        path: ${{ inputs.prefix }}
+        key: ${{ steps.tp-key.outputs.key }}
+
+    - name: Build third-party from source (cache miss)
+      if: steps.tp-cache.outputs.cache-hit != 'true'
+      shell: bash
+      working-directory: ${{ inputs.source-dir }}
+      env:
+        ELOQ_THIRD_PARTY_PREFIX: ${{ inputs.prefix }}
+      run: |
+        git config --global --add safe.directory '*'
+        bash data_substrate/scripts/third_party/install-ubuntu2404.sh
+        test -f "${{ inputs.prefix }}/share/eloq/third_party-manifest.yml"
+        test -d "${{ inputs.prefix }}/lib"

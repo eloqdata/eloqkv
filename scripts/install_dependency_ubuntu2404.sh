@@ -68,4 +68,8 @@ run_privileged apt-get install -y --no-install-recommends \
     protobuf-compiler libjsoncpp-dev
 
 # --- Third-party workspace ---
-"${THIRD_PARTY_INSTALLER}"
+# Set ELOQ_SKIP_THIRD_PARTY=1 to install system packages only (e.g. when the
+# third-party prefix is restored from a CI cache). Default builds it.
+if [ "${ELOQ_SKIP_THIRD_PARTY:-0}" != "1" ]; then
+  "${THIRD_PARTY_INSTALLER}"
+fi
