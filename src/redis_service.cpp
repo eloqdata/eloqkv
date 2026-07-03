@@ -743,7 +743,10 @@ bool RedisServiceImpl::Start(brpc::Server &brpc_server)
         redis_cmd_current_rounds_.resize(core_num_);
         for (auto &vec : redis_cmd_current_rounds_)
         {
-            vec.resize(command_types.size() + 10, 1);
+            // Indexed by RedisCommandType, whose values are pinned with gaps
+            // (optional commands occupy 176-186), so size by the enum range
+            // rather than the number of registered commands.
+            vec.resize(256, 1);
         }
 
         // The metrics registry and redis_meter are already created by
