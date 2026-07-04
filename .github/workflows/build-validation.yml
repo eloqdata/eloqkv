@@ -1,0 +1,76 @@
+name: Build Validation
+
+# Compile-only build validation on a bare ubuntu:24.04 image: install system
+# deps, restore (or build) the third-party workspace, then compile every shipped
+# data-store variant. No functional tests here (ci.yml owns those). Runs
+# natively on amd64 and arm64.
+#
+# third-party is cached (keyed on the manifest + build scripts + pinned source
+# submodules): a PR that does not touch third-party restores it and only the
+# variant compile runs; a PR that changes third-party misses the cache and
+# rebuilds it from scratch, validating the change end to end.
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  compile-all-variants:
+    name: compile-all-variants (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    container:
+      image: ubuntu:24.04
+      options: --user root --privileged --security-opt seccomp=unconfined --ulimit memlock=-1:-1
+    env:
+      ELOQ_THIRD_PARTY_PREFIX: /opt/eloq/third_party
+    steps:
+      - name: Bootstrap git + ssh (bare image)
+        run: |
+          apt-get update
+          # openssh-client provides ssh-agent, needed by webfactory/ssh-agent
+          # and for cloning private submodules over ssh.
+          apt-get install -y --no-install-recommends git ca-certificates sudo openssh-client
+
+      - uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          submodules: recursive
+          ref: ${{ github.event.pull_request.head.sha || '' }}
+
+      - name: Install system dependencies
+        env:
+          GIT_SSH_COMMAND: "ssh -o StrictHostKeyChecking=accept-new"
+        run: |
+          git config --global --add safe.directory '*'
+          # System packages only; the third-party workspace is handled (cached)
+          # by the next step.
+          ELOQ_SKIP_THIRD_PARTY=1 bash scripts/install_dependency_ubuntu2404.sh
+
+      - name: Setup third-party (cached)
+        uses: ./.github/actions/setup-third-party
+        with:
+          source-dir: ${{ github.workspace }}
+          arch: ${{ matrix.arch }}
+          cache-scope: bare-ubuntu
+
+      - name: Compile all variants
+        run: |
+          git config --global --add safe.directory '*'
+          # Deps + third-party are already in place; just compile the variants.
+          ELOQ_SKIP_DEPS=1 bash .github/scripts/compile_all_variants.sh

@@ -1,5 +1,10 @@
 name: Build
 
+# One job per architecture: build the third-party workspace from source ONCE,
+# then build, package and upload every shipped variant. This avoids rebuilding
+# third-party for each variant (was 5x per arch). Slower wall-clock per job but
+# far less total compute; release/nightly are not latency-sensitive.
+
 on:
   workflow_call:
     inputs:
@@ -8,42 +13,39 @@ on:
         required: true
       os_id:
         type: string
-        required: true
+        default: ubuntu24
       package_manager:
         type: string
-        required: true
+        default: apt
         description: 'apt, dnf, or yum'
-      data_store_type:
-        type: string
-        required: true
-      log_state_type:
-        type: string
-        required: true
-      data_store_id:
-        type: string
-        required: true
-      cmake_extra:
-        type: string
-        default: ''
-      build_dss:
-        type: boolean
-        default: false
-      build_rocksdb_tools:
-        type: boolean
-        default: false
       container_image:
         type: string
         required: true
+      arch:
+        type: string
+        default: amd64
+        description: 'amd64 or arm64'
+      prerelease:
+        type: boolean
+        default: false
+        description: 'mark the release as a prerelease (used by nightly)'
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
     container:
       image: ${{ inputs.container_image }}
       options: --user root
-    name: ${{ inputs.tag_name }}-${{ inputs.data_store_id }}-${{ inputs.os_id }}
+    name: ${{ inputs.tag_name }}-${{ inputs.arch }}
+    # In the container the default run shell is `sh` (dash); force bash so the
+    # packaging step's arrays / here-strings / `set -o pipefail` work.
+    defaults:
+      run:
+        shell: bash
     env:
       TAGGED: ${{ inputs.tag_name }}
+      ARCH: ${{ inputs.arch }}
+      OS_ID: ${{ inputs.os_id }}
       ELOQ_THIRD_PARTY_PREFIX: /opt/eloq/third_party
       CMAKE_PREFIX_PATH: /opt/eloq/third_party
       CMAKE_INCLUDE_PATH: /opt/eloq/third_party/include
@@ -71,11 +73,12 @@ jobs:
             exit 1
           fi
 
-      - name: Verify builder third-party prefix
-        run: |
-          test -f /opt/eloq/third_party/share/eloq/third_party-manifest.yml
-          test -d /opt/eloq/third_party/include
-          test -d /opt/eloq/third_party/lib
+      - name: Setup third-party (cached)
+        uses: ./eloqkv_src/.github/actions/setup-third-party
+        with:
+          source-dir: ${{ github.workspace }}/eloqkv_src
+          arch: ${{ inputs.arch }}
+          cache-scope: ubuntu-dev
 
       - name: Install build dependencies
         run: |
@@ -84,152 +87,140 @@ jobs:
               apt-get update -qq
               DEBIAN_FRONTEND=noninteractive apt-get install -y -qq postgresql-client rsync patchelf
               ;;
-            dnf)
-              dnf install -y postgresql-devel rsync patchelf
-              ;;
-            yum)
-              yum install -y postgresql-devel rsync patchelf
-              ;;
+            dnf) dnf install -y postgresql-devel rsync patchelf ;;
+            yum) yum install -y postgresql-devel rsync patchelf ;;
           esac
 
-      - name: Build eloqkv
+      - name: Build and package all variants
         working-directory: ${{ github.workspace }}/eloqkv_src
         run: |
-          mkdir -p build && cd build
-          cmake .. \
-            -DCMAKE_BUILD_TYPE=RelWithDebInfo \
-            -DWITH_DATA_STORE=${{ inputs.data_store_type }} \
-            -DWITH_LOG_STATE=${{ inputs.log_state_type }} \
-            -DWITH_LOG_SERVICE=ON \
-            -DDISABLE_CKPT_REPORT=ON \
-            -DDISABLE_CODE_LINE_IN_LOG=ON \
-            -DWITH_ASAN=OFF \
-            -DELOQ_THIRD_PARTY_PREFIX=/opt/eloq/third_party \
-            -DELOQ_THIRD_PARTY_REQUIRED=ON \
-            ${{ inputs.cmake_extra }}
-          cmake --build . -j$(nproc)
+          set -euo pipefail
 
-      - name: Package eloqkv tarball
-        run: |
-          DEST_DIR=$HOME/EloqKV
-          mkdir -p $DEST_DIR/bin $DEST_DIR/lib $DEST_DIR/conf
+          # id | WITH_DATA_STORE | WITH_LOG_STATE | build_dss | build_rocksdb_tools | cmake_extra
+          VARIANTS=(
+            "rocksdb|ROCKSDB|ROCKSDB|false|true|"
+            "rocks_s3|ELOQDSS_ROCKSDB_CLOUD_S3|ROCKSDB_CLOUD_S3|true|true|-DWITH_CLOUD_AZ_INFO=ON"
+            "eloqstore_local|ELOQDSS_ELOQSTORE|ROCKSDB|true|false|"
+            "eloqstore_s3|ELOQDSS_ELOQSTORE|ROCKSDB_CLOUD_S3|true|false|"
+            "eloqstore_gcs|ELOQDSS_ELOQSTORE|ROCKSDB_CLOUD_GCS|true|false|"
+          )
 
-          cp eloqkv_src/build/eloqkv $DEST_DIR/bin/
-          cp eloqkv_src/build/data_substrate/host_manager $DEST_DIR/bin/
+          write_license() {
+            printf '%s\n' \
+              'License' '' \
+              'Copyright (c) 2024-2026 EloqData' '' \
+              'Permission is hereby granted, free of charge, to any person obtaining a copy' \
+              'of this software and associated documentation files (the "Software"), to use,' \
+              'copy, modify, and distribute the Software, subject to the following conditions:' '' \
+              'The above copyright notice and this permission notice shall be included in all' \
+              'copies or substantial portions of the Software.' '' \
+              'THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR' \
+              'IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,' \
+              'FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT. IN NO EVENT SHALL ELOQDATA' \
+              'OR ITS CONTRIBUTORS BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER LIABILITY, WHETHER' \
+              'IN AN ACTION OF CONTRACT, TORT, OR OTHERWISE, ARISING FROM, OUT OF, OR IN' \
+              'CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.' '' \
+              'IMPORTANT: By using this software, you acknowledge that EloqData shall not be' \
+              'liable for any loss or damage, including but not limited to loss of data, arising' \
+              'from the use of the software. The responsibility for backing up any data, checking' \
+              "the software's appropriateness for your needs, and using it within the bounds of" \
+              'the law lies entirely with you.' \
+              > "$1"
+          }
 
-          if [ "${{ inputs.build_rocksdb_tools }}" = "true" ]; then
-            for tool in eloqkv_to_aof eloqkv_to_rdb; do
-              if [ -x "eloqkv_src/build/$tool" ]; then
-                cp "eloqkv_src/build/$tool" $DEST_DIR/bin/
-              else
-                echo "Skip $tool: not built for ${{ inputs.data_store_type }}"
-              fi
-            done
-          fi
-
-          if [ "${{ inputs.build_dss }}" = "true" ]; then
-            DSS_SRC=$GITHUB_WORKSPACE/eloqkv_src/data_substrate/store_handler/eloq_data_store_service
-            (cd $DSS_SRC
-            mkdir -p build && cd build
-            cmake .. \
-              -DCMAKE_BUILD_TYPE=RelWithDebInfo \
-              -DWITH_DATA_STORE=${{ inputs.data_store_type }} \
-              -DELOQ_THIRD_PARTY_PREFIX=/opt/eloq/third_party \
-              -DELOQ_THIRD_PARTY_REQUIRED=ON
-            cmake --build . -j$(nproc)
-            cp dss_server $DEST_DIR/bin/)
-          fi
-
-          # Exact copy_libraries() logic from concourse/scripts/build_tarball.bash
-          # Skips libc, libm, libpthread, libdl, librt, libanl, libresolv,
-          # libutil, libnsl, ld-linux — bundles everything else
-          for bin in $DEST_DIR/bin/*; do
-            ldd "$bin" 2>/dev/null | awk 'NF==4 {print $(NF-1)}' | while read lib; do
+          # Copy a binary's non-glibc shared-lib deps next to it (build_tarball.bash logic).
+          bundle_libs() {
+            local bin="$1" dest="$2"
+            ldd "$bin" 2>/dev/null | awk 'NF==4 {print $(NF-1)}' | while read -r lib; do
               [ -e "$lib" ] || continue
-              lib_name=$(basename "$lib")
-              case "$lib_name" in
-                libc.so*|libm.so*|libpthread.so*|libdl.so*|librt.so*|libanl.so*|libresolv.so*|libutil.so*|libnsl.so*|ld-linux*.so*)
-                  continue ;;
-                *) cp -n "$lib" $DEST_DIR/lib/ 2>/dev/null || true ;;
+              case "$(basename "$lib")" in
+                libc.so*|libm.so*|libpthread.so*|libdl.so*|librt.so*|libanl.so*|libresolv.so*|libutil.so*|libnsl.so*|ld-linux*.so*) ;;
+                *) cp -n "$lib" "$dest/" 2>/dev/null || true ;;
               esac
             done
+          }
+
+          for entry in "${VARIANTS[@]}"; do
+            IFS='|' read -r id dst lst dss rtools extra <<< "$entry"
+            echo "::group::Build variant ${id} (${ARCH})"
+
+            # --- eloqkv ---
+            rm -rf build
+            # shellcheck disable=SC2086
+            cmake -S . -B build \
+              -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+              -DWITH_DATA_STORE="${dst}" \
+              -DWITH_LOG_STATE="${lst}" \
+              -DWITH_LOG_SERVICE=ON \
+              -DDISABLE_CKPT_REPORT=ON \
+              -DDISABLE_CODE_LINE_IN_LOG=ON \
+              -DWITH_ASAN=OFF \
+              -DELOQ_THIRD_PARTY_PREFIX=/opt/eloq/third_party \
+              -DELOQ_THIRD_PARTY_REQUIRED=ON \
+              ${extra}
+            cmake --build build -j"$(nproc)"
+
+            DEST_DIR="$HOME/EloqKV"
+            rm -rf "$DEST_DIR"
+            mkdir -p "$DEST_DIR/bin" "$DEST_DIR/lib" "$DEST_DIR/conf"
+            cp build/eloqkv "$DEST_DIR/bin/"
+            cp build/data_substrate/host_manager "$DEST_DIR/bin/"
+
+            if [ "${rtools}" = "true" ]; then
+              for tool in eloqkv_to_aof eloqkv_to_rdb; do
+                [ -x "build/$tool" ] && cp "build/$tool" "$DEST_DIR/bin/" || echo "skip $tool (not built for ${dst})"
+              done
+            fi
+
+            if [ "${dss}" = "true" ]; then
+              DSS_SRC="$PWD/data_substrate/store_handler/eloq_data_store_service"
+              rm -rf "$DSS_SRC/build"
+              cmake -S "$DSS_SRC" -B "$DSS_SRC/build" \
+                -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+                -DWITH_DATA_STORE="${dst}" \
+                -DELOQ_THIRD_PARTY_PREFIX=/opt/eloq/third_party \
+                -DELOQ_THIRD_PARTY_REQUIRED=ON
+              cmake --build "$DSS_SRC/build" -j"$(nproc)"
+              cp "$DSS_SRC/build/dss_server" "$DEST_DIR/bin/"
+            fi
+
+            for bin in "$DEST_DIR"/bin/*; do bundle_libs "$bin" "$DEST_DIR/lib"; done
+            find "$DEST_DIR/lib" \
+              \( -name 'libbrpc*' -o -name 'libbraft*' -o -name 'libleveldb*' -o -name 'librocksdb*' \) \
+              -exec patchelf --set-rpath '$ORIGIN' {} \; 2>/dev/null || true
+            cp eloqkv.ini "$DEST_DIR/conf/"
+            write_license "$DEST_DIR/LICENSE.txt"
+            tar -czf "$GITHUB_WORKSPACE/eloqkv-${TAGGED}-${id}-${OS_ID}-${ARCH}.tar.gz" -C "$HOME" EloqKV
+
+            # --- log-service ---
+            LOG_SRC="$PWD/data_substrate/eloq_log_service"
+            rm -rf "$LOG_SRC/build" "$LOG_SRC/LogServer"
+            mkdir -p "$LOG_SRC/LogServer/bin" "$LOG_SRC/LogServer/lib"
+            # shellcheck disable=SC2086
+            cmake -S "$LOG_SRC" -B "$LOG_SRC/build" \
+              -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+              -DWITH_LOG_STATE="${lst}" \
+              -DWITH_ASAN=OFF \
+              -DDISABLE_CODE_LINE_IN_LOG=ON \
+              -DELOQ_THIRD_PARTY_PREFIX=/opt/eloq/third_party \
+              -DELOQ_THIRD_PARTY_REQUIRED=ON \
+              ${extra}
+            cmake --build "$LOG_SRC/build" -j"$(nproc)"
+            mv "$LOG_SRC/build/launch_sv" "$LOG_SRC/LogServer/bin/"
+            bundle_libs "$LOG_SRC/LogServer/bin/launch_sv" "$LOG_SRC/LogServer/lib"
+            tar -czf "$GITHUB_WORKSPACE/log-service-${TAGGED}-${id}-${OS_ID}-${ARCH}.tar.gz" -C "$LOG_SRC" LogServer
+
+            echo "::endgroup::"
           done
-
-          find $DEST_DIR/lib \
-            -name 'libbrpc*' -o -name 'libbraft*' \
-            -o -name 'libleveldb*' -o -name 'librocksdb*' | while read f; do
-            patchelf --set-rpath '$ORIGIN' "$f" 2>/dev/null || true
-          done
-
-          cp eloqkv_src/eloqkv.ini $DEST_DIR/conf/
-
-          # Write LICENSE.txt (same content as original build_tarball.bash)
-          printf '%s\n' \
-            'License' \
-            '' \
-            'Copyright (c) 2024-2026 EloqData' \
-            '' \
-            'Permission is hereby granted, free of charge, to any person obtaining a copy' \
-            'of this software and associated documentation files (the "Software"), to use,' \
-            'copy, modify, and distribute the Software, subject to the following conditions:' \
-            '' \
-            'The above copyright notice and this permission notice shall be included in all' \
-            'copies or substantial portions of the Software.' \
-            '' \
-            'THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR' \
-            'IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,' \
-            'FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT. IN NO EVENT SHALL ELOQDATA' \
-            'OR ITS CONTRIBUTORS BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER LIABILITY, WHETHER' \
-            'IN AN ACTION OF CONTRACT, TORT, OR OTHERWISE, ARISING FROM, OUT OF, OR IN' \
-            'CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.' \
-            '' \
-            'IMPORTANT: By using this software, you acknowledge that EloqData shall not be' \
-            'liable for any loss or damage, including but not limited to loss of data, arising' \
-            'from the use of the software. The responsibility for backing up any data, checking' \
-            'the software''s appropriateness for your needs, and using it within the bounds of' \
-            'the law lies entirely with you.' \
-            > $DEST_DIR/LICENSE.txt
-
-          tar -czvf $GITHUB_WORKSPACE/eloqkv-$TAGGED-${{ inputs.data_store_id }}-${{ inputs.os_id }}-amd64.tar.gz -C $HOME EloqKV
-
-      - name: Package log-service tarball
-        run: |
-          LOG_SRC=$GITHUB_WORKSPACE/eloqkv_src/data_substrate/eloq_log_service
-          mkdir -p $LOG_SRC/LogServer/bin $LOG_SRC/LogServer/lib
-
-          cd $LOG_SRC
-          mkdir -p build && cd build
-          cmake .. \
-            -DCMAKE_BUILD_TYPE=RelWithDebInfo \
-            -DWITH_LOG_STATE=${{ inputs.log_state_type }} \
-            -DWITH_ASAN=OFF \
-            -DDISABLE_CODE_LINE_IN_LOG=ON \
-            -DELOQ_THIRD_PARTY_PREFIX=/opt/eloq/third_party \
-            -DELOQ_THIRD_PARTY_REQUIRED=ON \
-            ${{ inputs.cmake_extra }}
-          cmake --build . -j$(nproc)
-
-          mv launch_sv $LOG_SRC/LogServer/bin/
-
-          ldd $LOG_SRC/LogServer/bin/launch_sv 2>/dev/null | awk 'NF==4 {print $(NF-1)}' | while read lib; do
-            [ -e "$lib" ] || continue
-            lib_name=$(basename "$lib")
-            case "$lib_name" in
-              libc.so*|libm.so*|libpthread.so*|libdl.so*|librt.so*|libanl.so*|libresolv.so*|libutil.so*|libnsl.so*|ld-linux*.so*)
-                continue ;;
-              *) cp -n "$lib" $LOG_SRC/LogServer/lib/ 2>/dev/null || true ;;
-            esac
-          done
-
-          tar -czvf $GITHUB_WORKSPACE/log-service-$TAGGED-${{ inputs.data_store_id }}-${{ inputs.os_id }}-amd64.tar.gz -C $LOG_SRC LogServer
 
       - name: Upload assets to release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ inputs.tag_name }}
           name: ${{ inputs.tag_name }}
+          prerelease: ${{ inputs.prerelease }}
           files: |
-            eloqkv-${{ inputs.tag_name }}-${{ inputs.data_store_id }}-${{ inputs.os_id }}-amd64.tar.gz
-            log-service-${{ inputs.tag_name }}-${{ inputs.data_store_id }}-${{ inputs.os_id }}-amd64.tar.gz
+            eloqkv-*-${{ inputs.arch }}.tar.gz
+            log-service-*-${{ inputs.arch }}.tar.gz
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

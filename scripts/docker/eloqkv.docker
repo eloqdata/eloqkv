@@ -1,10 +1,24 @@
 ARG DOCKER_ORG=eloqdata
-ARG BUILDER_IMAGE=${DOCKER_ORG}/eloqkv-builder:latest
+ARG BUILDER_IMAGE=${DOCKER_ORG}/ubuntu-dev:24.04
 FROM ${BUILDER_IMAGE} AS builder
 
+# ubuntu-dev ships only toolchains, so build the third-party workspace from
+# source here. Third-party + product sources are fetched on the runner (see
+# docker.eloqkv.yml checkout-command) because the build context has no .git and
+# private submodules need the runner's ssh-agent; this stage only builds them.
+USER root
 WORKDIR /app
 
 COPY . .
+
+RUN export DEBIAN_FRONTEND=noninteractive \
+  && apt-get update \
+  && xargs -a data_substrate/third_party/system-packages.ubuntu2404.txt \
+       apt-get install -y --no-install-recommends \
+  && rm -rf /var/lib/apt/lists/*
+
+RUN ELOQ_THIRD_PARTY_PREFIX=/opt/eloq/third_party \
+  bash data_substrate/scripts/third_party/build-ubuntu2404.sh
 
 RUN --mount=type=cache,target=/app/build,sharing=locked \
   mkdir -p build && cd build && \
