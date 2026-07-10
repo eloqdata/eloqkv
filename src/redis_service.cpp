@@ -6477,6 +6477,10 @@ int RedisServiceImpl::Publish(std::string_view chan, std::string_view msg)
     PublishTxRequest req(chan, msg, txm);
     SendTxRequestAndWaitResult(txm, &req, nullptr);
 
+    // The PublishTxRequest handler never drives the txm to Finished, so
+    // release it here or it never returns to the free list.
+    AbortTx(txm);
+
     // publish to local clients. only clients that are connected to the same
     // node as the publishing client are included in the count
     return eloqkv_pub_sub_mgr.Publish(chan, msg);
