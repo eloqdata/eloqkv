@@ -1815,7 +1815,8 @@ brpc::RedisCommandHandlerResult MultiTransactionHandler::Run(
 
         if (error_ == RD_NIL)
         {
-            output->SetNullString();
+            // A watch-failure-aborted EXEC replies a null array, as in Redis.
+            output->SetNullArray();
         }
         else
         {

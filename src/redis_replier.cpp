@@ -74,6 +74,12 @@ void RedisReplier::OnNil()
     UpdateArray();
 }
 
+void RedisReplier::OnNullArray()
+{
+    cur_reply_->SetNullArray();
+    UpdateArray();
+}
+
 void RedisReplier::OnStatus(std::string_view str)
 {
     cur_reply_->SetStatus(butil::StringPiece(str.data(), str.size()));

@@ -151,26 +151,30 @@ command to it (`src/redis_service.cpp:5999-6086`). Queued commands are parsed ea
 `ParseMultiCommand` (`src/redis_command.cpp:8351`) into a
 `std::variant<DirectRequest, ObjectCommandTxRequest, MultiObjectCommandTxRequest,
 CustomCommandRequest>`; parse failure marks the tx poisoned
-(`RD_ERR_EXEC_ABORT_FOR_PREV_ERROR`) and EXEC aborts. On `EXEC`, `MultiExec`
-(`src/redis_service.cpp:2055`) lazily creates **one** txm (`txn_isolation_level_`,
+(`RD_ERR_EXEC_ABORT_FOR_PREV_ERROR`) and EXEC replies an `EXECABORT` error. On `EXEC`,
+`MultiExec` (`src/redis_service.cpp:2076`) lazily creates **one** txm (`txn_isolation_level_`,
 `txn_protocol_`), optionally key-sorts the requests to reduce deadlocks
-(`--enable_cmd_sort`, off by default; 2109), executes them sequentially, then `CommitTx`.
-Divergence from vanilla Redis: any runtime error **aborts the whole transaction and returns
-nil** rather than executing remaining commands (2159-2352). `DISCARD` aborts and drops the
-queue. Commands not whitelisted in `ParseMultiCommand` get
-"Unsupported command in MULTI" (`src/redis_command.cpp:10499`).
+(`--enable_cmd_sort`, off by default), executes them sequentially, then `CommitTx`.
+An **empty queue** at EXEC commits the watch txm when one exists (so watch validation still
+runs) and replies an empty array `*0`. Divergence from vanilla Redis: any engine-level runtime
+error **aborts the whole transaction and replies a RESP null array** (`*-1`) rather than
+executing remaining commands. `DISCARD` aborts and drops the queue. Commands not whitelisted
+in `ParseMultiCommand` get "Unsupported command in MULTI" (`src/redis_command.cpp:10499`).
 
 **WATCH.** Handled before MULTI begins: `watch`/`unwatch` outside a queue create the
 `MultiTransactionHandler` early (`src/redis_service.cpp:6014-6041`). `WatchKeys`
-(`src/redis_handler.cpp:1849`) creates the txm immediately and reads the keys under it with a
-`MultiObjectCommandTxRequest` so RepeatableRead+OCC validation detects modification at commit —
-a changed watched key surfaces as an OCC failure and EXEC replies nil. `WATCH` inside MULTI or
+(`src/redis_handler.cpp:1871`) creates the txm immediately and reads the keys under it with a
+`MultiObjectCommandTxRequest` so validation detects modification at commit (watch-keys reads
+are promoted to RepeatableRead even under a lower configured isolation level,
+`data_substrate/tx_service/src/tx_execution.cpp:7139-7143`) — a changed watched key surfaces
+as an OCC failure and EXEC replies a null array (`*-1`), even when the queue is empty: the
+empty-EXEC path commits the watch txm so the txm is always reclaimed. `WATCH` inside MULTI or
 inside a BEGIN session is an error. Watching disables OCC retry (`tx_retrieable_ = false`).
 
 **Retry on OCC conflict.** With `--retry_on_occ_error` (default true), EXEC and Lua scripts are
 transparently re-parsed and re-executed when commit fails with
-`OCC_BREAK_REPEATABLE_READ`/`WRITE_WRITE_CONFLICT` (`src/redis_handler.cpp:1809-1827`,
-`src/redis_service.cpp:2601-2633`) — unless keys were WATCHed.
+`OCC_BREAK_REPEATABLE_READ`/`WRITE_WRITE_CONFLICT` (`src/redis_handler.cpp:1830-1848`,
+`src/redis_service.cpp:2645-2668`) — unless keys were WATCHed.
 
 **BEGIN/COMMIT/ROLLBACK (interactive sessions, EloqKV-specific).** `BeginHandler` stores a fresh
 txm in `ctx->txm` (`src/redis_handler.cpp:1619`). While set, every ordinary handler detects
