@@ -2660,9 +2660,10 @@ void InfoCommand::OutputResult(OutputHandler *reply) const
         }
 
         result += "# Cluster";
+        bool cluster_enabled = FLAGS_cluster_mode || node_count_ > 1;
         result += "\r\ncluster_enabled:";
-        result += (node_count_ > 1 ? "1" : "0");
-        if (node_count_ > 1)
+        result += (cluster_enabled ? "1" : "0");
+        if (cluster_enabled)
         {
             result += "\r\ncluster_known_nodes:" + std::to_string(node_count_);
         }
