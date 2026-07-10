@@ -235,8 +235,11 @@ start_server {tags {"multi"}} {
     # format of an EXEC reply must read it raw.
     proc exec_raw {} {
         r readraw 1
-        set res [r exec]
-        r readraw 0
+        try {
+            set res [r exec]
+        } finally {
+            r readraw 0
+        }
         return $res
     }
 
