@@ -311,45 +311,68 @@ start_server {tags {"multi"}} {
 
     # INFO # Stats gauge of live external transactions (#528). The suite's
     # s/status helpers only fetch the clients section, so read stats directly.
+    # Configs with data store + WAL keep a nonzero, slightly jittery background
+    # baseline, so the assertions are baseline-relative and use controlled
+    # signals large enough to dominate that noise. `txms_floor` samples the
+    # low-water mark over a short window (background daemons only add txms, so
+    # the minimum approximates the quiescent baseline).
     proc active_txms {} {
         getInfoProperty [r info stats] active_extern_txms
     }
-    proc wait_txms_zero {msg} {
-        wait_for_condition 50 100 {
-            [active_txms] == 0
-        } else {
-            fail "$msg: [active_txms]"
+    proc txms_floor {} {
+        set m [active_txms]
+        for {set i 0} {$i < 5} {incr i} {
+            after 20
+            set v [active_txms]
+            if {$v < $m} { set m $v }
         }
+        return $m
     }
 
     test {active_extern_txms gauge is live and empty EXEC does not leak txms (#528)} {
-        # Quiesce: background daemons may hold a txm transiently; a stuck
-        # nonzero here is itself a leak.
-        wait_txms_zero "extern txm gauge did not quiesce to 0"
-        # Positive control: a BEGIN session holds one live extern txm until
-        # ROLLBACK, so an always-zero gauge cannot pass this test.
-        set rd [redis_client]
+        # Positive control: hold N concurrent BEGIN sessions (each a live extern
+        # txm). The gauge must rise by ~N and fall back after rollback — a
+        # dead/constant gauge cannot pass. N is large enough that a few
+        # background completions can't mask the rise.
+        set N 10
+        set base [txms_floor]
+        set conns {}
         try {
-            $rd begin
-            wait_for_condition 50 100 {
-                [active_txms] >= 1
-            } else {
-                fail "gauge did not observe the BEGIN-session txm"
+            for {set i 0} {$i < $N} {incr i} {
+                set c [redis_client]
+                $c begin
+                lappend conns $c
             }
-            $rd rollback
+            wait_for_condition 50 100 {
+                [active_txms] >= $base + $N - 2
+            } else {
+                fail "gauge did not rise by ~$N held BEGIN txms over base $base: [active_txms]"
+            }
         } finally {
-            $rd close
+            foreach c $conns { catch {$c rollback}; $c close }
         }
-        wait_txms_zero "gauge did not return to 0 after ROLLBACK"
-        # Regression for the #506 leak class: each cycle previously leaked one
-        # watch txm, which would pin the gauge at 20 forever.
+        wait_for_condition 50 100 {
+            [txms_floor] <= $base + 2
+        } else {
+            fail "gauge did not return to base $base after rolling back $N BEGINs: [txms_floor]"
+        }
+        # Regression for the #506 leak class: a large batch of empty WATCH/EXEC
+        # cycles must not accumulate outstanding txms. A one-per-cycle leak adds
+        # +$cycles, which dwarfs the whole baseline even if it fully drained; a
+        # healthy gauge settles back to the floor.
+        set cycles 100
+        set base [txms_floor]
         r set x 30
-        for {set j 0} {$j < 20} {incr j} {
+        for {set j 0} {$j < $cycles} {incr j} {
             r watch x
             r multi
             assert_equal "*0" [exec_raw]
         }
-        wait_txms_zero "empty WATCH/EXEC cycles leaked extern txms"
+        wait_for_condition 50 100 {
+            [txms_floor] <= $base + 5
+        } else {
+            fail "empty WATCH/EXEC cycles leaked extern txms above base $base: [txms_floor]"
+        }
         assert {[string is integer -strict [active_txms]]}
     } {}
 
