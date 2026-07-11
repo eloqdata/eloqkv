@@ -85,8 +85,12 @@ start_server {tags {"pubsub network"}} {
     test "PUBLISH/SUBSCRIBE after UNSUBSCRIBE without arguments" {
         set rd1 [redis_deferring_client]
         assert_equal {1 2 3} [subscribe $rd1 {chan1 chan2 chan3}]
-        unsubscribe $rd1
-        after 100
+        # No-arg UNSUBSCRIBE sends one confirmation per channel, but the
+        # unsubscribe helper consumes none when called without channels.
+        # EloqKV handles connections concurrently, so the publishes below race
+        # the registry update unless all three confirmations are read first.
+        $rd1 unsubscribe
+        consume_subscribe_messages $rd1 unsubscribe {chan1 chan2 chan3}
         assert_equal 0 [r publish chan1 hello]
         assert_equal 0 [r publish chan2 hello]
         assert_equal 0 [r publish chan3 hello]
@@ -98,7 +102,6 @@ start_server {tags {"pubsub network"}} {
     test "SUBSCRIBE to one channel more than once" {
         set rd1 [redis_deferring_client]
         assert_equal {1 1 1} [subscribe $rd1 {chan1 chan1 chan1}]
-        after 100
         assert_equal 1 [r publish chan1 hello]
         assert_equal {message chan1 hello} [$rd1 read]
 
@@ -160,9 +163,10 @@ start_server {tags {"pubsub network"}} {
     test "PUBLISH/PSUBSCRIBE after PUNSUBSCRIBE without arguments" {
         set rd1 [redis_deferring_client]
         assert_equal {1 2 3} [psubscribe $rd1 {chan1.* chan2.* chan3.*}]
-        punsubscribe $rd1
-        $rd1 read
-        after 100
+        # Same as UNSUBSCRIBE above: read all three confirmations before
+        # publishing, or the counts race the registry update.
+        $rd1 punsubscribe
+        consume_subscribe_messages $rd1 punsubscribe {chan1.* chan2.* chan3.*}
         assert_equal 0 [r publish chan1.hi hello]
         assert_equal 0 [r publish chan2.hi hello]
         assert_equal 0 [r publish chan3.hi hello]
