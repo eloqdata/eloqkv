@@ -77,7 +77,12 @@ start_server {tags {"pubsub network"}} {
         assert_equal {message chan1 hello} [$rd1 read]
         assert_equal {message chan1 hello} [$rd2 read]
 
-        # clean up clients
+        # clean up clients: unsubscribe before closing — the server-side
+        # removal on close happens asynchronously in the connection
+        # destructor, so a later publish to chan1 could still count these
+        # clients
+        unsubscribe $rd1 {chan1}
+        unsubscribe $rd2 {chan1}
         $rd1 close
         $rd2 close
     }
@@ -85,8 +90,12 @@ start_server {tags {"pubsub network"}} {
     test "PUBLISH/SUBSCRIBE after UNSUBSCRIBE without arguments" {
         set rd1 [redis_deferring_client]
         assert_equal {1 2 3} [subscribe $rd1 {chan1 chan2 chan3}]
-        unsubscribe $rd1
-        after 100
+        # No-arg UNSUBSCRIBE sends one confirmation per channel, but the
+        # unsubscribe helper consumes none when called without channels.
+        # EloqKV handles connections concurrently, so the publishes below race
+        # the registry update unless all three confirmations are read first.
+        $rd1 unsubscribe
+        consume_subscribe_messages $rd1 unsubscribe {chan1 chan2 chan3}
         assert_equal 0 [r publish chan1 hello]
         assert_equal 0 [r publish chan2 hello]
         assert_equal 0 [r publish chan3 hello]
@@ -98,11 +107,11 @@ start_server {tags {"pubsub network"}} {
     test "SUBSCRIBE to one channel more than once" {
         set rd1 [redis_deferring_client]
         assert_equal {1 1 1} [subscribe $rd1 {chan1 chan1 chan1}]
-        after 100
         assert_equal 1 [r publish chan1 hello]
         assert_equal {message chan1 hello} [$rd1 read]
 
-        # clean up clients
+        # clean up clients: unsubscribe before closing (see above)
+        unsubscribe $rd1 {chan1}
         $rd1 close
     }
 
@@ -152,7 +161,9 @@ start_server {tags {"pubsub network"}} {
         assert_equal {pmessage chan.* chan.foo hello} [$rd1 read]
         assert_equal {pmessage chan.* chan.foo hello} [$rd2 read]
 
-        # clean up clients
+        # clean up clients: punsubscribe before closing (see above)
+        punsubscribe $rd1 {chan.*}
+        punsubscribe $rd2 {chan.*}
         $rd1 close
         $rd2 close
     }
@@ -160,9 +171,10 @@ start_server {tags {"pubsub network"}} {
     test "PUBLISH/PSUBSCRIBE after PUNSUBSCRIBE without arguments" {
         set rd1 [redis_deferring_client]
         assert_equal {1 2 3} [psubscribe $rd1 {chan1.* chan2.* chan3.*}]
-        punsubscribe $rd1
-        $rd1 read
-        after 100
+        # Same as UNSUBSCRIBE above: read all three confirmations before
+        # publishing, or the counts race the registry update.
+        $rd1 punsubscribe
+        consume_subscribe_messages $rd1 punsubscribe {chan1.* chan2.* chan3.*}
         assert_equal 0 [r publish chan1.hi hello]
         assert_equal 0 [r publish chan2.hi hello]
         assert_equal 0 [r publish chan3.hi hello]
@@ -513,4 +525,19 @@ start_server {tags {"pubsub network"}} {
     #     assert_equal [r read] {message foo vaz}
     # } {} {resp3}
 
+    test "PUBLISH with no subscribers returns 0" {
+        assert_equal 0 [r publish nosubchan hello]
+    }
+
+    test "PUBLISH from Lua script counts subscribers" {
+        assert_equal 0 [r eval {return redis.call('publish', ARGV[1], ARGV[2])} 0 luasmoke hello]
+
+        set rd1 [redis_deferring_client]
+        assert_equal {1} [subscribe $rd1 {luasmoke}]
+        assert_equal 1 [r eval {return redis.call('publish', ARGV[1], ARGV[2])} 0 luasmoke hello]
+        assert_equal {message luasmoke hello} [$rd1 read]
+
+        unsubscribe $rd1 {luasmoke}
+        $rd1 close
+    }
 }

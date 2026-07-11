@@ -55,7 +55,7 @@ Files: `include/pub_sub_manager.h`, `src/pub_sub_manager.cpp`, glue in `src/redi
 
 ### Data structures
 
-A single process-global `PubSubManager eloqkv_pub_sub_mgr` (`src/redis_service.cpp:184`) holds, under one `bthread::Mutex pub_sub_mu_`:
+A single process-global `PubSubManager eloqkv_pub_sub_mgr` (`src/redis_service.cpp:198`) holds, under one `bthread::Mutex pub_sub_mu_`:
 
 - `pub_sub_channels_`: `flat_hash_map<std::string, flat_hash_set<RedisConnectionContext*>>` — exact channels (`include/pub_sub_manager.h:69-72`).
 - `pattern_subs_`: same shape for glob patterns (`include/pub_sub_manager.h:75-77`).
@@ -64,19 +64,19 @@ Each connection mirrors its own membership in `subscribed_channels` / `subscribe
 
 ### Subscribe / unsubscribe
 
-`SubscribeHandler` etc. (`src/redis_handler.cpp:4818+`) call straight into the manager (`src/redis_service.cpp:6426-6449`). Confirmations (`subscribe`/`unsubscribe`/`psubscribe`/`punsubscribe`, channel, count) are 3-element RESP2 arrays built in the connection's reusable `output` reply and written **directly to the socket** by `RedisConnectionContext::FlushOutput()` → `socket->Write` (`src/pub_sub_manager.cpp:39-45`, `src/redis_connection_context.cpp:90-105`), bypassing the normal brpc reply pipeline. There is no RESP3 push-frame support; subscribers receive classic RESP2 arrays.
+`SubscribeHandler` etc. (`src/redis_handler.cpp:4818+`) call straight into the manager (`src/redis_service.cpp:6447-6470`). Confirmations (`subscribe`/`unsubscribe`/`psubscribe`/`punsubscribe`, channel, count) are 3-element RESP2 arrays built in the connection's reusable `output` reply and written **directly to the socket** by `RedisConnectionContext::FlushOutput()` → `socket->Write` (`src/pub_sub_manager.cpp:39-45`, `src/redis_connection_context.cpp:90-105`), bypassing the normal brpc reply pipeline. There is no RESP3 push-frame support; subscribers receive classic RESP2 arrays.
 
 ### PUBLISH flow
 
-`PublishCommand` is a `DirectCommand` — it does not touch any key/cc-map (`include/redis_command.h:1292-1305`, `src/redis_command.cpp:3668-3677`). `RedisServiceImpl::Publish` (`src/redis_service.cpp:6451-6462`):
+`PublishCommand` is a `DirectCommand` — it does not touch any key/cc-map (`include/redis_command.h:1292-1305`, `src/redis_command.cpp:3668-3677`). `RedisServiceImpl::Publish` (`src/redis_service.cpp:6472-6487`):
 
-1. **Cross-node**: create a throwaway txm, send `PublishTxRequest{chan, msg}` (`data_substrate/tx_service/include/tx_request.h:1166-1179`). `TransactionExecution::ProcessTxRequest(PublishTxRequest&)` iterates **all node groups** and calls `cc_handler_->PublishMessage(ng_id, ...)`, then finishes the request immediately — fire-and-forget (`data_substrate/tx_service/src/tx_execution.cpp:1074-1083`).
+1. **Cross-node**: create a short-lived txm, send `PublishTxRequest{chan, msg}` (`data_substrate/tx_service/include/tx_request.h:1166-1179`). `TransactionExecution::ProcessTxRequest(PublishTxRequest&)` iterates **all node groups** and calls `cc_handler_->PublishMessage(ng_id, ...)`, then finishes the request immediately — fire-and-forget (`data_substrate/tx_service/src/tx_execution.cpp:1074-1083`); it never drives the txm to `Finished`, so `Publish` releases it with `AbortTx` (`data_substrate/tx_service/include/tx_util.h:32-44`) — an asynchronous release that enlists the txm to be driven to `Finished` and back to the free list (empty-set fast path, `tx_execution.cpp:574-587`).
 2. `LocalCcHandler::PublishMessage` skips the local node and sends a `CcMessage::PublishRequest` over the cc stream to each **node-group leader** (`data_substrate/tx_service/src/cc/local_cc_handler.cpp:1819-1830`, `remote/remote_cc_handler.cpp:1096-1112`).
 3. On the receiving node, `CcStreamReceiver` dispatches the message to `LocalCcShards::PublishMessage` (`remote/cc_stream_receiver.cpp:1896-1905`), which spawns a background bthread that invokes the engine-registered `publish_func_` (`src/cc/local_cc_shards.cpp:1250-1268`, `include/cc/local_cc_shards.h:1838-1846`).
-4. `publish_func` is EloqKV's `eloqkv_publish_func = [](chan, msg){ eloqkv_pub_sub_mgr.Publish(chan, msg); }`, wired in at startup via `DataSubstrate::RegisterEngine(..., eloqkv_publish_func)` (`src/redis_service.cpp:185-187`, `315-320`; plumbed through `core/src/data_substrate.cpp:410` → `core/src/tx_service_init.cpp:319` → `LocalCcShards`).
+4. `publish_func` is EloqKV's `eloqkv_publish_func = [](chan, msg){ eloqkv_pub_sub_mgr.Publish(chan, msg); }`, wired in at startup via `DataSubstrate::RegisterEngine(..., eloqkv_publish_func)` (`src/redis_service.cpp:199-201`, `329-334`; plumbed through `core/src/data_substrate.cpp:410` → `core/src/tx_service_init.cpp:319` → `LocalCcShards`).
 5. **Local**: the publisher then runs `eloqkv_pub_sub_mgr.Publish` itself (`src/pub_sub_manager.cpp:395-449`): exact-channel matches get `["message", chan, msg]`; every pattern is tested with `stringmatchlen` (Redis glob, `src/redis_string_match.cpp`) and matches get `["pmessage", pattern, chan, msg]`. Each delivery is serialized and written to the subscriber's socket inline, under `pub_sub_mu_`, so a slow subscriber stalls unrelated Pub/Sub traffic.
 
-The integer PUBLISH returns counts **local subscribers only** (comment at `src/redis_service.cpp:6459-6461`).
+The integer PUBLISH returns counts **local subscribers only** (comment at `src/redis_service.cpp:6484-6485`).
 
 ### Lifecycle and guarantees
 
