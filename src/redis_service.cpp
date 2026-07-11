@@ -2057,7 +2057,7 @@ TransactionExecution *RedisServiceImpl::NewTxm(IsolationLevel iso_level,
 #endif
     CODE_FAULT_INJECTOR("txm_iso_level_read_committed", {
         LOG(INFO) << "FaultInject txm_iso_level_read_committed"
-                  << "txID: " << txm->TxNumber();
+                  << " txID: " << txm->TxNumber();
         iso_level = IsolationLevel::ReadCommitted;
     });
 
@@ -2086,7 +2086,27 @@ TxErrorCode RedisServiceImpl::MultiExec(
     RedisReplier redis_reply(reply);
     if (cmd_reqs.empty())
     {
-        redis_reply.OnNil();
+        // EXEC with an empty queue. If WATCH created a txm, commit it so that
+        // validation of the watched keys runs: a broken watch fails the
+        // commit and EXEC replies a null array, as in Redis. Otherwise EXEC
+        // replies an empty array rather than nil.
+        if (txm != nullptr)
+        {
+            // The txm may be recycled once CommitTx returns; capture the tx
+            // number for logging first.
+            auto txn = txm->TxNumber();
+            auto [success, err_code] = CommitTx(txm);
+            if (!success)
+            {
+                LOG(WARNING)
+                    << "txn: " << txn << " empty MultiExec commit error: "
+                    << TxErrorMessage(err_code);
+                redis_reply.OnNullArray();
+                return err_code;
+            }
+        }
+        redis_reply.OnArrayStart(0);
+        redis_reply.OnArrayEnd();
         return TxErrorCode::NO_ERROR;
     }
 
@@ -2367,8 +2387,8 @@ TxErrorCode RedisServiceImpl::MultiExec(
                      << TxErrorMessage(tx_err_code);
         // abort txn
         AbortTx(txm);
-        // set nil
-        redis_reply.OnNil();
+        // An aborted EXEC replies a null array, as in Redis.
+        redis_reply.OnNullArray();
         return tx_err_code;
     }
 
@@ -2378,7 +2398,9 @@ TxErrorCode RedisServiceImpl::MultiExec(
     {
         LOG(WARNING) << "txn: " << txn
                      << " MultiExec commit error: " << TxErrorMessage(err_code);
-        redis_reply.OnNil();
+        // A failed commit (e.g. broken WATCH) replies a null array, as in
+        // Redis.
+        redis_reply.OnNullArray();
         return err_code;
     }
 

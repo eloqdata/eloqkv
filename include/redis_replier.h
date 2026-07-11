@@ -42,6 +42,9 @@ public:
     void OnArrayStart(unsigned len) override;
     void OnArrayEnd() override;
     void OnNil() override;
+    // Emit a RESP null array (*-1). Distinct from OnNil(), which emits a
+    // null bulk string ($-1).
+    void OnNullArray();
     void OnStatus(std::string_view str) override;
     void OnError(std::string_view str) override;
     void OnFormatError(const char *fmt, ...) override;
