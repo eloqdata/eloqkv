@@ -1786,6 +1786,7 @@ void InfoCommand::Execute(RedisServiceImpl *redis_impl,
     executable_path_ = redis_impl->GetExecutablePath();
     total_system_memory_kb_ = redis_impl->GetTotalSystemMemoryKB();
     max_connection_count_ = redis_impl->MaxConnectionCount();
+    active_extern_txms_ = redis_impl->ActiveExternTxCount();
 
     if (redis_impl->IsEnableRedisStats())
     {
@@ -2614,6 +2615,10 @@ void InfoCommand::OutputResult(OutputHandler *reply) const
         result += "\r\ntotal_commands_processed:" +
                   std::to_string(cmd_read_count_ + cmd_write_count_ +
                                  multi_cmd_count_);
+        // Live external-transaction gauge (see issue #528): transactions
+        // created for client commands that have not yet committed/aborted.
+        result +=
+            "\r\nactive_extern_txms:" + std::to_string(active_extern_txms_);
         // result +=
         //     "\r\nread_commands_processed:" +
         //     std::to_string(cmd_read_count_);
