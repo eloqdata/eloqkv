@@ -221,6 +221,13 @@ public:
 protected:
     bool ConvertListIndex(int64_t &index) const;
 
+    // Normalize an LTRIM [start, end] range against the current list size:
+    // resolve negative offsets, clamp out-of-range indices, and re-encode a
+    // fully out-of-range end as an empty range (start=1, end=0). Shared by
+    // Execute(LTrimCommand&) and CommitLTrim so commit is deterministic from
+    // state even on the commit-only replay path.
+    void NormalizeLTrimRange(int64_t &start, int64_t &end) const;
+
     std::deque<EloqString> list_object_;
 
     // The estimated memory size of the object. Limit the objects size so that

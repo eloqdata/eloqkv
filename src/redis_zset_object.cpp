@@ -498,6 +498,42 @@ void RedisZsetObject::CommitZAdd(
     ZParams &params,
     bool should_not_move_string)
 {
+    // Invariant: commit must be deterministic from the current object state.
+    // Standby apply and WAL recovery are commit-only (they Deserialize an image
+    // and call CommitOn without a preceding ExecuteOn), so the NX/XX/GT/LT
+    // element filtering that Execute(ZAddCommand&) performs is not guaranteed
+    // to have run. Re-apply that filtering here against the same pre-state,
+    // using the exact same predicates and precedence as the Execute dispatch
+    // (LT, then GT, then NX, then XX). A post-ExecuteOn image passes through
+    // unchanged because each surviving element still satisfies the predicate
+    // against the same pre-state (idempotent). The INCR/pair path is
+    // intentionally excluded: it is single-element all-or-nothing, and a
+    // filtered INCR returns NoChange in ExecuteOn so it is never forwarded or
+    // logged, hence never reaches commit.
+    if (!params.INCR() &&
+        std::holds_alternative<std::vector<std::pair<double, EloqString>>>(
+            elements))
+    {
+        auto &vec =
+            std::get<std::vector<std::pair<double, EloqString>>>(elements);
+        if (params.LT())
+        {
+            ZAddLT(vec, params.CH(), params.XX());
+        }
+        else if (params.GT())
+        {
+            ZAddGT(vec, params.CH(), params.XX());
+        }
+        else if (params.NX())
+        {
+            ZAddNX(vec);
+        }
+        else if (params.XX())
+        {
+            ZAddXX(vec, params.CH());
+        }
+    }
+
     auto update_element =
         [this, &params, &should_not_move_string](double &num, EloqString &field)
     {
