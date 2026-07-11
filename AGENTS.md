@@ -14,6 +14,7 @@ mkdir -p bld && cd bld
 cmake .. -DWITH_DATA_STORE=ELOQDSS_ELOQSTORE -DWITH_LOG_STATE=ROCKSDB \
     -DCMAKE_INSTALL_PREFIX=../install
 cmake --build . --parallel "$(nproc)" && cmake --install .
+cd ..                                      # install/ and eloqkv.ini are at the repo root
 ./install/bin/eloqkv --config=eloqkv.ini   # single node, port 6379, foreground
 ```
 
