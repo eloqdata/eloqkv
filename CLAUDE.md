@@ -29,6 +29,10 @@ cmake --install . --prefix ../install
 
 # Run a single-node server (port 6379, foreground)
 ./install/bin/eloqkv --config=eloqkv.ini
+# Logs: glog files default to install/logs/ (i.e. <install_prefix>/logs, relative
+# to the binary, NOT the cwd) — eloqdb.log.{INFO,WARNING,ERROR} and
+# host_manager.log.*, with *.INFO/*.WARNING symlinks to the current file. The
+# startup banner is the only place that prints this; override with --log_dir=<dir>.
 
 # Run a single TCL test file (e.g. tests/unit/eloq/hash.tcl)
 # against the running server; loop over tests/unit/eloq/*.tcl for the full suite
