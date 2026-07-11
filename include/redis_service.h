@@ -519,6 +519,9 @@ public:
     {
         return tx_service_;
     }
+    // Live external transactions across all tx processors (INFO
+    // active_extern_txms). tx_service_ is null until Start(); reports 0 then.
+    size_t ActiveExternTxCount() const;
     const char *GetVersion() const
     {
         return version_;

@@ -309,6 +309,50 @@ start_server {tags {"multi"}} {
         assert_equal "*-1" [exec_raw]
     } {}
 
+    # INFO # Stats gauge of live external transactions (#528). The suite's
+    # s/status helpers only fetch the clients section, so read stats directly.
+    proc active_txms {} {
+        getInfoProperty [r info stats] active_extern_txms
+    }
+    proc wait_txms_zero {msg} {
+        wait_for_condition 50 100 {
+            [active_txms] == 0
+        } else {
+            fail "$msg: [active_txms]"
+        }
+    }
+
+    test {active_extern_txms gauge is live and empty EXEC does not leak txms (#528)} {
+        # Quiesce: background daemons may hold a txm transiently; a stuck
+        # nonzero here is itself a leak.
+        wait_txms_zero "extern txm gauge did not quiesce to 0"
+        # Positive control: a BEGIN session holds one live extern txm until
+        # ROLLBACK, so an always-zero gauge cannot pass this test.
+        set rd [redis_client]
+        try {
+            $rd begin
+            wait_for_condition 50 100 {
+                [active_txms] >= 1
+            } else {
+                fail "gauge did not observe the BEGIN-session txm"
+            }
+            $rd rollback
+        } finally {
+            $rd close
+        }
+        wait_txms_zero "gauge did not return to 0 after ROLLBACK"
+        # Regression for the #506 leak class: each cycle previously leaked one
+        # watch txm, which would pin the gauge at 20 forever.
+        r set x 30
+        for {set j 0} {$j < 20} {incr j} {
+            r watch x
+            r multi
+            assert_equal "*0" [exec_raw]
+        }
+        wait_txms_zero "empty WATCH/EXEC cycles leaked extern txms"
+        assert {[string is integer -strict [active_txms]]}
+    } {}
+
 # TODO: transaction conflict with flushdb/flushall. issue tracked. (tx1:watch-multi/exec; tx2:flushdb)
     # test {FLUSHALL is able to touch the watched keys} {
     #     r set x 30

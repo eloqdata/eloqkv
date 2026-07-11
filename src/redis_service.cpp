@@ -2039,6 +2039,11 @@ void RedisServiceImpl::AddHandlers()
     AddCommandHandler("slowlog", slowlog_hd.get());
 }
 
+size_t RedisServiceImpl::ActiveExternTxCount() const
+{
+    return tx_service_ != nullptr ? tx_service_->ExternActiveTxCount() : 0;
+}
+
 TransactionExecution *RedisServiceImpl::NewTxm(IsolationLevel iso_level,
                                                CcProtocol protocol)
 {

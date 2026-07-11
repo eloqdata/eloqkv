@@ -309,6 +309,11 @@ the special MOVED/READONLY translations of §6.
   `ExecuteMultiObjTxRequest` (4486-4496, 4528-4536). `INFO` is a `DirectCommand`
   (`include/redis_command.h:811`) assembled from these counters plus service fields captured at
   Init (OS info, exe path, memory; `src/redis_service.cpp:587-630`).
+- `INFO` `# Stats` also reports `active_extern_txms` — a live gauge of external transactions
+  (txms handed to the redis layer that have not committed/aborted), summed from the
+  per-TxProcessor `ext_active_tx_cnt_` counters via `TxService::ExternActiveTxCount()`.
+  Populated on every INFO regardless of `--enable_redis_stats`; exposed for txm-leak
+  regression testing (#528, the #506 leak class).
 - Prometheus-style metrics (eloq_metrics): per-command duration histograms and totals plus
   read/write aggregates, registered with the engine at Init (289-313) and collected in
   `DispatchCommand`/`MultiExec` on sampled rounds (`CheckAndUpdateRedisCmdRound`, 6405). A
