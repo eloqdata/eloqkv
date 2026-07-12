@@ -1,7 +1,5 @@
 *.code-workspace
-.codex/*
-!.codex/skills/
-!.codex/skills/**
+.codex
 .cursor
 .vscode
 .cursor

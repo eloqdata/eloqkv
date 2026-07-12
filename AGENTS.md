@@ -62,5 +62,5 @@ and reviewer-facing documentation are consistent with the final diff.
   it was run in the current workspace.
 - When a change touches `data_substrate`, review and land that repository's change
   first, then update the submodule pointer.
-- Use `$finish-pr` for completed non-trivial changes and `$respond-to-review` when
-  addressing review feedback.
+- In Codex, use `$finish-pr` and `$respond-to-review`; in Claude Code, invoke the
+  same shared skills as `/finish-pr` and `/respond-to-review`.
