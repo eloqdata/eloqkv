@@ -1,0 +1,4 @@
+interface:
+  display_name: "Respond to Review"
+  short_description: "Resolve feedback and report exact follow-up changes"
+  default_prompt: "Use $respond-to-review to address review feedback and draft the response."
