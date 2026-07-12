@@ -14,6 +14,16 @@ After cloning: `git submodule update --init --recursive`.
 
 **Maintenance rule: when a code change alters behavior described in `docs/`, update the corresponding doc in the same change.** Each doc lists the source files it covers.
 
+## Pull Request Merge Policy
+
+- Merge pull requests with **squash and merge**. Before merging, rewrite the
+  squash commit title and body to summarize the complete final PR; do not use
+  an individual commit message or the auto-generated default unchanged.
+- If a change updates a submodule, merge the corresponding submodule PR first.
+  Then update the parent repository's submodule pointer to the merged commit
+  and only merge the parent PR after verifying that pointer is reachable from
+  the submodule's target branch.
+
 ## Common Commands
 
 ```bash

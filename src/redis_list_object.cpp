@@ -258,51 +258,59 @@ void RedisListObject::Execute(LLenCommand &cmd) const
     result.ret_ = list_object_.size();
 }
 
-CommandExecuteState RedisListObject::Execute(LTrimCommand &cmd) const
+void RedisListObject::NormalizeLTrimRange(int64_t &start, int64_t &end) const
 {
     // start and end can also be negative numbers indicating offsets from the
     // end of the list, where -1 is the last element of the list, -2 the
     // penultimate element and so on.
     // Here will convert the negative number to positive number and will change
     // them to suitable value if they exceed the list range.
-    RedisListResult &result = cmd.result_;
     size_t list_size = list_object_.size();
-    assert(list_size > 0);
 
     // If the start < 0, it will convert to positive value follow the rule
     // above. If the result of start still exceed the range of 0, it will set to
     // 0.
-    if (cmd.start_ < 0)
+    if (start < 0)
     {
-        cmd.start_ = static_cast<int64_t>(list_size) + cmd.start_;
-        if (cmd.start_ < 0)
+        start = static_cast<int64_t>(list_size) + start;
+        if (start < 0)
         {
-            cmd.start_ = 0;
+            start = 0;
         }
     }
     // If start > list size, it will set to list size.
-    else if (cmd.start_ > static_cast<int64_t>(list_size))
+    else if (start > static_cast<int64_t>(list_size))
     {
-        cmd.start_ = list_size;
+        start = list_size;
     }
     // If the end is less than 0, it will convert the positive value following
     // the above rule. If the result of end is still less than 0, set end to 0
     // and set start to 1 to remove all elements in the list.
-    if (cmd.end_ < 0)
+    if (end < 0)
     {
-        cmd.end_ = static_cast<int64_t>(list_size) + cmd.end_;
-        if (cmd.end_ < 0)
+        end = static_cast<int64_t>(list_size) + end;
+        if (end < 0)
         {
-            cmd.start_ = 1;
-            cmd.end_ = 0;
+            start = 1;
+            end = 0;
         }
     }
     // If end > list size, it will set to list size - 1, because the end element
     // is included in the result, so it is the last element's position.
-    else if (cmd.end_ >= static_cast<int64_t>(list_size))
+    else if (end >= static_cast<int64_t>(list_size))
     {
-        cmd.end_ = list_size - 1;
+        end = list_size - 1;
     }
+}
+
+CommandExecuteState RedisListObject::Execute(LTrimCommand &cmd) const
+{
+    RedisListResult &result = cmd.result_;
+    size_t list_size = list_object_.size();
+    assert(list_size > 0);
+
+    NormalizeLTrimRange(cmd.start_, cmd.end_);
+
     // Here to calc the number of surplus elements. Because the range include
     // start and end elements, so it will add 1.
     int64_t remaining = cmd.end_ - cmd.start_ + 1;
@@ -826,6 +834,26 @@ void RedisListObject::CommitLMovePush(bool is_left,
 
 bool RedisListObject::CommitLTrim(int64_t start, int64_t end)
 {
+    // Invariant: commit must be deterministic from the current list state. On
+    // the commit-only replay path (standby apply, WAL recovery) the index
+    // normalization Execute(LTrimCommand&) performs may not have run, so
+    // re-normalize here against the current size. An empty range (which
+    // includes the (start=1, end=0) re-encoding) must clear the list before any
+    // iterator arithmetic; without this guard an unnormalized negative end
+    // yields begin()-1 and an out-of-range start indexes past end().
+    NormalizeLTrimRange(start, end);
+
+    if (end - start + 1 <= 0)
+    {
+        for (const auto &element : list_object_)
+        {
+            serialized_length_ -= sizeof(uint32_t) + element.Length();
+        }
+        list_object_.clear();
+        assert(serialized_length_ <= MAX_OBJECT_SIZE);
+        return true;
+    }
+
     if (end + 1 < static_cast<int64_t>(list_object_.size()))
     {
         auto erase_begin = list_object_.begin() + end + 1;
@@ -845,10 +873,6 @@ bool RedisListObject::CommitLTrim(int64_t start, int64_t end)
         list_object_.erase(list_object_.begin(), erase_end);
     }
     assert(serialized_length_ <= MAX_OBJECT_SIZE);
-    if (end - start + 1 <= 0)
-    {
-        assert(list_object_.empty());
-    }
     return list_object_.empty();
 }
 

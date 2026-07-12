@@ -518,6 +518,11 @@ function run_build_ent() {
   run_cmake_build
   set -e
 
+  # Run the C++ unit tests registered by BUILD_WITH_TESTS=ON
+  # (object_serialize_deserialize_test, command_replay_test). They finish in
+  # milliseconds and guard replay-determinism paths the TCL suites can't reach.
+  ctest --test-dir ${ELOQKV_BASE_PATH}/cmake --output-on-failure
+
   cmake --install ${ELOQKV_BASE_PATH}/cmake
 
   # compile log service to setup redis cluster later

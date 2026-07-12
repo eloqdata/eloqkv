@@ -536,6 +536,11 @@ if(${BUILD_WITH_TESTS})
     target_link_libraries(object_serialize_deserialize_test PRIVATE Catch2::Catch2WithMain ${ABSEIL} ${LOG_LIB} ${RESELOQ_LIBRARY} lua fpconv ${DYNAMIC_LIB})
 
     add_test(NAME serialize/deserialize_test COMMAND object_serialize_deserialize_test WORKING_DIRECTORY ${CMAKE_BINARY_DIR})
+
+    add_executable(command_replay_test ./tests/unit/eloq/command_replay_test.cpp ${RESELOQ_RESOURCES})
+    target_link_libraries(command_replay_test PRIVATE Catch2::Catch2WithMain ${ABSEIL} ${LOG_LIB} ${RESELOQ_LIBRARY} lua fpconv ${DYNAMIC_LIB})
+
+    add_test(NAME command_replay_test COMMAND command_replay_test WORKING_DIRECTORY ${CMAKE_BINARY_DIR})
     enable_testing()
 
     if (VECTOR_INDEX_ENABLED)
