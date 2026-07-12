@@ -1,3 +1,21 @@
+# A freshly opened connection can already answer its own commands before the
+# brpc Acceptor has registered its socket in the connection map that CLIENT
+# LIST and CLIENT KILL enumerate. Under load (e.g. a 3-node cluster sharing
+# core_number=2) that registration lag is observable: CLIENT KILL <addr> scans
+# the map, finds no match and replies "No such client", failing the test.
+# CLIENT KILL only accepts the old-style addr:port form, and it and CLIENT LIST
+# read the exact same map, so wait until the target address is actually visible
+# in CLIENT LIST before killing it. That makes the kill deterministic without
+# reducing coverage.
+proc kill_client_by_addr {conn addr} {
+    wait_for_condition 50 20 {
+        [string match "*addr=$addr *" [$conn client list]]
+    } else {
+        fail "client $addr never registered in CLIENT LIST"
+    }
+    $conn client kill $addr
+}
+
 start_server {tags {"client"}} {
    test "CLIENT SETNAME/GETNAME" {
       r client setname test-client
@@ -11,7 +29,7 @@ start_server {tags {"client"}} {
       assert_match {*kill-client*} [$c client getname]
       set c_info [$c client info]
       regexp addr=(127.0.0.1:\[0-9\]+) $c_info - addr
-      r client kill $addr
+      kill_client_by_addr r $addr
       set client_list [r client list]
       regexp name=(kill-client) $client_list - name
       $c close
@@ -39,12 +57,12 @@ start_server {tags {"client"}} {
       assert_equal 1 [regexp $id3 [$rr2 client info]]
 
       regexp {addr\=([^\s]+)} [$rr client info]] _ addr2
-      r client kill $addr2
+      kill_client_by_addr r $addr2
       assert_equal 0 [regexp {$id2} [r client list]]
 
       regexp {addr\=([^\s]+)} [$rr2 client info]] _ addr3
-      r client kill $addr3
-      assert_equal 0 [regexp {$id3} [r client list]]      
+      kill_client_by_addr r $addr3
+      assert_equal 0 [regexp {$id3} [r client list]]
    }
 
    test "CLIENT SETNAME, CLIENT GETNAME" {

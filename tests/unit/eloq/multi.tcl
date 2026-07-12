@@ -230,6 +230,152 @@ start_server {tags {"multi"}} {
         r unwatch
     } {OK}
 
+    # Run EXEC in readraw mode and return the raw first RESP line. The Tcl
+    # client decodes *0, *-1 and $-1 all as {}, so tests that pin the wire
+    # format of an EXEC reply must read it raw.
+    proc exec_raw {} {
+        r readraw 1
+        try {
+            set res [r exec]
+        } finally {
+            r readraw 0
+        }
+        return $res
+    }
+
+    # Regression tests for #506: an empty EXEC must consume the watch txm
+    # (commit it so watch validation runs) and reply an empty array *0, not
+    # nil; an aborted EXEC replies a null array *-1, matching Redis.
+    test {empty EXEC replies an empty array, not nil (#506)} {
+        r multi
+        assert_equal "*0" [exec_raw]
+    } {}
+
+    test {WATCH then empty EXEC replies an empty array and consumes the watch txm (#506)} {
+        r set x 30
+        # Before the fix each cycle leaked one watch transaction.
+        for {set j 0} {$j < 10} {incr j} {
+            r watch x
+            r multi
+            assert_equal "*0" [exec_raw]
+        }
+        r ping
+    } {PONG}
+
+    test {WATCH modified key then empty EXEC replies a null array (#506)} {
+        r set x 30
+        r watch x
+        r set x 40
+        r multi
+        assert_equal "*-1" [exec_raw]
+    } {}
+
+    test {aborted non-empty EXEC replies a null array (#506)} {
+        r set x 30
+        r watch x
+        r set x 40
+        r multi
+        r ping
+        assert_equal "*-1" [exec_raw]
+    } {}
+
+    test {UNWATCH inside MULTI is immediate; empty EXEC replies an empty array (#506)} {
+        # EloqKV divergence from Redis: UNWATCH inside MULTI replies OK
+        # immediately instead of being queued (Redis queues it and EXEC
+        # replies a one-element array). The queue therefore stays empty and
+        # EXEC replies *0. Revisit this test if UNWATCH queueing is ever
+        # implemented.
+        r multi
+        r unwatch
+        assert_equal "*0" [exec_raw]
+    } {}
+
+    test {WATCH then UNWATCH inside MULTI still commits the watch txm on empty EXEC (#506)} {
+        r set x 30
+        r watch x
+        r multi
+        r unwatch
+        assert_equal "*0" [exec_raw]
+    } {}
+
+    test {failed second WATCH poisons EXEC into a null array (#506)} {
+        r set x 30
+        r watch x
+        r set x 40
+        # The second WATCH of a modified key fails with an OCC error and
+        # poisons the transaction.
+        assert_equal 1 [catch {r watch x}]
+        r multi
+        assert_equal "*-1" [exec_raw]
+    } {}
+
+    # INFO # Stats gauge of live external transactions (#528). The suite's
+    # s/status helpers only fetch the clients section, so read stats directly.
+    # Configs with data store + WAL keep a nonzero, slightly jittery background
+    # baseline, so the assertions are baseline-relative and use controlled
+    # signals large enough to dominate that noise. `txms_floor` samples the
+    # low-water mark over a short window (background daemons only add txms, so
+    # the minimum approximates the quiescent baseline).
+    proc active_txms {} {
+        getInfoProperty [r info stats] active_extern_txms
+    }
+    proc txms_floor {} {
+        set m [active_txms]
+        for {set i 0} {$i < 5} {incr i} {
+            after 20
+            set v [active_txms]
+            if {$v < $m} { set m $v }
+        }
+        return $m
+    }
+
+    test {active_extern_txms gauge is live and empty EXEC does not leak txms (#528)} {
+        # Positive control: hold N concurrent BEGIN sessions (each a live extern
+        # txm). The gauge must rise by ~N and fall back after rollback — a
+        # dead/constant gauge cannot pass. N is large enough that a few
+        # background completions can't mask the rise.
+        set N 10
+        set base [txms_floor]
+        set conns {}
+        try {
+            for {set i 0} {$i < $N} {incr i} {
+                set c [redis_client]
+                $c begin
+                lappend conns $c
+            }
+            wait_for_condition 50 100 {
+                [active_txms] >= $base + $N - 2
+            } else {
+                fail "gauge did not rise by ~$N held BEGIN txms over base $base: [active_txms]"
+            }
+        } finally {
+            foreach c $conns { catch {$c rollback}; $c close }
+        }
+        wait_for_condition 50 100 {
+            [txms_floor] <= $base + 2
+        } else {
+            fail "gauge did not return to base $base after rolling back $N BEGINs: [txms_floor]"
+        }
+        # Regression for the #506 leak class: a large batch of empty WATCH/EXEC
+        # cycles must not accumulate outstanding txms. A one-per-cycle leak adds
+        # +$cycles, which dwarfs the whole baseline even if it fully drained; a
+        # healthy gauge settles back to the floor.
+        set cycles 100
+        set base [txms_floor]
+        r set x 30
+        for {set j 0} {$j < $cycles} {incr j} {
+            r watch x
+            r multi
+            assert_equal "*0" [exec_raw]
+        }
+        wait_for_condition 50 100 {
+            [txms_floor] <= $base + 5
+        } else {
+            fail "empty WATCH/EXEC cycles leaked extern txms above base $base: [txms_floor]"
+        }
+        assert {[string is integer -strict [active_txms]]}
+    } {}
+
 # TODO: transaction conflict with flushdb/flushall. issue tracked. (tx1:watch-multi/exec; tx2:flushdb)
     # test {FLUSHALL is able to touch the watched keys} {
     #     r set x 30
@@ -901,15 +1047,29 @@ start_server {tags {"multi"}} {
     } {*CONFIG SET failed*} {needs:redis_config}
     
     test "WatchKeys with ISO=ReadCommitted and EXEC fail on WATCHed key modified" {
-        r fault_inject watch_keys_txm_iso_level -1
-        r set x 30
-        r watch x
-        r set x 40
-        r multi
-        r ping
-        assert_equal {} [r exec]
-        r fault_inject watch_keys_txm_iso_level -1 remove
-    } {OK} {needs:fault_inject}
+        # The injector is named txm_iso_level_read_committed (NewTxm); the
+        # previous name here (watch_keys_txm_iso_level) never fired, leaving
+        # this test running on the default isolation level.
+        r fault_inject txm_iso_level_read_committed -1
+        try {
+            r set x 30
+            r watch x
+            r set x 40
+            r multi
+            r ping
+            assert_equal "*-1" [exec_raw]
+            # An empty EXEC must also validate the watch under ReadCommitted:
+            # watch-keys reads are promoted to RepeatableRead (#506).
+            r watch x
+            r set x 50
+            r multi
+            assert_equal "*-1" [exec_raw]
+        } finally {
+            # Always disarm the injector: leaked, it would downgrade every
+            # later transaction in this server process to ReadCommitted.
+            r fault_inject txm_iso_level_read_committed -1 remove
+        }
+    } {} {needs:fault_inject}
 
 # TODO: transaction conflict with flushdb/flushall. issue tracked.
     # test "Flushall while watching several keys by one client" {

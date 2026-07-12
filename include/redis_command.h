@@ -905,6 +905,9 @@ struct InfoCommand : public DirectCommand
     int64_t multi_cmd_count_{0};
     int64_t cmds_per_sec_{0};
     double cmd_latency_{0};
+    // Live external txm gauge read from the tx service, not a RedisStats
+    // statistic — populated regardless of enable_redis_stats.
+    uint64_t active_extern_txms_{0};
 };
 
 struct MemoryStatsCommand : public DirectCommand
