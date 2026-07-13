@@ -1,0 +1,4 @@
+interface:
+  display_name: "Finish PR"
+  short_description: "Finalize changes for reviewer-ready delivery"
+  default_prompt: "Use $finish-pr to audit the final diff and prepare the pull request."

@@ -34,3 +34,33 @@ Discoverability note: nothing states this default except the startup banner
 (`Running logs will be written to the following path: …/install/logs`). `--help`
 only documents `--log_dir` as the *override*, never the default. To send logs
 elsewhere, pass `--log_dir=<dir>` (or `--logtostderr` to log to stderr instead).
+
+## Documentation and delivery
+
+A non-trivial coding task is complete only after implementation, verification,
+and reviewer-facing documentation are consistent with the final diff.
+
+### Code comments
+
+- Document non-obvious invariants, concurrency and memory-ordering assumptions,
+  ownership/lifetime rules, failure and retry behavior, compatibility constraints,
+  and hot-path tradeoffs. Explain **why**, not syntax.
+- For transaction or storage changes, call out lock ordering, reader/writer
+  visibility, durability boundaries, crash consistency, and idempotency when
+  relevant.
+- Add documentation comments to new public APIs and externally visible types.
+- Do not add comments that merely restate the code. Update stale nearby comments
+  when behavior changes.
+
+### Final delivery
+
+- Derive summaries and pull request text from the final merge-base diff, not
+  memory or only unstaged changes.
+- Report the problem, observable behavior, implementation, material design
+  decisions, exact verification performed, risks, rollback, and reviewer focus.
+- State unrun checks and uncertainty explicitly; never claim a test passed unless
+  it was run in the current workspace.
+- When a change touches `data_substrate`, review and land that repository's change
+  first, then update the submodule pointer.
+- In Codex, use `$finish-pr` and `$respond-to-review`; in Claude Code, invoke the
+  same shared skills as `/finish-pr` and `/respond-to-review`.
