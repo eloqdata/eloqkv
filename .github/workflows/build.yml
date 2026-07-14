@@ -29,6 +29,14 @@ on:
         type: boolean
         default: false
         description: 'mark the release as a prerelease (used by nightly)'
+      upload_release_assets:
+        type: boolean
+        default: true
+        description: 'upload packaged assets to a GitHub release'
+      upload_workflow_artifacts:
+        type: boolean
+        default: false
+        description: 'upload packaged assets as workflow artifacts'
 
 jobs:
   build:
@@ -214,6 +222,7 @@ jobs:
           done
 
       - name: Upload assets to release
+        if: ${{ inputs.upload_release_assets }}
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ inputs.tag_name }}
@@ -224,3 +233,14 @@ jobs:
             log-service-*-${{ inputs.arch }}.tar.gz
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload packaged assets as workflow artifact
+        if: ${{ inputs.upload_workflow_artifacts }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-assets-${{ inputs.tag_name }}-${{ inputs.arch }}
+          path: |
+            eloqkv-*-${{ inputs.arch }}.tar.gz
+            log-service-*-${{ inputs.arch }}.tar.gz
+          if-no-files-found: error
+          retention-days: 7
