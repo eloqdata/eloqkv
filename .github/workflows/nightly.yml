@@ -1,51 +1,34 @@
 name: Nightly
 
-# Rolling nightly build. On every push to main it resets a single `nightly`
-# prerelease at the latest commit, then builds every shipped variant on amd64 +
-# arm64 and uploads the packages to it. Assets are always available at a stable
-# URL: <repo>/releases/download/nightly/<asset>.
+# Rolling nightly build. On every push to main it builds every shipped variant
+# on amd64 + arm64 first, then replaces the single `nightly` prerelease after all
+# packages are ready. Assets are available at a stable URL:
+# <repo>/releases/download/nightly/<asset>.
 
 on:
   push:
     branches: [main]
   workflow_dispatch:
 
-# Only one nightly build at a time; a newer push cancels the in-flight one so
-# the nightly release always reflects the latest main.
+# Only one nightly build at a time. Do not cancel an in-flight run because the
+# final publish step briefly swaps the shared nightly release/tag.
 concurrency:
   group: nightly
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 permissions:
+  actions: read
   contents: write
 
 jobs:
-  # Serialize the destructive part (move the nightly tag + reset the release)
-  # into a single job, so the matrix jobs below only append their own
-  # uniquely-named assets and never race on the shared release/tag.
-  prepare:
-    name: Reset nightly release
-    runs-on: ubuntu-24.04
-    steps:
-      - name: Recreate the rolling nightly prerelease at the current commit
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh release delete nightly --yes --cleanup-tag --repo "$GITHUB_REPOSITORY" || true
-          gh release create nightly \
-            --repo "$GITHUB_REPOSITORY" \
-            --target "$GITHUB_SHA" \
-            --title "Nightly" \
-            --notes "Rolling nightly build from ${GITHUB_SHA}." \
-            --prerelease
-
   call-build:
-    needs: prepare
     name: ${{ matrix.arch }}
     uses: ./.github/workflows/build.yml
     with:
       tag_name: nightly
       prerelease: true
+      upload_release_assets: false
+      upload_workflow_artifacts: true
       arch: ${{ matrix.arch }}
       os_id: ubuntu24
       package_manager: apt
@@ -55,3 +38,63 @@ jobs:
       fail-fast: false
       matrix:
         arch: [amd64, arm64]
+
+  publish:
+    name: Publish nightly release
+    needs: call-build
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Download packaged assets
+        uses: actions/download-artifact@v4
+        with:
+          pattern: release-assets-nightly-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: Stage complete release and switch nightly
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+
+          assets=(release-assets/*.tar.gz)
+          expected_assets=20
+          if [ "${#assets[@]}" -ne "${expected_assets}" ]; then
+            printf 'Expected %s nightly assets, found %s:\n' "${expected_assets}" "${#assets[@]}" >&2
+            find release-assets -maxdepth 1 -type f -print | sort >&2
+            exit 1
+          fi
+
+          staging_tag="nightly-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          gh release delete "${staging_tag}" --yes --cleanup-tag --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 || true
+
+          cleanup_staging() {
+            gh release delete "${staging_tag}" --yes --cleanup-tag --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 || true
+          }
+          trap cleanup_staging ERR
+
+          gh release create "${staging_tag}" "${assets[@]}" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "Nightly staging ${GITHUB_RUN_ID}.${GITHUB_RUN_ATTEMPT}" \
+            --notes "Staged nightly build from ${GITHUB_SHA}." \
+            --prerelease \
+            --draft
+
+          notes_file="$(mktemp)"
+          printf 'Rolling nightly build from %s.\n' "$GITHUB_SHA" > "${notes_file}"
+
+          gh release delete nightly --yes --cleanup-tag --repo "$GITHUB_REPOSITORY" || true
+          gh api -X DELETE "repos/${GITHUB_REPOSITORY}/git/refs/tags/nightly" >/dev/null 2>&1 || true
+          gh release edit "${staging_tag}" \
+            --repo "$GITHUB_REPOSITORY" \
+            --tag nightly \
+            --target "$GITHUB_SHA" \
+            --title "Nightly" \
+            --notes-file "${notes_file}" \
+            --prerelease \
+            --draft=false
+
+          trap - ERR
+          gh api -X DELETE "repos/${GITHUB_REPOSITORY}/git/refs/tags/${staging_tag}" >/dev/null 2>&1 || true
