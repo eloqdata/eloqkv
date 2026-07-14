@@ -1,9 +1,9 @@
 name: Build
 
-# One job per architecture: build the third-party workspace from source ONCE,
-# then build, package and upload every shipped variant. This avoids rebuilding
-# third-party for each variant (was 5x per arch). Slower wall-clock per job but
-# far less total compute; release/nightly are not latency-sensitive.
+# One job per architecture and shipped variant. This spends more total runner
+# time than building all variants serially per architecture, but release/nightly
+# wall-clock time is dominated by the slowest variant instead of the sum of all
+# variants.
 
 on:
   workflow_call:
@@ -11,6 +11,14 @@ on:
       tag_name:
         type: string
         required: true
+      release_tag_name:
+        type: string
+        default: ''
+        description: 'release tag to upload assets to; defaults to tag_name'
+      release_draft:
+        type: boolean
+        default: false
+        description: 'upload assets to a draft release'
       os_id:
         type: string
         default: ubuntu24
@@ -41,10 +49,44 @@ on:
 jobs:
   build:
     runs-on: ${{ inputs.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - id: rocksdb
+            data_store: ROCKSDB
+            log_state: ROCKSDB
+            build_dss: "false"
+            build_rocksdb_tools: "true"
+            cmake_extra: ""
+          - id: rocks_s3
+            data_store: ELOQDSS_ROCKSDB_CLOUD_S3
+            log_state: ROCKSDB_CLOUD_S3
+            build_dss: "true"
+            build_rocksdb_tools: "true"
+            cmake_extra: -DWITH_CLOUD_AZ_INFO=ON
+          - id: eloqstore_local
+            data_store: ELOQDSS_ELOQSTORE
+            log_state: ROCKSDB
+            build_dss: "true"
+            build_rocksdb_tools: "false"
+            cmake_extra: ""
+          - id: eloqstore_s3
+            data_store: ELOQDSS_ELOQSTORE
+            log_state: ROCKSDB_CLOUD_S3
+            build_dss: "true"
+            build_rocksdb_tools: "false"
+            cmake_extra: -DWITH_CLOUD_AZ_INFO=ON
+          - id: eloqstore_gcs
+            data_store: ELOQDSS_ELOQSTORE
+            log_state: ROCKSDB_CLOUD_GCS
+            build_dss: "true"
+            build_rocksdb_tools: "false"
+            cmake_extra: ""
     container:
       image: ${{ inputs.container_image }}
       options: --user root
-    name: ${{ inputs.tag_name }}-${{ inputs.arch }}
+    name: ${{ inputs.tag_name }}-${{ inputs.arch }}-${{ matrix.id }}
     # In the container the default run shell is `sh` (dash); force bash so the
     # packaging step's arrays / here-strings / `set -o pipefail` work.
     defaults:
@@ -54,6 +96,12 @@ jobs:
       TAGGED: ${{ inputs.tag_name }}
       ARCH: ${{ inputs.arch }}
       OS_ID: ${{ inputs.os_id }}
+      VARIANT_ID: ${{ matrix.id }}
+      WITH_DATA_STORE_VALUE: ${{ matrix.data_store }}
+      WITH_LOG_STATE_VALUE: ${{ matrix.log_state }}
+      BUILD_DSS: ${{ matrix.build_dss }}
+      BUILD_ROCKSDB_TOOLS: ${{ matrix.build_rocksdb_tools }}
+      CMAKE_EXTRA: ${{ matrix.cmake_extra }}
       ELOQ_THIRD_PARTY_PREFIX: /opt/eloq/third_party
       CMAKE_PREFIX_PATH: /opt/eloq/third_party
       CMAKE_INCLUDE_PATH: /opt/eloq/third_party/include
@@ -95,19 +143,10 @@ jobs:
             yum) yum install -y postgresql-devel rsync patchelf ;;
           esac
 
-      - name: Build and package all variants
+      - name: Build and package variant
         working-directory: ${{ github.workspace }}/eloqkv_src
         run: |
           set -euo pipefail
-
-          # id | WITH_DATA_STORE | WITH_LOG_STATE | build_dss | build_rocksdb_tools | cmake_extra
-          VARIANTS=(
-            "rocksdb|ROCKSDB|ROCKSDB|false|true|"
-            "rocks_s3|ELOQDSS_ROCKSDB_CLOUD_S3|ROCKSDB_CLOUD_S3|true|true|-DWITH_CLOUD_AZ_INFO=ON"
-            "eloqstore_local|ELOQDSS_ELOQSTORE|ROCKSDB|true|false|"
-            "eloqstore_s3|ELOQDSS_ELOQSTORE|ROCKSDB_CLOUD_S3|true|false|"
-            "eloqstore_gcs|ELOQDSS_ELOQSTORE|ROCKSDB_CLOUD_GCS|true|false|"
-          )
 
           write_license() {
             printf '%s\n' \
@@ -144,86 +183,94 @@ jobs:
             done
           }
 
-          for entry in "${VARIANTS[@]}"; do
-            IFS='|' read -r id dst lst dss rtools extra <<< "$entry"
-            echo "::group::Build variant ${id} (${ARCH})"
+          id="${VARIANT_ID}"
+          dst="${WITH_DATA_STORE_VALUE}"
+          lst="${WITH_LOG_STATE_VALUE}"
+          dss="${BUILD_DSS}"
+          rtools="${BUILD_ROCKSDB_TOOLS}"
+          extra="${CMAKE_EXTRA}"
+          echo "::group::Build variant ${id} (${ARCH})"
 
-            # --- eloqkv ---
-            rm -rf build
-            # shellcheck disable=SC2086
-            cmake -S . -B build \
+          # --- eloqkv ---
+          rm -rf build
+          # shellcheck disable=SC2086
+          cmake -S . -B build \
+            -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            -DWITH_DATA_STORE="${dst}" \
+            -DWITH_LOG_STATE="${lst}" \
+            -DWITH_LOG_SERVICE=ON \
+            -DDISABLE_CKPT_REPORT=ON \
+            -DDISABLE_CODE_LINE_IN_LOG=ON \
+            -DWITH_ASAN=OFF \
+            -DELOQ_THIRD_PARTY_PREFIX=/opt/eloq/third_party \
+            -DELOQ_THIRD_PARTY_REQUIRED=ON \
+            ${extra}
+          cmake --build build -j"$(nproc)"
+
+          DEST_DIR="$HOME/EloqKV"
+          rm -rf "$DEST_DIR"
+          mkdir -p "$DEST_DIR/bin" "$DEST_DIR/lib" "$DEST_DIR/conf"
+          cp build/eloqkv "$DEST_DIR/bin/"
+          cp build/data_substrate/host_manager "$DEST_DIR/bin/"
+
+          if [ "${rtools}" = "true" ]; then
+            for tool in eloqkv_to_aof eloqkv_to_rdb; do
+              if [ -x "build/$tool" ]; then
+                cp "build/$tool" "$DEST_DIR/bin/"
+              else
+                echo "skip $tool (not built for ${dst})"
+              fi
+            done
+          fi
+
+          if [ "${dss}" = "true" ]; then
+            DSS_SRC="$PWD/data_substrate/store_handler/eloq_data_store_service"
+            rm -rf "$DSS_SRC/build"
+            cmake -S "$DSS_SRC" -B "$DSS_SRC/build" \
               -DCMAKE_BUILD_TYPE=RelWithDebInfo \
               -DWITH_DATA_STORE="${dst}" \
-              -DWITH_LOG_STATE="${lst}" \
-              -DWITH_LOG_SERVICE=ON \
-              -DDISABLE_CKPT_REPORT=ON \
-              -DDISABLE_CODE_LINE_IN_LOG=ON \
-              -DWITH_ASAN=OFF \
               -DELOQ_THIRD_PARTY_PREFIX=/opt/eloq/third_party \
-              -DELOQ_THIRD_PARTY_REQUIRED=ON \
-              ${extra}
-            cmake --build build -j"$(nproc)"
+              -DELOQ_THIRD_PARTY_REQUIRED=ON
+            cmake --build "$DSS_SRC/build" -j"$(nproc)"
+            cp "$DSS_SRC/build/dss_server" "$DEST_DIR/bin/"
+          fi
 
-            DEST_DIR="$HOME/EloqKV"
-            rm -rf "$DEST_DIR"
-            mkdir -p "$DEST_DIR/bin" "$DEST_DIR/lib" "$DEST_DIR/conf"
-            cp build/eloqkv "$DEST_DIR/bin/"
-            cp build/data_substrate/host_manager "$DEST_DIR/bin/"
+          for bin in "$DEST_DIR"/bin/*; do bundle_libs "$bin" "$DEST_DIR/lib"; done
+          find "$DEST_DIR/lib" \
+            \( -name 'libbrpc*' -o -name 'libbraft*' -o -name 'libleveldb*' -o -name 'librocksdb*' \) \
+            -exec patchelf --set-rpath '$ORIGIN' {} \; 2>/dev/null || true
+          cp eloqkv.ini "$DEST_DIR/conf/"
+          write_license "$DEST_DIR/LICENSE.txt"
+          tar -czf "$GITHUB_WORKSPACE/eloqkv-${TAGGED}-${id}-${OS_ID}-${ARCH}.tar.gz" -C "$HOME" EloqKV
 
-            if [ "${rtools}" = "true" ]; then
-              for tool in eloqkv_to_aof eloqkv_to_rdb; do
-                [ -x "build/$tool" ] && cp "build/$tool" "$DEST_DIR/bin/" || echo "skip $tool (not built for ${dst})"
-              done
-            fi
+          # --- log-service ---
+          LOG_SRC="$PWD/data_substrate/eloq_log_service"
+          rm -rf "$LOG_SRC/build" "$LOG_SRC/LogServer"
+          mkdir -p "$LOG_SRC/LogServer/bin" "$LOG_SRC/LogServer/lib"
+          # shellcheck disable=SC2086
+          cmake -S "$LOG_SRC" -B "$LOG_SRC/build" \
+            -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            -DWITH_LOG_STATE="${lst}" \
+            -DWITH_ASAN=OFF \
+            -DDISABLE_CODE_LINE_IN_LOG=ON \
+            -DELOQ_THIRD_PARTY_PREFIX=/opt/eloq/third_party \
+            -DELOQ_THIRD_PARTY_REQUIRED=ON \
+            ${extra}
+          cmake --build "$LOG_SRC/build" -j"$(nproc)"
+          mv "$LOG_SRC/build/launch_sv" "$LOG_SRC/LogServer/bin/"
+          bundle_libs "$LOG_SRC/LogServer/bin/launch_sv" "$LOG_SRC/LogServer/lib"
+          tar -czf "$GITHUB_WORKSPACE/log-service-${TAGGED}-${id}-${OS_ID}-${ARCH}.tar.gz" -C "$LOG_SRC" LogServer
 
-            if [ "${dss}" = "true" ]; then
-              DSS_SRC="$PWD/data_substrate/store_handler/eloq_data_store_service"
-              rm -rf "$DSS_SRC/build"
-              cmake -S "$DSS_SRC" -B "$DSS_SRC/build" \
-                -DCMAKE_BUILD_TYPE=RelWithDebInfo \
-                -DWITH_DATA_STORE="${dst}" \
-                -DELOQ_THIRD_PARTY_PREFIX=/opt/eloq/third_party \
-                -DELOQ_THIRD_PARTY_REQUIRED=ON
-              cmake --build "$DSS_SRC/build" -j"$(nproc)"
-              cp "$DSS_SRC/build/dss_server" "$DEST_DIR/bin/"
-            fi
-
-            for bin in "$DEST_DIR"/bin/*; do bundle_libs "$bin" "$DEST_DIR/lib"; done
-            find "$DEST_DIR/lib" \
-              \( -name 'libbrpc*' -o -name 'libbraft*' -o -name 'libleveldb*' -o -name 'librocksdb*' \) \
-              -exec patchelf --set-rpath '$ORIGIN' {} \; 2>/dev/null || true
-            cp eloqkv.ini "$DEST_DIR/conf/"
-            write_license "$DEST_DIR/LICENSE.txt"
-            tar -czf "$GITHUB_WORKSPACE/eloqkv-${TAGGED}-${id}-${OS_ID}-${ARCH}.tar.gz" -C "$HOME" EloqKV
-
-            # --- log-service ---
-            LOG_SRC="$PWD/data_substrate/eloq_log_service"
-            rm -rf "$LOG_SRC/build" "$LOG_SRC/LogServer"
-            mkdir -p "$LOG_SRC/LogServer/bin" "$LOG_SRC/LogServer/lib"
-            # shellcheck disable=SC2086
-            cmake -S "$LOG_SRC" -B "$LOG_SRC/build" \
-              -DCMAKE_BUILD_TYPE=RelWithDebInfo \
-              -DWITH_LOG_STATE="${lst}" \
-              -DWITH_ASAN=OFF \
-              -DDISABLE_CODE_LINE_IN_LOG=ON \
-              -DELOQ_THIRD_PARTY_PREFIX=/opt/eloq/third_party \
-              -DELOQ_THIRD_PARTY_REQUIRED=ON \
-              ${extra}
-            cmake --build "$LOG_SRC/build" -j"$(nproc)"
-            mv "$LOG_SRC/build/launch_sv" "$LOG_SRC/LogServer/bin/"
-            bundle_libs "$LOG_SRC/LogServer/bin/launch_sv" "$LOG_SRC/LogServer/lib"
-            tar -czf "$GITHUB_WORKSPACE/log-service-${TAGGED}-${id}-${OS_ID}-${ARCH}.tar.gz" -C "$LOG_SRC" LogServer
-
-            echo "::endgroup::"
-          done
+          echo "::endgroup::"
 
       - name: Upload assets to release
         if: ${{ inputs.upload_release_assets }}
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ inputs.tag_name }}
-          name: ${{ inputs.tag_name }}
+          tag_name: ${{ inputs.release_tag_name || inputs.tag_name }}
+          name: ${{ inputs.release_tag_name || inputs.tag_name }}
           prerelease: ${{ inputs.prerelease }}
+          draft: ${{ inputs.release_draft }}
           files: |
             eloqkv-*-${{ inputs.arch }}.tar.gz
             log-service-*-${{ inputs.arch }}.tar.gz
@@ -234,7 +281,7 @@ jobs:
         if: ${{ inputs.upload_workflow_artifacts }}
         uses: actions/upload-artifact@v4
         with:
-          name: release-assets-${{ inputs.tag_name }}-${{ inputs.arch }}
+          name: release-assets-${{ inputs.tag_name }}-${{ inputs.arch }}-${{ matrix.id }}
           path: |
             eloqkv-*-${{ inputs.arch }}.tar.gz
             log-service-*-${{ inputs.arch }}.tar.gz

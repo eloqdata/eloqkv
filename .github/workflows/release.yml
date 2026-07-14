@@ -17,12 +17,40 @@ on:
         type: string
 
 jobs:
-  # One job per arch; build.yml builds third-party once and then all variants.
+  prepare:
+    name: Create release
+    runs-on: ubuntu-24.04
+    outputs:
+      release_created: ${{ steps.release.outputs.created }}
+    steps:
+      - name: Create or reuse release
+        id: release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.event.inputs.tag_name || github.ref_name }}
+        run: |
+          set -euo pipefail
+          if gh release view "${RELEASE_TAG}" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "created=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          gh release create "${RELEASE_TAG}" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "${RELEASE_TAG}" \
+            --notes "Release ${RELEASE_TAG}." \
+            --draft
+          echo "created=true" >> "$GITHUB_OUTPUT"
+
+  # build.yml expands each architecture into the shipped variant matrix.
   call-build:
+    needs: prepare
     name: ${{ matrix.arch }}
     uses: ./.github/workflows/build.yml
     with:
       tag_name: ${{ github.event.inputs.tag_name || github.ref_name }}
+      release_draft: true
       arch: ${{ matrix.arch }}
       os_id: ubuntu24
       package_manager: apt
@@ -32,3 +60,27 @@ jobs:
       fail-fast: false
       matrix:
         arch: [amd64, arm64]
+
+  publish:
+    name: Publish release
+    needs: [prepare, call-build]
+    if: ${{ always() && needs.prepare.result == 'success' }}
+    runs-on: ubuntu-24.04
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      RELEASE_TAG: ${{ github.event.inputs.tag_name || github.ref_name }}
+    steps:
+      - name: Delete draft release after failed build
+        if: ${{ needs.call-build.result != 'success' }}
+        run: |
+          set -euo pipefail
+          if [ "${{ needs.prepare.outputs.release_created }}" = "true" ]; then
+            gh release delete "${RELEASE_TAG}" --yes --repo "$GITHUB_REPOSITORY" || true
+          fi
+          exit 1
+
+      - name: Publish completed release
+        if: ${{ needs.call-build.result == 'success' }}
+        run: |
+          set -euo pipefail
+          gh release edit "${RELEASE_TAG}" --repo "$GITHUB_REPOSITORY" --draft=false
