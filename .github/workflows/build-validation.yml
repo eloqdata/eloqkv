@@ -36,16 +36,10 @@ jobs:
     env:
       ELOQ_THIRD_PARTY_PREFIX: /opt/eloq/third_party
     steps:
-      - name: Bootstrap git + ssh (bare image)
+      - name: Bootstrap git (bare image)
         run: |
           apt-get update
-          # openssh-client provides ssh-agent, needed by webfactory/ssh-agent
-          # and for cloning private submodules over ssh.
-          apt-get install -y --no-install-recommends git ca-certificates sudo openssh-client
-
-      - uses: webfactory/ssh-agent@v0.9.0
-        with:
-          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+          apt-get install -y --no-install-recommends git ca-certificates sudo
 
       - uses: actions/checkout@v4
         with:
@@ -54,8 +48,6 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || '' }}
 
       - name: Install system dependencies
-        env:
-          GIT_SSH_COMMAND: "ssh -o StrictHostKeyChecking=accept-new"
         run: |
           git config --global --add safe.directory '*'
           # System packages only; the third-party workspace is handled (cached)
