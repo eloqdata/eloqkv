@@ -18,7 +18,7 @@ jobs:
       dockerfile: ./scripts/docker/eloqkv.docker
       image-name: eloqkv
       checkout-submodules: "false"
-      # Fetch product + third-party sources on the runner (has .git + ssh-agent);
+      # Fetch product + third-party sources on the runner (has .git);
       # the ubuntu-dev-based build stage in eloqkv.docker only compiles them.
       checkout-command: |
         bash scripts/checkout_product_submodules.sh

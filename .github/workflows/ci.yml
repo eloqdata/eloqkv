@@ -24,10 +24,6 @@ jobs:
     env:
       ELOQ_THIRD_PARTY_PREFIX: /opt/eloq/third_party
     steps:
-      - uses: webfactory/ssh-agent@v0.9.0
-        with:
-          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
-
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
@@ -73,10 +69,6 @@ jobs:
       LD_LIBRARY_PATH: /opt/eloq/third_party/lib
 
     steps:
-      - uses: webfactory/ssh-agent@v0.9.0
-        with:
-          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
-
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
@@ -84,12 +76,10 @@ jobs:
           path: eloqkv
           ref: ${{ github.event.pull_request.head.sha || '' }}
 
-      - name: Clone private dependencies
-        env:
-          GIT_SSH_COMMAND: "ssh -o StrictHostKeyChecking=accept-new"
+      - name: Clone eloq-test
         run: |
           git config --global --add safe.directory '*'
-          git clone --recurse-submodules git@github.com:eloqdata/eloq-test.git eloq_test_src
+          git clone --recurse-submodules https://github.com/eloqdata/eloq-test.git eloq_test_src
 
       - name: Setup third-party (cached)
         uses: ./eloqkv/.github/actions/setup-third-party
