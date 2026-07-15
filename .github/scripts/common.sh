@@ -1086,6 +1086,8 @@ function run_eloqkv_tests() {
     # Wait for Redis server to be ready
     wait_until_ready
     echo "Redis server is ready!" >>/tmp/redis_single_node.log
+    echo "Flushing replayed data before Tcl tests." >>/tmp/redis_single_node.log
+    redis-cli -h 127.0.0.1 -p 6379 flushall
 
     run_tcl_tests all $build_type
     echo "finished big ckpt interval before replay with wal and data store." >>/tmp/redis_single_node.log
