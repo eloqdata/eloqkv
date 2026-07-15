@@ -352,6 +352,66 @@ function dump_eloq_test_focused_logs() {
   dump_file_tail "$runtime_dir/node6_log" 250
 }
 
+function ensure_gdb_available() {
+  if ! command -v gdb >/dev/null 2>&1; then
+    echo "gdb not installed; installing..."
+    (apt-get update && apt-get install -y gdb) >/dev/null 2>&1 || true
+  fi
+  command -v gdb >/dev/null 2>&1
+}
+
+function dump_live_process_backtraces() {
+  # Timeout failures leave the process alive, so core dumps are not enough to
+  # diagnose where the server is stuck.
+  set +e
+  echo ""
+  echo "===== live process backtraces ====="
+
+  if ! ensure_gdb_available; then
+    echo "gdb unavailable; cannot attach to live processes."
+    return 0
+  fi
+
+  local pids
+  pids=$(ps -eo pid=,comm= | awk '$2 == "eloqkv" || $2 == "dss_server" || $2 == "launch_sv" {print $1}' | head -12)
+
+  if [ -z "$pids" ]; then
+    echo "No live eloqkv, dss_server, or launch_sv processes found."
+    return 0
+  fi
+
+  local pid comm args exe
+  for pid in $pids; do
+    if ! kill -0 "$pid" 2>/dev/null; then
+      continue
+    fi
+
+    comm=$(ps -p "$pid" -o comm= 2>/dev/null)
+    args=$(ps -p "$pid" -o args= 2>/dev/null)
+    exe=$(readlink -f "/proc/${pid}/exe" 2>/dev/null || true)
+
+    echo ""
+    echo "----- live backtrace for pid ${pid} (${comm:-unknown}) -----"
+    echo "args: ${args:-<unknown>}"
+    echo "exe: ${exe:-<unknown>}"
+
+    if command -v timeout >/dev/null 2>&1; then
+      timeout 30s gdb -q -batch -nx \
+        -p "$pid" \
+        -ex 'set pagination off' \
+        -ex 'thread apply all bt' \
+        -ex 'detach' 2>&1 | head -800 || true
+    else
+      gdb -q -batch -nx \
+        -p "$pid" \
+        -ex 'set pagination off' \
+        -ex 'thread apply all bt' \
+        -ex 'detach' 2>&1 | head -800 || true
+    fi
+  done
+  echo "===== end live process backtraces ====="
+}
+
 function dump_core_backtraces() {
   # Print a full backtrace for every core dump we can find. Requires the
   # core_pattern to write a real file (set in gh_ci_entry.sh on the privileged
@@ -360,11 +420,7 @@ function dump_core_backtraces() {
   echo ""
   echo "===== core dump backtraces ====="
 
-  if ! command -v gdb >/dev/null 2>&1; then
-    echo "gdb not installed; installing..."
-    (apt-get update && apt-get install -y gdb) >/dev/null 2>&1 || true
-  fi
-  if ! command -v gdb >/dev/null 2>&1; then
+  if ! ensure_gdb_available; then
     echo "gdb unavailable; cannot symbolize cores. core_pattern=$(cat /proc/sys/kernel/core_pattern 2>/dev/null)"
     return 0
   fi
@@ -434,11 +490,12 @@ function dump_ci_failure_logs() {
   date || true
   pwd || true
 
-  dump_core_backtraces
-
   echo ""
   echo "===== Running eloq-related processes ====="
   ps -ef | grep -E 'eloqkv|dss_server|launch_sv|minio|redis-server' | grep -v grep || true
+
+  dump_live_process_backtraces
+  dump_core_backtraces
 
   echo ""
   echo "===== eloq_test runtime files ====="
@@ -1086,6 +1143,8 @@ function run_eloqkv_tests() {
     # Wait for Redis server to be ready
     wait_until_ready
     echo "Redis server is ready!" >>/tmp/redis_single_node.log
+    echo "Flushing replayed data before Tcl tests." >>/tmp/redis_single_node.log
+    redis-cli -h 127.0.0.1 -p 6379 flushall
 
     run_tcl_tests all $build_type
     echo "finished big ckpt interval before replay with wal and data store." >>/tmp/redis_single_node.log
