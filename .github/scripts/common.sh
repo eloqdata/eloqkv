@@ -236,6 +236,26 @@ function run_tcl_tests() {
   done
 }
 
+function flush_redis_data() {
+  local log_file=$1
+  shift
+  local ports=("$@")
+
+  if [[ ${#ports[@]} -eq 0 ]]; then
+    ports=(6379)
+  fi
+
+  echo "Flushing Redis data on ports: ${ports[*]}" >>"${log_file}"
+
+  local port
+  for port in "${ports[@]}"; do
+    if ! redis-cli -h 127.0.0.1 -p "${port}" flushall; then
+      echo "Failed to flush Redis data on port ${port}." >&2
+      return 1
+    fi
+  done
+}
+
 function cleanup_minio_bucket() {
   bucket_name=$1
   if [[ "$bucket_name" == eloqkv-* ]]; then
@@ -1144,7 +1164,7 @@ function run_eloqkv_tests() {
     wait_until_ready
     echo "Redis server is ready!" >>/tmp/redis_single_node.log
     echo "Flushing replayed data before Tcl tests." >>/tmp/redis_single_node.log
-    redis-cli -h 127.0.0.1 -p 6379 flushall
+    flush_redis_data /tmp/redis_single_node.log 6379 || exit 1
 
     run_tcl_tests all $build_type
     echo "finished big ckpt interval before replay with wal and data store." >>/tmp/redis_single_node.log
@@ -1288,6 +1308,7 @@ function run_eloqkv_tests() {
     # Wait for Redis server to be ready
     wait_until_ready
     echo "Redis server is ready!" >>/tmp/redis_single_node.log
+    flush_redis_data /tmp/redis_single_node.log 6379 || exit 1
 
     run_tcl_tests all $build_type
 
@@ -1340,6 +1361,7 @@ function run_eloqkv_tests() {
     # Wait for Redis server to be ready
     wait_until_ready
     echo "Redis server is ready!" >>/tmp/redis_single_node.log
+    flush_redis_data /tmp/redis_single_node.log 6379 || exit 1
 
     run_tcl_tests all $build_type false true
     echo "finished small ckpt interval without wal and with data store." >>/tmp/redis_single_node.log
@@ -2176,6 +2198,7 @@ function run_eloqkv_cluster_tests() {
     # Wait for Redis server to be ready
     wait_until_ready
     echo "Redis server is ready!" >>/tmp/redis_cluster_with_eloqstore.log
+    flush_redis_data /tmp/redis_cluster_with_eloqstore.log "${ports[@]}" || exit 1
 
     run_tcl_tests all $build_type true true
 
@@ -2279,6 +2302,7 @@ function run_eloqkv_cluster_tests() {
     echo "Redis server is ready!" >>/tmp/redis_cluster_with_eloqstore.log
 
     # wait for redis servers to be ready
+    flush_redis_data /tmp/redis_cluster_with_eloqstore.log "${ports[@]}" || exit 1
     run_tcl_tests all $build_type true
 
     # kill redis servers
@@ -2400,6 +2424,7 @@ function run_eloqkv_cluster_tests() {
     # Wait for Redis server to be ready
     wait_until_ready
     echo "Redis server is ready!" >>/tmp/redis_cluster_with_eloqstore.log
+    flush_redis_data /tmp/redis_cluster_with_eloqstore.log "${ports[@]}" || exit 1
 
     run_tcl_tests all $build_type true
 
