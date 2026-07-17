@@ -363,7 +363,7 @@ proc run_external_server_test {code overrides} {
         }
     }
 
-    # r flushall
+    r flushall
     # r function flush
 
     # store overrides
