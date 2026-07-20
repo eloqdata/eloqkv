@@ -99,7 +99,8 @@ jobs:
           trap cleanup_staging ERR
 
           asset_count="$(gh release view "${STAGING_TAG}" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets | length')"
-          expected_assets=20
+          # 6 variants x 2 architectures x (eloqkv + log-service)
+          expected_assets=24
           if [ "${asset_count}" -ne "${expected_assets}" ]; then
             printf 'Expected %s nightly assets, found %s:\n' "${expected_assets}" "${asset_count}" >&2
             gh release view "${STAGING_TAG}" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' >&2

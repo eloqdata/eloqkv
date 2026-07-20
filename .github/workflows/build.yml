@@ -65,6 +65,12 @@ jobs:
             build_dss: "true"
             build_rocksdb_tools: "true"
             cmake_extra: -DWITH_CLOUD_AZ_INFO=ON
+          - id: rocks_gcs
+            data_store: ELOQDSS_ROCKSDB_CLOUD_GCS
+            log_state: ROCKSDB_CLOUD_GCS
+            build_dss: "true"
+            build_rocksdb_tools: "true"
+            cmake_extra: ""
           - id: eloqstore_local
             data_store: ELOQDSS_ELOQSTORE
             log_state: ROCKSDB
