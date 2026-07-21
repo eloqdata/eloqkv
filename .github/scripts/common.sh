@@ -808,6 +808,39 @@ function run_eloqkv_tests() {
     # wait for kill to finish
     wait_until_finished
 
+    # run redis with data kicked out of memory, so reads go back to the store.
+    echo "redirecting output to /tmp/ to prevent ci pipeline crash"
+    env LD_LIBRARY_PATH=${ELOQKV_BASE_PATH}/install/lib/:${LD_LIBRARY_PATH} \
+      ${ELOQKV_BASE_PATH}/install/bin/eloqkv \
+      --port=6379 \
+      --core_number=2 \
+      --enable_wal=true \
+      --enable_data_store=true \
+      --node_memory_limit_mb=${NODE_MEMORY_LIMIT_MB:-2048} \
+      --maxclients=1000000 \
+      --checkpointer_interval=1 \
+      --kickout_data_for_test=true \
+      --enable_io_uring=${enable_io_uring} \
+      --logtostderr=true \
+      >/tmp/redis_server_single_node_evicted.log 2>&1 \
+      &
+
+    local redis_pid=$!
+
+    # Wait for Redis server to be ready
+    wait_until_ready
+    echo "Redis server is ready!"
+
+    run_tcl_tests all $build_type false true
+
+    # kill redis_server
+    if [[ -n $redis_pid && -e /proc/$redis_pid ]]; then
+      kill $redis_pid
+    fi
+
+    # wait for kill to finish
+    wait_until_finished
+
   elif [[ $kv_store_type = "ELOQDSS_ROCKSDB_CLOUD_S3" ]]; then
 
     echo "bootstrap eloqdss-rocksdb-cloud-s3"
@@ -1042,6 +1075,49 @@ function run_eloqkv_tests() {
     echo "Redis server is ready!"
 
     run_tcl_tests all $build_type
+
+    # kill redis_server
+    if [[ -n $redis_pid && -e /proc/$redis_pid ]]; then
+      kill $redis_pid
+    fi
+
+    # wait for kill to finish
+    wait_until_finished
+
+    # run redis with data kicked out of memory, so reads go back to the store.
+    echo "redirecting output to /tmp/ to prevent ci pipeline crash"
+    env LD_LIBRARY_PATH=${ELOQKV_BASE_PATH}/install/lib/:${LD_LIBRARY_PATH} \
+      ${ELOQKV_BASE_PATH}/install/bin/eloqkv \
+      --port=6379 \
+      --core_number=2 \
+      --enable_wal=true \
+      --enable_data_store=true \
+      --node_memory_limit_mb=${NODE_MEMORY_LIMIT_MB:-2048} \
+      --rocksdb_cloud_s3_endpoint_url="${rocksdb_cloud_s3_endpoint_url}" \
+      --aws_access_key_id="${rocksdb_cloud_aws_access_key_id}" \
+      --aws_secret_key="${rocksdb_cloud_aws_secret_access_key}" \
+      --rocksdb_cloud_bucket_name=${rocksdb_cloud_bucket_name} \
+      --rocksdb_cloud_object_path=${rocksdb_cloud_object_path} \
+      --rocksdb_cloud_bucket_prefix=${rocksdb_cloud_bucket_prefix} \
+      --txlog_rocksdb_cloud_bucket_prefix=${txlog_rocksdb_cloud_bucket_prefix} \
+      --txlog_rocksdb_cloud_bucket_name=${txlog_rocksdb_cloud_bucket_name} \
+      --txlog_rocksdb_cloud_object_path=${txlog_rocksdb_cloud_object_path} \
+      --txlog_rocksdb_cloud_s3_endpoint_url="${txlog_rocksdb_cloud_s3_endpoint_url}" \
+      --maxclients=1000000 \
+      --checkpointer_interval=1 \
+      --kickout_data_for_test=true \
+      --enable_io_uring=${enable_io_uring} \
+      --logtostderr=true \
+      >/tmp/redis_server_single_node_evicted.log 2>&1 \
+      &
+
+    local redis_pid=$!
+
+    # Wait for Redis server to be ready
+    wait_until_ready
+    echo "Redis server is ready!"
+
+    run_tcl_tests all $build_type false true
 
     # kill redis_server
     if [[ -n $redis_pid && -e /proc/$redis_pid ]]; then
