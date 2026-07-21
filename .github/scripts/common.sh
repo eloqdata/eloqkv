@@ -170,6 +170,43 @@ function eloqstore_flags() {
        "--eloq_store_reuse_local_files=true"
 }
 
+# Single-node scenarios, run for every store type.
+#   id | enable_wal | enable_data_store | checkpointer_interval | evicted
+# Checkpoint frequency and eviction are varied independently: a small checkpoint
+# interval exercises the flush path, kickout_data_for_test exercises the cold
+# read path, and pairing them would leave neither covered on its own.
+SINGLE_NODE_SCENARIOS=(
+  "small_ckpt|true|true|1|false"
+  "evicted|true|true|36000|true"
+  "no_wal_small_ckpt|false|true|1|false"
+  "no_wal_evicted|false|true|10|true"
+  "no_wal_no_data_store|false|false|10|false"
+)
+
+# Run every entry of SINGLE_NODE_SCENARIOS against one store type.
+#   run_single_node_scenarios <kv_store_type> <build_type> [common flags...]
+function run_single_node_scenarios() {
+  local store_type=$1 build_type=$2
+  shift 2
+
+  local entry id wal data_store ckpt evicted extra
+  for entry in "${SINGLE_NODE_SCENARIOS[@]}"; do
+    IFS='|' read -r id wal data_store ckpt evicted <<< "${entry}"
+
+    extra=()
+    if [[ ${evicted} = true ]]; then
+      extra+=(--kickout_data_for_test=true)
+    fi
+
+    echo "=== single node scenario: ${id} (wal=${wal} data_store=${data_store} ckpt=${ckpt} evicted=${evicted})"
+    run_scenario "${store_type}" "redis_server_single_node_${id}" \
+      "${build_type}" "${evicted}" "${wal}" "${data_store}" \
+      "$@" \
+      --checkpointer_interval="${ckpt}" \
+      "${extra[@]}"
+  done
+}
+
 # Initialise the cluster, then wait for the process to exit on its own.
 #   bootstrap_eloqkv <kv_store_type> [extra...]
 function bootstrap_eloqkv() {
@@ -834,21 +871,8 @@ function run_eloqkv_tests() {
     fi
 
     # run redis with wal disabled.
-    run_scenario "$kv_store_type" redis_server_single_node_no_wal \
-      "$build_type" false false true \
-      --checkpointer_interval=10
-
-    # run redis with wal and data store disabled.
-    run_scenario "$kv_store_type" redis_server_single_node_no_wal_no_data_store \
-      "$build_type" false false false \
-      --checkpointer_interval=10
-
-    # run redis with data kicked out of memory, so reads go back to the store.
-    run_scenario "$kv_store_type" redis_server_single_node_evicted \
-      "$build_type" true true true \
-      --node_memory_limit_mb=${NODE_MEMORY_LIMIT_MB:-2048} \
-      --checkpointer_interval=1 \
-      --kickout_data_for_test=true
+    run_single_node_scenarios "$kv_store_type" "$build_type" \
+      --node_memory_limit_mb=${NODE_MEMORY_LIMIT_MB:-2048}
 
   elif [[ $kv_store_type = "ELOQDSS_ROCKSDB_CLOUD_S3" ]]; then
 
@@ -935,23 +959,9 @@ function run_eloqkv_tests() {
     fi
 
     # run redis with wal disabled.
-    run_scenario "$kv_store_type" redis_server_single_node_no_wal \
-      "$build_type" false false true \
-      --checkpointer_interval=10 \
-      --rocksdb_cloud_purger_periodicity_secs=30
-
-    # run redis with wal and data store disabled.
-    run_scenario "$kv_store_type" redis_server_single_node_no_wal_no_data_store \
-      "$build_type" false false false \
-      --checkpointer_interval=10 \
-      --rocksdb_cloud_purger_periodicity_secs=30
-
-    # run redis with data kicked out of memory, so reads go back to the store.
-    run_scenario "$kv_store_type" redis_server_single_node_evicted \
-      "$build_type" true true true \
+    run_single_node_scenarios "$kv_store_type" "$build_type" \
       --node_memory_limit_mb=${NODE_MEMORY_LIMIT_MB:-2048} \
-      --checkpointer_interval=1 \
-      --kickout_data_for_test=true
+      --rocksdb_cloud_purger_periodicity_secs=30
 
     # clean up bucket in minio
     cleanup_minio_bucket $ROCKSDB_CLOUD_BUCKET_NAME
@@ -964,15 +974,6 @@ function run_eloqkv_tests() {
     local eloq_store_data_path="/tmp/eloqkv_data/eloq_store"
     local store_flags
     store_flags=$(eloqstore_flags "${eloq_data_path}" "${eloq_store_data_path}")
-
-    # run redis with small ckpt interval.
-    rm -rf ${eloq_data_path}/*
-    echo "small ckpt interval with wal and data store." >>/tmp/redis_single_node.log
-    run_scenario "$kv_store_type" redis_server_single_node_small_ckpt_interval \
-      "$build_type" true true true \
-      ${store_flags} \
-      --checkpointer_interval=1 \
-      --kickout_data_for_test=true
 
     # run redis
     rm -rf ${eloq_data_path}/*
@@ -1026,30 +1027,8 @@ function run_eloqkv_tests() {
     cd ${ELOQKV_BASE_PATH}
     rm -rf ./cc_ng ./tx_log ./log_service ./eloq_log_service
 
-    # run redis with wal disabled.
     rm -rf ${eloq_data_path}/*
-    echo "default ckpt interval without wal." >>/tmp/redis_single_node.log
-    run_scenario "$kv_store_type" redis_server_single_node_no_wal_default_ckpt_interval \
-      "$build_type" false false true \
-      ${store_flags} \
-      --checkpointer_interval=10
-
-    # run redis with wal disabled and small ckpt interval.
-    rm -rf ${eloq_data_path}/*
-    echo "small ckpt interval without wal." >>/tmp/redis_single_node.log
-    run_scenario "$kv_store_type" redis_server_single_node_nowal_small_ckpt_interval \
-      "$build_type" true false true \
-      ${store_flags} \
-      --checkpointer_interval=1 \
-      --kickout_data_for_test=true
-
-    # run redis with wal and data store disabled.
-    rm -rf ${eloq_data_path}/*
-    echo "default ckpt interval without wal and without data store." >>/tmp/redis_single_node.log
-    run_scenario "$kv_store_type" redis_server_single_node_no_wal_no_data_store_default_ckpt_interval \
-      "$build_type" false false false \
-      ${store_flags} \
-      --checkpointer_interval=10
+    run_single_node_scenarios "$kv_store_type" "$build_type" ${store_flags}
 
     cleanup_minio_bucket ${ELOQSTORE_BUCKET_NAME}
     cleanup_minio_bucket ${ROCKSDB_CLOUD_BUCKET_NAME}
