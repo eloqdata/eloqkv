@@ -6,14 +6,17 @@ name: Build Validation
 # natively on amd64 and arm64.
 #
 # third-party is cached (keyed on the manifest + build scripts + pinned source
-# submodules): a PR that does not touch third-party restores it and only the
-# variant compile runs; a PR that changes third-party misses the cache and
+# submodules): a run that does not touch third-party restores it and only the
+# variant compile runs; one that changes third-party misses the cache and
 # rebuilds it from scratch, validating the change end to end.
+#
+# Runs on main rather than per pull request. What it covers beyond ci.yml is the
+# from-scratch dependency install, which only breaks when the install script,
+# the third-party manifest or a submodule pin changes; at roughly 105 minutes of
+# runner time per run that is not worth paying on every push. Use
+# workflow_dispatch when a change does touch those.
 
 on:
-  pull_request:
-    branches: [main]
-    types: [opened, synchronize, reopened]
   push:
     branches: [main]
   workflow_dispatch:
