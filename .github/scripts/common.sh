@@ -290,17 +290,52 @@ function run_cluster_scenario() {
 DSS_SERVER_IP_PORT="127.0.0.1:9100"
 
 # Cluster scenarios, run for every store type.
-#   id | enable_wal | enable_data_store | store mode | checkpointer_interval | evicted
+#   id | enable_wal | enable_data_store | store mode | checkpointer_interval | evicted | log_replay
 # "embedded" keeps the data store in the eloqkv process; "dss" puts it behind a
 # shared dss_server, which is the deployment the ELOQDSS_* stores exist for.
 # ROCKSDB has no dss_server backend, so it skips those entries.
 CLUSTER_SCENARIOS=(
-  "pure_memory|false|false|embedded|36000|false"
-  "small_ckpt|true|true|embedded|1|false"
-  "evicted|true|true|embedded|36000|true"
-  "dss_small_ckpt|true|true|dss|1|false"
-  "dss_evicted|true|true|dss|36000|true"
+  "pure_memory|false|false|embedded|36000|false|false"
+  "small_ckpt|true|true|embedded|1|false|true"
+  "evicted|true|true|embedded|36000|true|false"
+  "dss_small_ckpt|true|true|dss|1|false|true"
+  "dss_evicted|true|true|dss|36000|true|false"
 )
+
+# Load data into a running cluster, restart it, and check the replayed contents
+# match. The cluster must already be up; it is left running on return.
+#   run_cluster_log_replay <kv_store_type> <log_prefix> <wal> <data_store> [flags...]
+function run_cluster_log_replay() {
+  local store_type=$1 log_prefix=$2 wal=$3 data_store=$4
+  shift 4
+
+  echo "=== cluster log replay"
+  local python_test_file="${ELOQKV_BASE_PATH}/tests/unit/eloq/log_replay_test/log_replay_test.py"
+  python3 "$python_test_file" --load > /tmp/load.log 2>&1
+  sleep 10
+
+  local pid
+  for pid in "${CLUSTER_PIDS[@]}"; do
+    if [[ -n $pid && -e /proc/$pid ]]; then
+      kill -9 "$pid"
+    fi
+  done
+  wait_until_finished
+
+  launch_cluster "${store_type}" "${log_prefix}_after_replay" "${wal}" "${data_store}" "$@"
+  wait_until_ready
+
+  python3 "$python_test_file" --verify
+  sleep 10
+
+  if diff <(jq -S . database_snapshot_before_replay.json) \
+          <(jq -S . database_snapshot_after_replay.json) &>/dev/null; then
+    echo "PASS: The JSON files are identical."
+  else
+    echo "FAIL: The JSON files are different."
+    exit 1
+  fi
+}
 
 # Run every applicable entry of CLUSTER_SCENARIOS against one store type.
 #   run_cluster_scenarios <kv_store_type> <build_type> [common flags...]
@@ -308,9 +343,9 @@ function run_cluster_scenarios() {
   local store_type=$1 build_type=$2
   shift 2
 
-  local entry id wal data_store mode ckpt evicted
+  local entry id wal data_store mode ckpt evicted log_replay
   for entry in "${CLUSTER_SCENARIOS[@]}"; do
-    IFS='|' read -r id wal data_store mode ckpt evicted <<< "${entry}"
+    IFS='|' read -r id wal data_store mode ckpt evicted log_replay <<< "${entry}"
 
     if [[ ${mode} = dss && ${store_type} = ROCKSDB ]]; then
       echo "=== cluster scenario ${id}: skipped, ROCKSDB has no dss_server backend"
@@ -347,10 +382,20 @@ function run_cluster_scenarios() {
         "${extra[@]}"
     fi
 
-    run_cluster_scenario "${store_type}" "redis_server_multi_node_${id}" \
-      "${build_type}" "${evicted}" "${wal}" "${data_store}" \
-      "$@" \
-      "${extra[@]}"
+    if [[ ${log_replay} = true ]]; then
+      launch_cluster "${store_type}" "redis_server_multi_node_${id}" \
+        "${wal}" "${data_store}" "$@" "${extra[@]}"
+      wait_until_ready
+      run_tcl_tests all "${build_type}" true "${evicted}"
+      run_cluster_log_replay "${store_type}" "redis_server_multi_node_${id}" \
+        "${wal}" "${data_store}" "$@" "${extra[@]}"
+      stop_cluster
+    else
+      run_cluster_scenario "${store_type}" "redis_server_multi_node_${id}" \
+        "${build_type}" "${evicted}" "${wal}" "${data_store}" \
+        "$@" \
+        "${extra[@]}"
+    fi
 
     if [[ ${mode} = dss ]]; then
       stop_and_clean_dss_server "${store_type}"
