@@ -379,6 +379,12 @@ function run_cluster_scenarios() {
     echo "=== cluster scenario: ${id} (wal=${wal} data_store=${data_store} mode=${mode} ckpt=${ckpt} evicted=${evicted})"
 
     if [[ ${data_store} = true ]]; then
+      # Bootstrap is a single node, so resolve any @INDEX@ placeholder (used for
+      # per-node paths in launch_cluster) to node 0 here.
+      local boot_args=() a
+      for a in "$@" "${extra[@]}"; do
+        boot_args+=("${a//@INDEX@/0}")
+      done
       bootstrap_eloqkv "${store_type}" \
         --eloq_data_path="/tmp/redis_server_data_0" \
         --event_dispatcher_num=1 \
@@ -386,8 +392,7 @@ function run_cluster_scenarios() {
         --maxclients=1000000 \
         --logtostderr=true \
         --ip_port_list=${CLUSTER_IP_PORT_LIST} \
-        "$@" \
-        "${extra[@]}"
+        "${boot_args[@]}"
     fi
 
     if [[ ${log_replay} = true ]]; then
