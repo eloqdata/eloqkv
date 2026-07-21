@@ -298,8 +298,12 @@ CLUSTER_SCENARIOS=(
   "pure_memory|false|false|embedded|36000|false|false"
   "small_ckpt|true|true|embedded|1|false|true"
   "evicted|true|true|embedded|36000|true|false"
+  "no_wal_small_ckpt|false|true|embedded|1|false|false"
+  "no_wal_evicted|false|true|embedded|10|true|false"
   "dss_small_ckpt|true|true|dss|1|false|true"
   "dss_evicted|true|true|dss|36000|true|false"
+  "dss_no_wal_small_ckpt|false|true|dss|1|false|false"
+  "dss_no_wal_evicted|false|true|dss|10|true|false"
 )
 
 # Load data into a running cluster, restart it, and check the replayed contents
