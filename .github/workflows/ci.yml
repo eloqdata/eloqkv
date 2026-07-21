@@ -7,6 +7,12 @@ on:
     types: [opened, synchronize, reopened]
     branches: [main]
 
+# Keyed on the PR number so a new push supersedes this PR's in-flight run and
+# leaves other PRs alone.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   # Build (and cache) the third-party workspace once per arch so the ent-ci
   # matrix below restores it instead of each job rebuilding it from source on a
