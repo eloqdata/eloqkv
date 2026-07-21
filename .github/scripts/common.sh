@@ -1164,6 +1164,7 @@ function run_eloqkv_tests() {
         --eloq_data_path=${eloq_data_path} \
         --eloq_store_data_path_list=${eloq_store_data_path} \
         --maxclients=1000000 \
+	      --enable_io_uring=${enable_io_uring} \
 	      --logtostderr=true \
         --checkpointer_interval=1 \
 	      --kickout_data_for_test=true \
@@ -1216,6 +1217,7 @@ function run_eloqkv_tests() {
       --eloq_data_path=${eloq_data_path} \
       --eloq_store_data_path_list=${eloq_store_data_path} \
       --maxclients=1000000 \
+      --enable_io_uring=${enable_io_uring} \
       --logtostderr=true \
       --checkpointer_interval=36000 \
       --aws_access_key_id=${aws_access_key_id} \
@@ -1277,6 +1279,7 @@ function run_eloqkv_tests() {
       --eloq_data_path=${eloq_data_path} \
       --eloq_store_data_path_list=${eloq_store_data_path} \
       --maxclients=1000000 \
+      --enable_io_uring=${enable_io_uring} \
       --logtostderr=true \
       --checkpointer_interval=36000 \
       --aws_access_key_id=${aws_access_key_id} \
@@ -1360,6 +1363,7 @@ function run_eloqkv_tests() {
         --eloq_data_path=${eloq_data_path} \
         --eloq_store_data_path_list=${eloq_store_data_path} \
         --maxclients=1000000 \
+        --enable_io_uring=${enable_io_uring} \
         --logtostderr=true \
         --checkpointer_interval=10 \
         --aws_access_key_id=${aws_access_key_id} \
@@ -1412,6 +1416,7 @@ function run_eloqkv_tests() {
         --eloq_data_path=${eloq_data_path} \
         --eloq_store_data_path_list=${eloq_store_data_path} \
         --maxclients=1000000 \
+        --enable_io_uring=${enable_io_uring} \
         --logtostderr=true \
         --checkpointer_interval=1 \
 	      --kickout_data_for_test=true \
@@ -1466,6 +1471,7 @@ function run_eloqkv_tests() {
         --eloq_data_path=${eloq_data_path} \
         --eloq_store_data_path_list=${eloq_store_data_path} \
         --maxclients=1000000 \
+        --enable_io_uring=${enable_io_uring} \
         --logtostderr=true \
         --checkpointer_interval=10 \
         --aws_access_key_id=${aws_access_key_id} \
@@ -2150,6 +2156,7 @@ function run_eloqkv_cluster_tests() {
         --event_dispatcher_num=1 \
         --auto_redirect=true \
         --maxclients=1000000 \
+        --enable_io_uring=${enable_io_uring} \
         --logtostderr=true \
         --checkpointer_interval=36000 \
         --ip_port_list=127.0.0.1:6379,127.0.0.1:7379,127.0.0.1:8379 \
@@ -2245,6 +2252,7 @@ function run_eloqkv_cluster_tests() {
         --event_dispatcher_num=1 \
         --auto_redirect=true \
         --maxclients=1000000 \
+        --enable_io_uring=${enable_io_uring} \
         --logtostderr=true \
         --checkpointer_interval=1 \
         --kickout_data_for_test=true \
@@ -2352,6 +2360,7 @@ function run_eloqkv_cluster_tests() {
         --txlog_group_replica_num=3 \
         --auto_redirect=true \
         --maxclients=1000000 \
+        --enable_io_uring=${enable_io_uring} \
         --logtostderr=true \
         --aws_access_key_id="${rocksdb_cloud_aws_access_key_id}" \
         --aws_secret_key="${rocksdb_cloud_aws_secret_access_key}" \
@@ -2472,6 +2481,7 @@ function run_eloqkv_cluster_tests() {
         --event_dispatcher_num=1 \
         --auto_redirect=true \
         --maxclients=1000000 \
+        --enable_io_uring=${enable_io_uring} \
         --logtostderr=true \
         --checkpointer_interval=36000 \
         --ip_port_list=127.0.0.1:6379,127.0.0.1:7379,127.0.0.1:8379 \
@@ -2541,6 +2551,7 @@ function run_eloqkv_cluster_tests() {
         --event_dispatcher_num=1 \
         --auto_redirect=true \
         --maxclients=1000000 \
+        --enable_io_uring=${enable_io_uring} \
         --logtostderr=true \
         --checkpointer_interval=36000 \
         --ip_port_list=127.0.0.1:6379,127.0.0.1:7379,127.0.0.1:8379 \
