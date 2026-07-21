@@ -261,7 +261,9 @@ function stop_cluster() {
   local pid
   for pid in "${CLUSTER_PIDS[@]}"; do
     if [[ -n $pid && -e /proc/$pid ]]; then
-      kill "$pid"
+      # The entrypoints run under set -e, so a member that has already exited
+      # must not abort the loop and leave the rest running.
+      kill "$pid" 2>/dev/null || true
     fi
   done
   if [[ -n ${LOG_SERVICE_PID:-} ]]; then
@@ -282,9 +284,11 @@ function run_cluster_scenario() {
   wait_until_ready
   echo "Redis server is ready!"
 
+  # The suite exits non-zero on failure and the entrypoints run under set -e, so
+  # tear down from a trap; otherwise a failing scenario leaves its members
+  # holding the ports the next scenario needs.
+  trap stop_cluster RETURN
   run_tcl_tests all "${build_type}" true "${evicted}"
-
-  stop_cluster
 }
 
 DSS_SERVER_IP_PORT="127.0.0.1:9100"
@@ -436,10 +440,16 @@ function run_scenario() {
   wait_until_ready
   echo "Redis server is ready!"
 
+  # See run_cluster_scenario: tear down from a trap so a failing suite still
+  # releases the port.
+  trap stop_single_node RETURN
   run_tcl_tests all "${build_type}" false "${evicted}"
+}
 
-  if [[ -n ${ELOQKV_PID} && -e /proc/${ELOQKV_PID} ]]; then
-    kill "${ELOQKV_PID}"
+# Stop the node started by the enclosing run_scenario.
+function stop_single_node() {
+  if [[ -n ${ELOQKV_PID:-} && -e /proc/${ELOQKV_PID} ]]; then
+    kill "${ELOQKV_PID}" 2>/dev/null || true
   fi
   wait_until_finished
 }
