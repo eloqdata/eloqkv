@@ -17,10 +17,17 @@ source "$SCRIPT_DIR/common.sh"
 ls
 export WORKSPACE=$PWD
 
-MINIO_ENDPOINT=${1:?usage: $0 minio_endpoint minio_access_key minio_secret_key kv_store_type}
-MINIO_ACCESS_KEY=${2:?usage: $0 minio_endpoint minio_access_key minio_secret_key kv_store_type}
-MINIO_SECRET_KEY=${3:?usage: $0 minio_endpoint minio_access_key minio_secret_key kv_store_type}
-KV_STORE_TYPE=${4:?usage: $0 minio_endpoint minio_access_key minio_secret_key kv_store_type}
+USAGE="usage: $0 minio_endpoint minio_access_key minio_secret_key kv_store_type build|test"
+MINIO_ENDPOINT=${1:?$USAGE}
+MINIO_ACCESS_KEY=${2:?$USAGE}
+MINIO_SECRET_KEY=${3:?$USAGE}
+KV_STORE_TYPE=${4:?$USAGE}
+CI_PHASE=${5:?$USAGE}
+
+case "$CI_PHASE" in
+  build | test) ;;
+  *) echo "$USAGE" >&2; exit 1 ;;
+esac
 
 BUILD_TYPE=${BUILD_TYPE:?BUILD_TYPE env var not set}
 CI_MODE=${CI_MODE:-pr}             # "pr" or "main"
@@ -60,6 +67,8 @@ export ROCKSDB_CLOUD_OBJECT_PATH="dss"
 export TXLOG_ROCKSDB_CLOUD_OBJECT_PATH="txlog"
 
 # --- Download & start Minio ---
+# The build phase does not touch object storage, so it skips all of this.
+if [ "$CI_PHASE" != "build" ]; then
 case "$(uname -m)" in
   x86_64) MINIO_ARCH=amd64 ;;
   aarch64|arm64) MINIO_ARCH=arm64 ;;
@@ -99,6 +108,7 @@ wget -q https://dl.min.io/client/mc/release/linux-${MINIO_ARCH}/mc
 chmod +x mc
 mv mc /usr/local/bin/mc
 mc alias set local http://localhost:9900 $MINIO_ACCESS_KEY $MINIO_SECRET_KEY
+fi
 
 # --- Workspace setup ---
 # All repos live under GITHUB_WORKSPACE.
@@ -137,22 +147,27 @@ sed -i "s/#\s*StrictHostKeyChecking ask/    StrictHostKeyChecking no/g" /etc/ssh
 
 VENV="${LOG_REPLAY_VENV:-/opt/eloq/log-replay-venv}"
 
-# --- Run build + tests for single (build_type, kv_store_type) ---
-rm -rf ${ELOQKV_BASE_PATH}/eloq_data
+# --- Run build and/or tests for single (build_type, kv_store_type) ---
+if [ "$CI_PHASE" = "build" ]; then
+  rm -rf ${ELOQKV_BASE_PATH}/eloq_data
+  run_build_ent $BUILD_TYPE $KV_STORE_TYPE $txlog_log_state
+fi
 
-run_build_ent $BUILD_TYPE $KV_STORE_TYPE $txlog_log_state
-
-source "$VENV/bin/activate"
-run_eloq_test $BUILD_TYPE $KV_STORE_TYPE
-run_eloqkv_tests $BUILD_TYPE $KV_STORE_TYPE
-run_eloqkv_cluster_tests $BUILD_TYPE $KV_STORE_TYPE
-deactivate
+if [ "$CI_PHASE" = "test" ]; then
+  source "$VENV/bin/activate"
+  run_eloq_test $BUILD_TYPE $KV_STORE_TYPE
+  run_eloqkv_tests $BUILD_TYPE $KV_STORE_TYPE
+  run_eloqkv_cluster_tests $BUILD_TYPE $KV_STORE_TYPE
+  deactivate
+fi
 
 # --- Cleanup Minio ---
-echo "Stopping Minio (pid $MINIO_PID)..."
-kill $MINIO_PID 2>/dev/null || true
-wait $MINIO_PID 2>/dev/null || true
-rm -rf /tmp/minio_data
-rm -f ./minio
+if [ "$CI_PHASE" != "build" ]; then
+  echo "Stopping Minio (pid $MINIO_PID)..."
+  kill $MINIO_PID 2>/dev/null || true
+  wait $MINIO_PID 2>/dev/null || true
+  rm -rf /tmp/minio_data
+  rm -f ./minio
+fi
 
-echo "CI completed successfully for $CI_MODE BUILD_TYPE=$BUILD_TYPE KV_STORE_TYPE=$KV_STORE_TYPE"
+echo "CI $CI_PHASE completed successfully for $CI_MODE BUILD_TYPE=$BUILD_TYPE KV_STORE_TYPE=$KV_STORE_TYPE"
