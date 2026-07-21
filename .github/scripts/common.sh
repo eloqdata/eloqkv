@@ -364,6 +364,16 @@ function run_cluster_scenarios() {
     [[ ${evicted} = true ]] && extra+=(--kickout_data_for_test=true)
 
     rm -rf /tmp/redis_server_data*
+    # Each scenario starts from a clean store. For an embedded store that means
+    # clearing the object storage too: EloqStore writes a term file to its bucket
+    # and rejects startup with ExpiredTerm if a previous scenario's term is still
+    # there. The dss path re-cleans through stop_and_clean_dss_server below.
+    if [[ ${mode} = embedded && ${data_store} = true ]]; then
+      case "${store_type}" in
+        ELOQDSS_ELOQSTORE) cleanup_minio_bucket "${ELOQSTORE_BUCKET_NAME}" ;;
+        ELOQDSS_ROCKSDB_CLOUD_S3) cleanup_minio_bucket "${ROCKSDB_CLOUD_BUCKET_NAME}" ;;
+      esac
+    fi
 
     if [[ ${wal} = true ]]; then
       start_log_service
