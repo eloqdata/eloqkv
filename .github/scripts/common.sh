@@ -207,6 +207,86 @@ function run_single_node_scenarios() {
   done
 }
 
+CLUSTER_PORTS=(6379 7379 8379)
+CLUSTER_IP_PORT_LIST="127.0.0.1:6379,127.0.0.1:7379,127.0.0.1:8379"
+LOG_SERVICE_IP_PORT="127.0.0.1:9000"
+
+# Start the standalone WAL service the cluster writes to. Sets LOG_SERVICE_PID.
+function start_log_service() {
+  echo "starting log service"
+  rm -rf /tmp/log_data
+  ${ELOQKV_BASE_PATH}/install/bin/launch_sv \
+    -conf=${LOG_SERVICE_IP_PORT} \
+    -node_id=0 \
+    -storage_path="/tmp/log_data" \
+    --logtostderr=true \
+    >/tmp/redis_log_service.log 2>&1 &
+  LOG_SERVICE_PID=$!
+  echo "log_service is started, pid: $LOG_SERVICE_PID"
+  sleep 10
+}
+
+# Start the three cluster members. Sets CLUSTER_PIDS.
+#   launch_cluster <kv_store_type> <log_prefix> <wal> <data_store> [extra...]
+# Per-node flags (data paths, port) are derived from the node index; everything
+# else is shared, so callers pass only what the scenario varies.
+function launch_cluster() {
+  local store_type=$1 log_prefix=$2 wal=$3 data_store=$4
+  shift 4
+
+  CLUSTER_PIDS=()
+  local index=0 port arg node_args
+  for port in "${CLUSTER_PORTS[@]}"; do
+    # @INDEX@ in a caller's flag becomes the node index, for per-node paths.
+    node_args=()
+    for arg in "$@"; do
+      node_args+=("${arg//@INDEX@/${index}}")
+    done
+
+    launch_eloqkv "${store_type}" "${log_prefix}_${index}" \
+      "${port}" "${wal}" "${data_store}" \
+      --eloq_data_path="/tmp/redis_server_data_${index}" \
+      --event_dispatcher_num=1 \
+      --auto_redirect=true \
+      --ip_port_list=${CLUSTER_IP_PORT_LIST} \
+      "${node_args[@]}"
+    CLUSTER_PIDS+=("${ELOQKV_PID}")
+    echo "redis_server ${index} is started, pid: ${ELOQKV_PID}"
+    index=$((index + 1))
+  done
+}
+
+# Stop the cluster members, and the log service if one was started.
+function stop_cluster() {
+  local pid
+  for pid in "${CLUSTER_PIDS[@]}"; do
+    if [[ -n $pid && -e /proc/$pid ]]; then
+      kill "$pid"
+    fi
+  done
+  if [[ -n ${LOG_SERVICE_PID:-} ]]; then
+    kill "${LOG_SERVICE_PID}" 2>/dev/null || true
+    LOG_SERVICE_PID=
+  fi
+  wait_until_finished
+}
+
+# Bring up a cluster, run the tcl suite against it, then tear it down.
+#   run_cluster_scenario <kv_store_type> <log_prefix> <build_type> <evicted>
+#                        <wal> <data_store> [extra...]
+function run_cluster_scenario() {
+  local store_type=$1 log_prefix=$2 build_type=$3 evicted=$4 wal=$5 data_store=$6
+  shift 6
+
+  launch_cluster "${store_type}" "${log_prefix}" "${wal}" "${data_store}" "$@"
+  wait_until_ready
+  echo "Redis server is ready!"
+
+  run_tcl_tests all "${build_type}" true "${evicted}"
+
+  stop_cluster
+}
+
 # Initialise the cluster, then wait for the process to exit on its own.
 #   bootstrap_eloqkv <kv_store_type> [extra...]
 function bootstrap_eloqkv() {
@@ -1182,101 +1262,27 @@ function run_eloqkv_cluster_tests() {
   cd ${eloqkv_base_path}
 
   if [[ $kv_store_type = "ROCKSDB" ]]; then
-    echo "starting log service"
-    local log_service_ip_port="127.0.0.1:9000"
-
-    rm -rf /tmp/log_data
-    ${ELOQKV_BASE_PATH}/install/bin/launch_sv \
-      -conf=$log_service_ip_port \
-      -node_id=0 \
-      -storage_path="/tmp/log_data" \
-      --logtostderr=true \
-      >/tmp/redis_log_service.log 2>&1 \
-      &
-
-    local log_service_pid=$!
-    echo "log_service is started, pid: $log_service_pid"
-    # wait for log service to be ready
-    sleep 10
+    start_log_service
 
     echo "bootstrap before start cluster to avoid contention"
-    env LD_LIBRARY_PATH=${ELOQKV_BASE_PATH}/install/lib/:${LD_LIBRARY_PATH} \
-      ${ELOQKV_BASE_PATH}/install/bin/eloqkv \
-      --port=6379 \
-      --core_number=2 \
-      --enable_wal=false \
-      --enable_data_store=false \
+    bootstrap_eloqkv "$kv_store_type" \
       --eloq_data_path="/tmp/redis_server_data_0" \
       --event_dispatcher_num=1 \
       --auto_redirect=true \
       --maxclients=1000000 \
       --checkpointer_interval=36000 \
-      --ip_port_list=127.0.0.1:6379,127.0.0.1:7379,127.0.0.1:8379 \
-      --txlog_service_list=$log_service_ip_port \
+      --ip_port_list=${CLUSTER_IP_PORT_LIST} \
+      --txlog_service_list=${LOG_SERVICE_IP_PORT} \
       --txlog_group_replica_num=3 \
-      --logtostderr=true \
-      --bootstrap \
-      --enable_io_uring=${enable_io_uring} \
-      >/tmp/redis_server_multi_node_bootstrap.log 2>&1 \
-      &
+      --logtostderr=true
 
-    echo "bootstrap is started, pid: $!"
-    # wait for bootstrap to finish
-    sleep 20
-
-    # echo "bootstrap is started, pid: $!"
-    # # wait for bootstrap to finish
-    # sleep 20
-
-    # pure memory mode does not need bootstrap
-    # pure memory mode does not need log service
-
-    echo "starting redis servers"
-    local ports=(6379 7379 8379)
-    local redis_pids=()
-    local index=0
-
-    for port in "${ports[@]}"; do
-      echo "redirecting output to /tmp/ to prevent ci pipeline crash"
-      env LD_LIBRARY_PATH=${ELOQKV_BASE_PATH}/install/lib/:${LD_LIBRARY_PATH} \
-        ${ELOQKV_BASE_PATH}/install/bin/eloqkv \
-        --port=$port \
-        --core_number=2 \
-        --enable_wal=false \
-        --enable_data_store=false \
-        --eloq_data_path="/tmp/redis_server_data_$index" \
-        --rocksdb_storage_path="/tmp/rocksdb_data_$index" \
-        --event_dispatcher_num=1 \
-        --auto_redirect=true \
-        --maxclients=1000000 \
-        --checkpointer_interval=36000 \
-        --ip_port_list=127.0.0.1:6379,127.0.0.1:7379,127.0.0.1:8379 \
-        --txlog_service_list=$log_service_ip_port \
-        --txlog_group_replica_num=3 \
-        --enable_io_uring=${enable_io_uring} \
-        --logtostderr=true \
-        >/tmp/redis_server_multi_node_$index.log 2>&1 \
-        &
-      redis_pids+=($!)
-      echo "redis_server $index is started, pid: $!"
-      index=$((index + 1))
-    done
-
-    # Wait for Redis server to be ready
-    wait_until_ready
-    echo "Redis server is ready!"
-
-    run_tcl_tests all $build_type true
-
-    # kill redis servers
-    for pid in "${redis_pids[@]}"; do
-      if [[ -n $pid && -e /proc/$pid ]]; then
-        kill $pid
-      fi
-    done
-
-    kill $log_service_pid
-    wait_until_finished
+    # pure memory mode: no data store, so nothing to evict.
+    run_cluster_scenario "$kv_store_type" redis_server_multi_node \
+      "$build_type" false false false \
+      --rocksdb_storage_path="/tmp/rocksdb_data_@INDEX@" \
+      --checkpointer_interval=36000 \
+      --txlog_service_list=${LOG_SERVICE_IP_PORT} \
+      --txlog_group_replica_num=3
 
   elif [[ $kv_store_type = "ELOQDSS_ROCKSDB_CLOUD_S3" ]]; then
     echo "run_eloqkv_cluster_tests for ELOQDSS_ROCKSDB_CLOUD_S3"
