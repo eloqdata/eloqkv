@@ -17,7 +17,7 @@ source "$SCRIPT_DIR/common.sh"
 ls
 export WORKSPACE=$PWD
 
-USAGE="usage: $0 minio_endpoint minio_access_key minio_secret_key kv_store_type build|test"
+USAGE="usage: $0 minio_endpoint minio_access_key minio_secret_key kv_store_type build|test|cluster"
 MINIO_ENDPOINT=${1:?$USAGE}
 MINIO_ACCESS_KEY=${2:?$USAGE}
 MINIO_SECRET_KEY=${3:?$USAGE}
@@ -25,7 +25,7 @@ KV_STORE_TYPE=${4:?$USAGE}
 CI_PHASE=${5:?$USAGE}
 
 case "$CI_PHASE" in
-  build | test) ;;
+  build | test | cluster) ;;
   *) echo "$USAGE" >&2; exit 1 ;;
 esac
 
@@ -157,6 +157,11 @@ if [ "$CI_PHASE" = "test" ]; then
   source "$VENV/bin/activate"
   run_eloq_test $BUILD_TYPE $KV_STORE_TYPE
   run_eloqkv_tests $BUILD_TYPE $KV_STORE_TYPE
+  deactivate
+fi
+
+if [ "$CI_PHASE" = "cluster" ]; then
+  source "$VENV/bin/activate"
   run_eloqkv_cluster_tests $BUILD_TYPE $KV_STORE_TYPE
   deactivate
 fi

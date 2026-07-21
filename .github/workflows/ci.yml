@@ -127,3 +127,20 @@ jobs:
             "$MINIO_SECRET_KEY" \
             "$KV_STORE_TYPE" \
             test
+
+      - name: Cluster tests (${{ matrix.build_type }}, ${{ matrix.kv_store_type }})
+        env:
+          MINIO_ENDPOINT: http://127.0.0.1:9900
+          MINIO_ACCESS_KEY: minioadmin
+          MINIO_SECRET_KEY: minioadmin
+          BUILD_TYPE: ${{ matrix.build_type }}
+          KV_STORE_TYPE: ${{ matrix.kv_store_type }}
+          CI_MODE: ${{ github.event_name == 'push' && 'main' || 'pr' }}
+          NODE_MEMORY_LIMIT_MB: 2048
+        run: |
+          bash ./eloqkv/.github/scripts/gh_ci_entry.sh \
+            "$MINIO_ENDPOINT" \
+            "$MINIO_ACCESS_KEY" \
+            "$MINIO_SECRET_KEY" \
+            "$KV_STORE_TYPE" \
+            cluster
