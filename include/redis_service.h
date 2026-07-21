@@ -182,10 +182,14 @@ public:
     // The total number of known nodes in the cluster
     uint32_t RedisClusterNodesCount();
 
-    uint16_t TxPortToRedisPort(uint16_t tx_port) const
+    static uint16_t TxPortToRedisPort(uint16_t tx_port)
     {
         return tx_port - 10000;
     }
+
+    bool IsLeader(uint32_t ng_id = 0) const;
+
+    bool BroadcastNsFlush(const std::string &ns);
 
     // Get all replica node status of node groups.
     // nodes_info is as: map{ng_id,[nodes_info,...]}
