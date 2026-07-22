@@ -355,16 +355,17 @@ function run_cluster_scenarios() {
   for entry in "${CLUSTER_SCENARIOS[@]}"; do
     IFS='|' read -r id wal data_store mode ckpt evicted log_replay <<< "${entry}"
 
-    if [[ ${mode} = dss && ${store_type} = ROCKSDB ]]; then
-      echo "=== cluster scenario ${id}: skipped, ROCKSDB has no dss_server backend"
+    # ROCKSDB is a non-shared (shared-nothing) store: a table's data lives in each
+    # node's own local RocksDB and is not shared across node groups, so it cannot
+    # back a distributed table. The only cluster scenario it supports is the
+    # pure-memory one (no data store); skip the data-store and dss scenarios.
+    # (Single-node ROCKSDB still exercises the data store, via run_scenario.)
+    if [[ ${store_type} = ROCKSDB && ( ${data_store} = true || ${mode} = dss ) ]]; then
+      echo "=== cluster scenario ${id}: skipped for ROCKSDB (only the pure-memory cluster is supported)"
       continue
     fi
 
-    # One replica per node group so each of the three nodes owns exactly one ng
-    # (the default node_group_replica_num=3 makes every node a replica of every
-    # ng). Applied to the bootstrap and every node launch so the topology is
-    # consistent across the cluster.
-    local extra=(--checkpointer_interval="${ckpt}" --node_group_replica_num=1)
+    local extra=(--checkpointer_interval="${ckpt}")
     [[ ${evicted} = true ]] && extra+=(--kickout_data_for_test=true)
 
     # Each scenario starts from a clean store, otherwise the on-disk data from
@@ -398,46 +399,22 @@ function run_cluster_scenarios() {
     echo "=== cluster scenario: ${id} (wal=${wal} data_store=${data_store} mode=${mode} ckpt=${ckpt} evicted=${evicted})"
 
     if [[ ${data_store} = true ]]; then
-      # A shared backend (the dss_server, or the cloud bucket the embedded
-      # ELOQDSS_* stores write to) is seeded once and is visible to every node,
-      # so a single node-0 bootstrap suffices. Embedded ROCKSDB instead keeps a
-      # private local store per node (rocksdb_storage_path), so every node must
-      # be bootstrapped on its own port and paths; otherwise the nodes that were
-      # skipped come up with an empty store and fail the first time a command
-      # touches a range they own ("Data storage is not available").
-      local index=0 port node_args a
-      if [[ ${store_type} = ROCKSDB ]]; then
-        for port in "${CLUSTER_PORTS[@]}"; do
-          # @INDEX@ (per-node paths) resolves to this node's index.
-          node_args=()
-          for a in "$@" "${extra[@]}"; do
-            node_args+=("${a//@INDEX@/${index}}")
-          done
-          bootstrap_eloqkv "${store_type}" "${port}" \
-            --eloq_data_path="/tmp/redis_server_data_${index}" \
-            --event_dispatcher_num=1 \
-            --auto_redirect=true \
-            --maxclients=1000000 \
-            --logtostderr=true \
-            --ip_port_list=${CLUSTER_IP_PORT_LIST} \
-            "${node_args[@]}"
-          index=$((index + 1))
-        done
-      else
-        # Single node-0 bootstrap; resolve any @INDEX@ placeholder to node 0.
-        node_args=()
-        for a in "$@" "${extra[@]}"; do
-          node_args+=("${a//@INDEX@/0}")
-        done
-        bootstrap_eloqkv "${store_type}" 6379 \
-          --eloq_data_path="/tmp/redis_server_data_0" \
-          --event_dispatcher_num=1 \
-          --auto_redirect=true \
-          --maxclients=1000000 \
-          --logtostderr=true \
-          --ip_port_list=${CLUSTER_IP_PORT_LIST} \
-          "${node_args[@]}"
-      fi
+      # Every cluster backend here is shared storage (the dss_server, or the
+      # cloud bucket the embedded ELOQDSS_* stores write to): the store is seeded
+      # once and is visible to every node, so a single node-0 bootstrap suffices.
+      # Resolve any @INDEX@ placeholder (used for per-node paths at launch) to 0.
+      local a node_args=()
+      for a in "$@" "${extra[@]}"; do
+        node_args+=("${a//@INDEX@/0}")
+      done
+      bootstrap_eloqkv "${store_type}" 6379 \
+        --eloq_data_path="/tmp/redis_server_data_0" \
+        --event_dispatcher_num=1 \
+        --auto_redirect=true \
+        --maxclients=1000000 \
+        --logtostderr=true \
+        --ip_port_list=${CLUSTER_IP_PORT_LIST} \
+        "${node_args[@]}"
     fi
 
     if [[ ${log_replay} = true ]]; then
@@ -1443,11 +1420,11 @@ function run_eloqkv_cluster_tests() {
 
   cd ${eloqkv_base_path}
 
-  # ROCKSDB skips the dss entries; the other two run the full list.
+  # ROCKSDB is a non-shared (shared-nothing) store, so it only runs the
+  # pure-memory cluster scenario (see run_cluster_scenarios) and needs no
+  # per-node store flags. The shared-storage backends run the full list.
   local store_extra=()
-  if [[ $kv_store_type = "ROCKSDB" ]]; then
-    store_extra=(--rocksdb_storage_path="/tmp/rocksdb_data_@INDEX@")
-  elif [[ $kv_store_type = "ELOQDSS_ELOQSTORE" ]]; then
+  if [[ $kv_store_type = "ELOQDSS_ELOQSTORE" ]]; then
     store_extra=(--eloq_store_data_path_list="/tmp/redis_server_data_@INDEX@/eloq_store")
   elif [[ $kv_store_type = "ELOQDSS_ROCKSDB_CLOUD_S3" ]]; then
     store_extra=(--rocksdb_cloud_purger_periodicity_secs=30)
