@@ -363,17 +363,22 @@ function run_cluster_scenarios() {
     local extra=(--checkpointer_interval="${ckpt}")
     [[ ${evicted} = true ]] && extra+=(--kickout_data_for_test=true)
 
-    rm -rf /tmp/redis_server_data*
-    # Each scenario starts from a clean store. For an embedded store that means
-    # clearing the object storage too: EloqStore writes a term file to its bucket
-    # and rejects startup with ExpiredTerm if a previous scenario's term is still
-    # there. The dss path re-cleans through stop_and_clean_dss_server below.
-    if [[ ${mode} = embedded && ${data_store} = true ]]; then
-      case "${store_type}" in
-        ELOQDSS_ELOQSTORE) cleanup_minio_bucket "${ELOQSTORE_BUCKET_NAME}" ;;
-        ELOQDSS_ROCKSDB_CLOUD_S3) cleanup_minio_bucket "${ROCKSDB_CLOUD_BUCKET_NAME}" ;;
-      esac
-    fi
+    # Each scenario starts from a clean store, otherwise the on-disk data from
+    # every prior scenario accumulates and eventually fills the runner disk.
+    # redis_server_data* holds each node's metadata (and the embedded EloqStore
+    # data under it); rocksdb_data* holds the embedded ROCKSDB / rocksdb-cloud
+    # local files. The WAL service dir (/tmp/log_data) is re-cleaned by
+    # start_log_service, and the dss backend by stop_and_clean_dss_server below.
+    rm -rf /tmp/redis_server_data* /tmp/rocksdb_data*
+    # Object storage lives on the runner disk too, so drop the buckets as well or
+    # minio keeps every prior scenario's objects around until the disk fills.
+    # Clearing them also lets EloqStore start clean: it writes a term file to its
+    # bucket and rejects startup with ExpiredTerm if a previous scenario's term
+    # is still there. Both buckets are dropped regardless of store type/mode
+    # (mc rb on a missing bucket is a no-op), which also covers the eloqstore
+    # bucket in dss mode -- stop_and_clean_dss_server only drops the cloud-s3 one.
+    cleanup_minio_bucket "${ELOQSTORE_BUCKET_NAME}"
+    cleanup_minio_bucket "${ROCKSDB_CLOUD_BUCKET_NAME}"
 
     if [[ ${wal} = true ]]; then
       start_log_service
@@ -389,20 +394,46 @@ function run_cluster_scenarios() {
     echo "=== cluster scenario: ${id} (wal=${wal} data_store=${data_store} mode=${mode} ckpt=${ckpt} evicted=${evicted})"
 
     if [[ ${data_store} = true ]]; then
-      # Bootstrap is a single node, so resolve any @INDEX@ placeholder (used for
-      # per-node paths in launch_cluster) to node 0 here.
-      local boot_args=() a
-      for a in "$@" "${extra[@]}"; do
-        boot_args+=("${a//@INDEX@/0}")
-      done
-      bootstrap_eloqkv "${store_type}" \
-        --eloq_data_path="/tmp/redis_server_data_0" \
-        --event_dispatcher_num=1 \
-        --auto_redirect=true \
-        --maxclients=1000000 \
-        --logtostderr=true \
-        --ip_port_list=${CLUSTER_IP_PORT_LIST} \
-        "${boot_args[@]}"
+      # A shared backend (the dss_server, or the cloud bucket the embedded
+      # ELOQDSS_* stores write to) is seeded once and is visible to every node,
+      # so a single node-0 bootstrap suffices. Embedded ROCKSDB instead keeps a
+      # private local store per node (rocksdb_storage_path), so every node must
+      # be bootstrapped on its own port and paths; otherwise the nodes that were
+      # skipped come up with an empty store and fail the first time a command
+      # touches a range they own ("Data storage is not available").
+      local index=0 port node_args a
+      if [[ ${store_type} = ROCKSDB ]]; then
+        for port in "${CLUSTER_PORTS[@]}"; do
+          # @INDEX@ (per-node paths) resolves to this node's index.
+          node_args=()
+          for a in "$@" "${extra[@]}"; do
+            node_args+=("${a//@INDEX@/${index}}")
+          done
+          bootstrap_eloqkv "${store_type}" "${port}" \
+            --eloq_data_path="/tmp/redis_server_data_${index}" \
+            --event_dispatcher_num=1 \
+            --auto_redirect=true \
+            --maxclients=1000000 \
+            --logtostderr=true \
+            --ip_port_list=${CLUSTER_IP_PORT_LIST} \
+            "${node_args[@]}"
+          index=$((index + 1))
+        done
+      else
+        # Single node-0 bootstrap; resolve any @INDEX@ placeholder to node 0.
+        node_args=()
+        for a in "$@" "${extra[@]}"; do
+          node_args+=("${a//@INDEX@/0}")
+        done
+        bootstrap_eloqkv "${store_type}" 6379 \
+          --eloq_data_path="/tmp/redis_server_data_0" \
+          --event_dispatcher_num=1 \
+          --auto_redirect=true \
+          --maxclients=1000000 \
+          --logtostderr=true \
+          --ip_port_list=${CLUSTER_IP_PORT_LIST} \
+          "${node_args[@]}"
+      fi
     fi
 
     if [[ ${log_replay} = true ]]; then
@@ -426,16 +457,18 @@ function run_cluster_scenarios() {
   done
 }
 
-# Initialise the cluster, then wait for the process to exit on its own.
-#   bootstrap_eloqkv <kv_store_type> [extra...]
+# Initialise a node's store, then wait for the process to exit on its own.
+#   bootstrap_eloqkv <kv_store_type> <port> [extra...]
+# The port selects which member of ip_port_list this bootstrap represents, so a
+# per-node local store (embedded ROCKSDB) can be seeded one node at a time.
 function bootstrap_eloqkv() {
-  local store_type=$1
-  shift
+  local store_type=$1 port=$2
+  shift 2
 
   # shellcheck disable=SC2046,SC2086
   env LD_LIBRARY_PATH=${ELOQKV_BASE_PATH}/install/lib/:${LD_LIBRARY_PATH} \
     ${ELOQKV_BASE_PATH}/install/bin/eloqkv \
-    $(eloqkv_base_flags 6379 true true) \
+    $(eloqkv_base_flags "${port}" true true) \
     $(eloqkv_store_flags "${store_type}") \
     "$@" \
     --bootstrap=true &
@@ -1102,7 +1135,7 @@ function run_eloqkv_tests() {
   elif [[ $kv_store_type = "ELOQDSS_ROCKSDB_CLOUD_S3" ]]; then
 
     echo "bootstrap eloqdss-rocksdb-cloud-s3"
-    bootstrap_eloqkv "$kv_store_type"
+    bootstrap_eloqkv "$kv_store_type" 6379
 
     # run redis
     launch_eloqkv "$kv_store_type" redis_server_single_node_before_replay \
