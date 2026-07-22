@@ -360,7 +360,11 @@ function run_cluster_scenarios() {
       continue
     fi
 
-    local extra=(--checkpointer_interval="${ckpt}")
+    # One replica per node group so each of the three nodes owns exactly one ng
+    # (the default node_group_replica_num=3 makes every node a replica of every
+    # ng). Applied to the bootstrap and every node launch so the topology is
+    # consistent across the cluster.
+    local extra=(--checkpointer_interval="${ckpt}" --node_group_replica_num=1)
     [[ ${evicted} = true ]] && extra+=(--kickout_data_for_test=true)
 
     # Each scenario starts from a clean store, otherwise the on-disk data from
