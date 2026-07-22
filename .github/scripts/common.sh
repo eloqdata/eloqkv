@@ -160,13 +160,23 @@ function launch_eloqkv() {
   ELOQKV_PID=$!
 }
 
+# EloqStore sizing shared by CI launches. Keep the local cache well below the
+# runner disk size; the default EloqStore behavior derives a limit from total
+# filesystem capacity, so multiple cluster members can otherwise each reserve
+# most of the same disk.
+function eloqstore_ci_size_flags() {
+  echo "--eloq_store_local_space_limit=${ELOQSTORE_LOCAL_SPACE_LIMIT:-4GB}" \
+       "--eloq_store_pages_per_file_shift=${ELOQSTORE_PAGES_PER_FILE_SHIFT:-8}" \
+       "--eloq_store_manifest_limit=${ELOQSTORE_MANIFEST_LIMIT:-1048576}"
+}
+
 # EloqStore tuning and paths shared by every EloqStore launch.
 #   eloqstore_flags <eloq_data_path> <eloq_store_data_path>
 function eloqstore_flags() {
   echo "--eloq_data_path=$1 --eloq_store_data_path_list=$2" \
        "--node_memory_limit_mb=${NODE_MEMORY_LIMIT_MB:-2048}" \
        "--max_processing_time_microseconds=1000" \
-       "--eloq_store_pages_per_file_shift=1" \
+       "$(eloqstore_ci_size_flags)" \
        "--eloq_store_reuse_local_files=true"
 }
 
@@ -374,7 +384,7 @@ function run_cluster_scenarios() {
     # data under it); rocksdb_data* holds the embedded ROCKSDB / rocksdb-cloud
     # local files. The WAL service dir (/tmp/log_data) is re-cleaned by
     # start_log_service, and the dss backend by stop_and_clean_dss_server below.
-    rm -rf /tmp/redis_server_data* /tmp/rocksdb_data*
+    rm -rf /tmp/redis_server_data* /tmp/rocksdb_data* /tmp/eloqkv_data
     # Object storage lives on the runner disk too, so drop the buckets as well or
     # minio keeps every prior scenario's objects around until the disk fills.
     # Clearing them also lets EloqStore start clean: it writes a term file to its
@@ -883,6 +893,47 @@ function dump_core_backtraces() {
   echo "===== end core dump backtraces ====="
 }
 
+function dump_ci_disk_usage() {
+  echo ""
+  echo "===== disk usage ====="
+  df -h || true
+  echo ""
+  echo "===== inode usage ====="
+  df -i || true
+  echo ""
+  echo "===== /tmp top-level usage ====="
+  du -sh /tmp /tmp/* 2>/dev/null | sort -h || true
+  if [ -n "${ELOQKV_BASE_PATH:-}" ]; then
+    echo ""
+    echo "===== eloqkv workspace usage ====="
+    du -sh "${ELOQKV_BASE_PATH}" "${ELOQKV_BASE_PATH}"/* 2>/dev/null | sort -h || true
+  fi
+  if [ -n "${ELOQ_TEST_PATH:-}" ] && [ -d "${ELOQ_TEST_PATH}/runtime" ]; then
+    echo ""
+    echo "===== eloq_test runtime usage ====="
+    du -sh "${ELOQ_TEST_PATH}/runtime" "${ELOQ_TEST_PATH}/runtime"/* 2>/dev/null | sort -h || true
+  fi
+}
+
+function cleanup_ci_heavy_storage() {
+  set +e
+  echo ""
+  echo "===== cleanup heavy CI storage ====="
+  pkill -x eloqkv 2>/dev/null || true
+  pkill -x dss_server 2>/dev/null || true
+  pkill -x launch_sv 2>/dev/null || true
+  wait_until_finished || true
+  wait_dss_until_finished || true
+  rm -rf /tmp/redis_server_data* \
+         /tmp/rocksdb_data* \
+         /tmp/eloqkv_data \
+         /tmp/eloq_dss_data \
+         /tmp/log_data \
+         /tmp/minio_data
+  df -h /tmp || true
+  df -i /tmp || true
+}
+
 function dump_ci_failure_logs() {
   local rc=${1:-1}
   local failed_command=${2:-unknown}
@@ -894,6 +945,7 @@ function dump_ci_failure_logs() {
   echo "Failed command: ${failed_command}"
   date || true
   pwd || true
+  dump_ci_disk_usage
 
   echo ""
   echo "===== Running eloq-related processes ====="
@@ -935,6 +987,7 @@ function dump_ci_failure_logs() {
 
   echo ""
   echo "===== End CI failure diagnostics ====="
+  cleanup_ci_heavy_storage
 }
 
 function prepare_eloqstore_minio_buckets() {
@@ -1269,6 +1322,7 @@ function run_eloqkv_tests() {
     rm -rf ${eloq_data_path}/*
     run_single_node_scenarios "$kv_store_type" "$build_type" ${store_flags}
 
+    rm -rf ${eloq_data_path}
     cleanup_minio_bucket ${ELOQSTORE_BUCKET_NAME}
     cleanup_minio_bucket ${ROCKSDB_CLOUD_BUCKET_NAME}
   fi
@@ -1381,10 +1435,16 @@ function start_dss_server() {
         local eloq_store_cloud_secret_key=${ROCKSDB_CLOUD_AWS_SECRET_ACCESS_KEY}
         local eloq_store_cloud_store_path=${ELOQSTORE_BUCKET_NAME}
         local eloq_store_buffer_pool_size=1MB
+        local eloq_store_local_space_limit=${ELOQSTORE_LOCAL_SPACE_LIMIT:-4GB}
+        local eloq_store_pages_per_file_shift=${ELOQSTORE_PAGES_PER_FILE_SHIFT:-8}
+        local eloq_store_manifest_limit=${ELOQSTORE_MANIFEST_LIMIT:-1048576}
         cleanup_minio_bucket ${ELOQSTORE_BUCKET_NAME}
         dss_server_configs="--eloq_store_worker_num=${eloq_store_worker_num} \
                             --eloq_store_data_path_list=${eloq_store_data_path} \
                             --eloq_store_open_files_limit=${eloq_store_open_files_limit} \
+                            --eloq_store_local_space_limit=${eloq_store_local_space_limit} \
+                            --eloq_store_pages_per_file_shift=${eloq_store_pages_per_file_shift} \
+                            --eloq_store_manifest_limit=${eloq_store_manifest_limit} \
                             --eloq_store_cloud_provider=${eloq_store_cloud_provider} \
                             --eloq_store_cloud_endpoint=${eloq_store_cloud_endpoint} \
                             --eloq_store_cloud_access_key=${eloq_store_cloud_access_key} \
@@ -1416,7 +1476,7 @@ function run_eloqkv_cluster_tests() {
   local eloqkv_base_path="${ELOQKV_BASE_PATH}"
 
   # remove data dir generated by other tests.
-  rm -rf /tmp/redis_server_data*
+  rm -rf /tmp/redis_server_data* /tmp/rocksdb_data* /tmp/eloqkv_data /tmp/log_data /tmp/eloq_dss_data
 
   cd ${eloqkv_base_path}
 
@@ -1426,6 +1486,8 @@ function run_eloqkv_cluster_tests() {
   local store_extra=()
   if [[ $kv_store_type = "ELOQDSS_ELOQSTORE" ]]; then
     store_extra=(--eloq_store_data_path_list="/tmp/redis_server_data_@INDEX@/eloq_store")
+    store_extra+=($(eloqstore_ci_size_flags))
+    store_extra+=(--max_processing_time_microseconds=1000 --eloq_store_reuse_local_files=true)
   elif [[ $kv_store_type = "ELOQDSS_ROCKSDB_CLOUD_S3" ]]; then
     store_extra=(--rocksdb_cloud_purger_periodicity_secs=30)
   fi
@@ -1436,6 +1498,7 @@ function run_eloqkv_cluster_tests() {
 
   cleanup_minio_bucket ${ROCKSDB_CLOUD_BUCKET_NAME} || true
   cleanup_minio_bucket ${ELOQSTORE_BUCKET_NAME} || true
+  rm -rf /tmp/redis_server_data* /tmp/rocksdb_data* /tmp/eloqkv_data /tmp/log_data /tmp/eloq_dss_data
 }
 
 function run_eloq_test() {
