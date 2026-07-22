@@ -165,7 +165,7 @@ function launch_eloqkv() {
 # filesystem capacity, so multiple cluster members can otherwise each reserve
 # most of the same disk.
 function eloqstore_ci_size_flags() {
-  echo "--eloq_store_local_space_limit=${ELOQSTORE_LOCAL_SPACE_LIMIT:-4GB}" \
+  echo "--eloq_store_local_space_limit=${ELOQSTORE_LOCAL_SPACE_LIMIT:-10GB}" \
        "--eloq_store_pages_per_file_shift=${ELOQSTORE_PAGES_PER_FILE_SHIFT:-8}" \
        "--eloq_store_manifest_limit=${ELOQSTORE_MANIFEST_LIMIT:-1048576}"
 }
