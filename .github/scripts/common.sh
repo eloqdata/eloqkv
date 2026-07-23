@@ -127,6 +127,7 @@ function eloqkv_store_flags() {
       ;;
     ELOQDSS_ELOQSTORE)
       echo "${creds} ${txlog} \
+        --node_group_replica_num=1 \
         --eloq_store_cloud_provider=aws \
         --eloq_store_cloud_endpoint=${ROCKSDB_CLOUD_S3_ENDPOINT} \
         --eloq_store_cloud_access_key=${ROCKSDB_CLOUD_AWS_ACCESS_KEY_ID} \
