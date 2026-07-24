@@ -28,6 +28,22 @@
 #include <sstream>
 #include <string>
 
+#ifdef WITH_JEMALLOC
+#include <unistd.h>
+
+#include <csignal>
+#include <cstdio>
+#include <cstring>
+#include <ctime>
+
+// jemalloc is not linked into the binary; it is provided at runtime via
+// LD_PRELOAD (unprefixed "mallctl" symbol). Declare it weak so the binary still
+// links when jemalloc is absent, and so the symbol binds to the preloaded
+// library at runtime. When no jemalloc is loaded, the weak symbol stays null.
+extern "C" __attribute__((weak)) int mallctl(
+    const char *name, void *oldp, size_t *oldlenp, void *newp, size_t newlen);
+#endif
+
 #if BRPC_WITH_GLOG
 #include "glog_error_logging.h"
 #endif
@@ -422,11 +438,54 @@ void ConvertEloqkvFlagsToTxFlags(INIReader *config_reader)
     }
 }
 
+#ifdef WITH_JEMALLOC
+// SIGUSR1 handler: dump a jemalloc heap profile to a timestamped file under
+// /tmp. Requires jemalloc built with --enable-prof and run with
+// MALLOC_CONF="prof:true,...", otherwise prof.dump returns ENOENT.
+// Note: snprintf/localtime_r are not strictly async-signal-safe, but this is a
+// debug-only trigger so the pragmatic risk is acceptable.
+static void DumpJemallocHeap(int /*sig*/)
+{
+    static char filename[256];
+
+    std::time_t now = std::time(nullptr);
+    std::tm tm_buf;
+    localtime_r(&now, &tm_buf);
+    char ts[32];
+    std::strftime(ts, sizeof(ts), "%Y%m%d_%H%M%S", &tm_buf);
+
+    std::snprintf(filename,
+                  sizeof(filename),
+                  "/tmp/jeprof.%d.%s.heap",
+                  static_cast<int>(getpid()),
+                  ts);
+
+    if (mallctl != nullptr)
+    {
+        const char *fname = filename;
+        mallctl("prof.dump", nullptr, nullptr, &fname, sizeof(fname));
+    }
+}
+#endif  // WITH_JEMALLOC
+
 int main(int argc, char *argv[])
 {
     using namespace EloqKV;
     google::SetVersionString(VERSION);
     google::ParseCommandLineFlags(&argc, &argv, true);
+
+#ifdef WITH_JEMALLOC
+    // Dump a jemalloc heap profile on SIGUSR1 (debug aid). Use sigaction with
+    // SA_RESTART so the signal does not surface as EINTR in brpc syscalls.
+    {
+        struct sigaction sa;
+        memset(&sa, 0, sizeof(sa));
+        sa.sa_handler = DumpJemallocHeap;
+        sigemptyset(&sa.sa_mask);
+        sa.sa_flags = SA_RESTART;
+        sigaction(SIGUSR1, &sa, nullptr);
+    }
+#endif  // WITH_JEMALLOC
 
 #if BRPC_WITH_GLOG
     InitGoogleLogging(argv);
