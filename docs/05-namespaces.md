@@ -124,7 +124,8 @@ manages namespaces.
 
 `NamespaceGc` (`include/namespace/gc.h`, `src/namespace/gc.cpp`) is one background bthread started
 after service init and joined on shutdown (`src/redis_service.cpp:762-763,782`;
-`gc.cpp:18-33`).
+`gc.cpp:18-33`). It must be stopped and joined before `DataSubstrate::Shutdown()` because an
+in-progress GC iteration may be waiting for engine read, scan, or delete requests to complete.
 
 - **Trigger/scan**: the daemon loops while `!server_->IsStopping()`, range-scanning `__ns_0` over
   `["g:", "g;")` for GC records (`ScanGCRecords`, `gc.cpp:107-218`) with a `ReadCommitted` +
