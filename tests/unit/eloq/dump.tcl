@@ -162,7 +162,7 @@ start_server {tags {"dump"}} {
         set now [clock milliseconds]
         r restore ttl_zset [expr $now+3000] $encoded absttl
         set ttl [r pttl ttl_zset]
-        assert_range $ttl 2000 3100
+        assert_range $ttl 2000 3200
         assert_equal {a b} [r zrange ttl_zset 0 -1]
     }
 

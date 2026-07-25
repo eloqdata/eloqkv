@@ -551,8 +551,8 @@ int main(int argc, char *argv[])
     {
         std::cout << "\nEloqKV Server Stopping..." << std::endl;
     }
-    DataSubstrate::Instance().Shutdown();
     redis_service_ptr->Stop();
+    DataSubstrate::Instance().Shutdown();
 
     if (!FLAGS_alsologtostderr)
     {
