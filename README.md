@@ -250,10 +250,18 @@ make install
 ```
 
 ### 4. Run EloqKV
+The source build links against the shared libraries installed in Data
+Substrate's third-party workspace. Return to the repository root and add those
+library directories to `LD_LIBRARY_PATH` before starting EloqKV:
+
 ```bash
-cd install
-./bin/eloqkv --config=../../eloqkv.ini
+cd ..
+export LD_LIBRARY_PATH="$PWD/data_substrate/third_party/install/lib:$PWD/data_substrate/third_party/install/lib64${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+./build/install/bin/eloqkv --config=eloqkv.ini
 ```
+
+The exported value applies to the current shell. New terminals must export it
+again before running a source-built EloqKV.
 
 ---
 
