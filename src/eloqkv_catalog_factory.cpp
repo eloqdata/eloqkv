@@ -44,9 +44,7 @@
 #define ELOQDS 1
 #endif
 
-#if defined(DATA_STORE_TYPE_DYNAMODB)
-#include "store_handler/dynamo_handler.h"
-#elif defined(DATA_STORE_TYPE_ROCKSDB)
+#if defined(DATA_STORE_TYPE_ROCKSDB)
 #include "store_handler/rocksdb_handler.h"
 #elif ELOQDS
 #include "data_store_service_client.h"
@@ -61,19 +59,7 @@ RedisTableSchema::RedisTableSchema(const txservice::TableName &redis_table_name,
       schema_image_(catalog_image),
       version_(version)
 {
-#if defined(DATA_STORE_TYPE_DYNAMODB)
-    // TODO(lokax): catalog image format
-    kv_info_ = std::make_unique<EloqDS::DynamoCatalogInfo>();
-    // Catalog image only stores kv_table_name for now.
-    const std::string &kv_table_name = catalog_image;
-    // Use table version as key schema version.
-    uint64_t key_schema_ts = version;
-
-    kv_info_->kv_table_name_ = kv_table_name;
-    key_schema_ = std::make_unique<RedisKeySchema>(key_schema_ts);
-    record_schema_ = std::make_unique<RedisRecordSchema>();
-
-#elif defined(DATA_STORE_TYPE_ROCKSDB)
+#if defined(DATA_STORE_TYPE_ROCKSDB)
     // TODO(lokax): catalog image format
     kv_info_ = std::make_unique<RocksDBCatalogInfo>();
     // Catalog image only stores kv_table_name for now.

@@ -58,7 +58,7 @@ add_compile_definitions(ELOQ_MODULE_ELOQKV)
 option(BUILD_ELOQKV_AS_LIBRARY "Build eloqkv as library instead of executable" OFF)
 
 set(WITH_DATA_STORE "ELOQDSS_ELOQSTORE" CACHE STRING "Which key-value storage to use")
-set_property(CACHE WITH_DATA_STORE PROPERTY STRINGS "DYNAMODB" "BIGTABLE" "ELOQDSS_ROCKSDB_CLOUD_S3" "ELOQDSS_ROCKSDB_CLOUD_GCS" "ELOQDSS_ELOQSTORE" "ELOQDSS_ROCKSDB")
+set_property(CACHE WITH_DATA_STORE PROPERTY STRINGS "ROCKSDB" "ELOQDSS_ROCKSDB_CLOUD_S3" "ELOQDSS_ROCKSDB_CLOUD_GCS" "ELOQDSS_ELOQSTORE" "ELOQDSS_ROCKSDB")
 
 # Keep log-state options visible at the top level so every target shares the
 # same compile definitions as the data_substrate library.
@@ -165,17 +165,9 @@ endif()
 option(VECTOR_INDEX_ENABLED "Enable vector index" OFF)
 message("VECTOR_INDEX_ENABLED: ${VECTOR_INDEX_ENABLED}")
 # Add compile definitions based on options
-if(WITH_DATA_STORE STREQUAL "DYNAMODB")
-    set(KV_STORAGE_VAL 1 CACHE STRING "dynamodb" FORCE)
-    add_compile_definitions(DATA_STORE_TYPE_DYNAMODB)
-    find_package(AWSSDK REQUIRED COMPONENTS dynamodb)
-elseif(WITH_DATA_STORE STREQUAL "ROCKSDB")
+if(WITH_DATA_STORE STREQUAL "ROCKSDB")
     add_compile_definitions(DATA_STORE_TYPE_ROCKSDB)
     include_directories(${PROJECT_SOURCE_DIR}/include)
-elseif(WITH_DATA_STORE STREQUAL "BIGTABLE")
-    set(KV_STORAGE_VAL 2 CACHE STRING "big table" FORCE)
-    add_compile_definitions(DATA_STORE_TYPE_BIGTABLE)
-    find_package(google_cloud_cpp_bigtable REQUIRED)
 elseif(WITH_DATA_STORE STREQUAL "ELOQDSS_ROCKSDB_CLOUD_S3")
     set(KV_STORAGE_VAL 3 CACHE STRING "eloq_ds" FORCE)
     add_compile_definitions(DATA_STORE_TYPE_ELOQDSS_ROCKSDB_CLOUD_S3)
@@ -189,7 +181,7 @@ elseif(WITH_DATA_STORE STREQUAL "ELOQDSS_ELOQSTORE")
     set(KV_STORAGE_VAL 3 CACHE STRING "eloq_ds" FORCE)
     add_compile_definitions(DATA_STORE_TYPE_ELOQDSS_ELOQSTORE)
 else()
-    message(FATAL_ERROR "Unset WITH_DATA_STORE")
+    message(FATAL_ERROR "Unknown WITH_DATA_STORE: ${WITH_DATA_STORE}")
 endif()
 
 
