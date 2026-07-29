@@ -263,8 +263,6 @@ bool RedisServiceImpl::Init(brpc::Server &brpc_server)
         EloqDS::CassCatalogInfo temp_kv_info(image, "");
         auto kv_info_str = temp_kv_info.Serialize();
         image = EloqDS::SerializeSchemaImage("", kv_info_str, "");
-#elif defined(DATA_STORE_TYPE_DYNAMODB)
-        // TODO(lokax):
 #elif defined(DATA_STORE_TYPE_ROCKSDB)
         // TODO(lokax):
 #endif
@@ -2920,8 +2918,6 @@ bool RedisServiceImpl::ExecuteFlushDBCommand(
     EloqDS::CassCatalogInfo temp_kv_info(new_image, "");
     auto kv_info_str = temp_kv_info.Serialize();
     new_image = EloqDS::SerializeSchemaImage("", kv_info_str, "");
-#elif defined(DATA_STORE_TYPE_DYNAMODB)
-    // TODO(lokax):
 #elif defined(DATA_STORE_TYPE_ROCKSDB)
     // TODO(lokax):
 #endif
@@ -3024,8 +3020,6 @@ bool RedisServiceImpl::ExecuteFlushALLCommand(RedisConnectionContext *ctx,
         EloqDS::CassCatalogInfo temp_kv_info(new_image, "");
         auto kv_info_str = temp_kv_info.Serialize();
         new_image = EloqDS::SerializeSchemaImage("", kv_info_str, "");
-#elif defined(DATA_STORE_TYPE_DYNAMODB)
-        // TODO(lokax):
 #elif defined(DATA_STORE_TYPE_ROCKSDB)
         // TODO(lokax):
 #endif

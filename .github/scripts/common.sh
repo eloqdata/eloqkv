@@ -1014,7 +1014,6 @@ function run_build_ent() {
     -DEXT_TX_PROC_ENABLED=ON \
     -DBUILD_WITH_TESTS=ON \
     -DWITH_LOG_SERVICE=ON \
-    -DOPEN_LOG_SERVICE=OFF \
     -DFORK_HM_PROCESS=ON
 
   # Define the output log file
