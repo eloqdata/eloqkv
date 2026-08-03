@@ -263,7 +263,7 @@ struct RedisListTTLObject : public RedisListObject
 
     bool HasTTL() const override
     {
-        return true;
+        return !IgnoreTTL();
     }
 
     RedisObjectType ObjectType() const override

@@ -22,6 +22,7 @@
 #pragma once
 
 #include <algorithm>
+#include <atomic>
 #include <cstddef>
 #include <deque>
 #include <memory>
@@ -62,6 +63,22 @@ enum struct RedisObjectType
 struct RedisEloqObject : public txservice::TxObject
 {
 public:
+    /**
+     * Controls the diagnostic mode that exposes persisted Redis objects even
+     * after their expiration timestamp. The mode changes only runtime TTL
+     * interpretation; serialized TTL metadata remains intact so disabling the
+     * mode on a later restart restores normal expiration.
+     */
+    static void SetIgnoreTTL(bool ignore_ttl)
+    {
+        ignore_ttl_.store(ignore_ttl, std::memory_order_release);
+    }
+
+    static bool IgnoreTTL()
+    {
+        return ignore_ttl_.load(std::memory_order_acquire);
+    }
+
     TxRecord::Uptr Clone() const override
     {
         assert(false);
@@ -128,5 +145,8 @@ public:
     {
         return std::make_unique<RedisEloqObject>();
     }
+
+private:
+    inline static std::atomic_bool ignore_ttl_{false};
 };
 }  // namespace EloqKV

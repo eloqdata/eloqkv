@@ -12,6 +12,7 @@
 #include "redis_errors.h"
 #include "redis_hash_object.h"
 #include "redis_list_object.h"
+#include "redis_string_object.h"
 #include "redis_zset_object.h"
 
 absl::flat_hash_map<std::string_view, double> EloqKV::RedisZsetObject::*
@@ -27,6 +28,27 @@ struct Rob
         return M;
     }
 };
+
+TEST_CASE("ignore Redis TTL preserves serialized metadata")
+{
+    EloqKV::RedisStringTTLObject object;
+    object.SetTTL(12345);
+
+    EloqKV::RedisEloqObject::SetIgnoreTTL(false);
+    REQUIRE(object.HasTTL());
+    std::string before;
+    object.Serialize(before);
+
+    EloqKV::RedisEloqObject::SetIgnoreTTL(true);
+    REQUIRE_FALSE(object.HasTTL());
+    REQUIRE(object.GetTTL() == 12345);
+    std::string ignored;
+    object.Serialize(ignored);
+    REQUIRE(ignored == before);
+
+    EloqKV::RedisEloqObject::SetIgnoreTTL(false);
+    REQUIRE(object.HasTTL());
+}
 
 TEST_CASE("zset_object-string")
 {

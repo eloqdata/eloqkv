@@ -267,7 +267,7 @@ public:
 
     bool HasTTL() const override
     {
-        return true;
+        return !IgnoreTTL();
     }
 
     RedisObjectType ObjectType() const override

@@ -58,6 +58,7 @@
 #include "b255.h"
 #include "catalog_factory.h"
 #include "data_substrate.h"
+#include "eloq_data_store_service/ignore_redis_ttl.h"
 #include "eloq_metrics/include/metrics.h"
 #include "eloqkv_key.h"
 #include "error_messages.h"
@@ -238,6 +239,14 @@ bool RedisServiceImpl::Init(brpc::Server &brpc_server)
     {
         LOG(ERROR) << "Error: Can't load config file.";
         return false;
+    }
+
+    const bool ignore_redis_ttl = EloqDS::IgnoreRedisTTL();
+    RedisEloqObject::SetIgnoreTTL(ignore_redis_ttl);
+    if (ignore_redis_ttl)
+    {
+        LOG(WARNING) << "ignore_redis_ttl is enabled: persisted expiration "
+                        "timestamps will be retained but not enforced";
     }
 
     // Engine registration: EloqKv
