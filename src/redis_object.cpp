@@ -25,11 +25,70 @@
 
 #include "redis_hash_object.h"
 #include "redis_list_object.h"
+#include "redis_paged_hash_object.h"
 #include "redis_set_object.h"
 #include "redis_string_object.h"
 #include "redis_zset_object.h"
 namespace EloqKV
 {
+txservice::TxRecord::Uptr RedisEloqObject::DeserializeObject(
+    const char *buf, size_t avail, size_t &offset) const
+{
+    // Bounded, fallible store-path entry (docs/08 §5). The tag itself is
+    // bounds-checked; the paged types then parse with the row's REAL length
+    // and a malformed row becomes a null object — the caller surfaces a
+    // deterministic error. Monolithic types keep the legacy unbounded parse
+    // (their trust model is unchanged and pre-dates paging).
+    if (offset >= avail)
+    {
+        LOG(ERROR) << "store row too short for a type tag (size " << avail
+                   << ")";
+        return nullptr;
+    }
+    RedisObjectType obj_type =
+        static_cast<RedisObjectType>(static_cast<int8_t>(*(buf + offset)));
+    if (obj_type == RedisObjectType::PagedHash)
+    {
+        auto typed = std::make_unique<RedisPagedHashObject>();
+        if (!typed->DeserializeBounded(buf, avail, offset))
+        {
+            return nullptr;
+        }
+        return typed;
+    }
+    if (obj_type == RedisObjectType::TTLPagedHash)
+    {
+        auto typed = std::make_unique<RedisPagedHashTTLObject>();
+        if (!typed->DeserializeBounded(buf, avail, offset))
+        {
+            return nullptr;
+        }
+        return typed;
+    }
+    switch (obj_type)
+    {
+    case RedisObjectType::String:
+    case RedisObjectType::List:
+    case RedisObjectType::Hash:
+    case RedisObjectType::Zset:
+    case RedisObjectType::Set:
+    case RedisObjectType::TTLString:
+    case RedisObjectType::TTLHash:
+    case RedisObjectType::TTLList:
+    case RedisObjectType::TTLZset:
+    case RedisObjectType::TTLSet:
+        // Known monolithic tags keep the legacy unbounded parse.
+        return DeserializeObject(buf, offset);
+    default:
+        // An unknown tag from the STORE is a corrupt row, not a programming
+        // error: refuse it (the legacy path would assert). The WAL path
+        // keeps its assert — those images are self-written.
+        LOG(ERROR) << "unknown object type tag " << static_cast<int>(obj_type)
+                   << " in a store row of size " << avail;
+        return nullptr;
+    }
+}
+
 txservice::TxRecord::Uptr RedisEloqObject::DeserializeObject(
     const char *buf, size_t &offset) const
 {
@@ -67,6 +126,19 @@ txservice::TxRecord::Uptr RedisEloqObject::DeserializeObject(
         break;
     case RedisObjectType::TTLSet:
         typed_rec = std::make_unique<RedisHashSetTTLObject>();
+        break;
+    // Reading paged rows is permanent from the moment the feature ships: once
+    // an object has been converted, no binary serving that keyspace may lose
+    // the ability to read it (docs/08-paged-objects.md §11). Only *creating*
+    // them is switchable, via the runtime conversion threshold
+    // (GetPagedConvertThreshold), never this function -- a binary that could
+    // write paged rows but not read them back would abort here on its first
+    // restart.
+    case RedisObjectType::PagedHash:
+        typed_rec = std::make_unique<RedisPagedHashObject>();
+        break;
+    case RedisObjectType::TTLPagedHash:
+        typed_rec = std::make_unique<RedisPagedHashTTLObject>();
         break;
     default:
         assert(false);

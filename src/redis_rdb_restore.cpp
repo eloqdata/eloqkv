@@ -1426,6 +1426,17 @@ bool ConvertEloqObjectToRedisDumpPayload(const RedisEloqObject &object,
 {
     dump_payload.clear();
 
+    // A paged object reports its BASE type (Hash), so the switch below would
+    // static_cast it to the monolithic RedisHashObject and read garbage
+    // (docs/08-paged-objects.md §7 "tools"). DUMP reassembly of a paged
+    // object is deferred past v1 alongside eloqkv2rdb/eloqkv2aof; refuse
+    // cleanly rather than crash. Paged objects exist only when an operator
+    // has raised the conversion threshold, and only for hashes past it.
+    if (object.AsPaged() != nullptr)
+    {
+        return false;
+    }
+
     switch (object.ObjectType())
     {
     case RedisObjectType::String:

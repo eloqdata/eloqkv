@@ -1901,6 +1901,22 @@ bool MultiTransactionHandler::WatchKeys(
                                    redis_impl_->txn_protocol_);
     }
 
+    // WATCH builds its request directly, so it runs the same key admission
+    // gate as every other path (docs/08 §5): a watched reserved-prefix or
+    // oversized key would otherwise reach the engine unvalidated.
+    for (size_t step = 0; step < watch_cmd.CmdSteps(); ++step)
+    {
+        for (const txservice::TxKey &tx_key : *watch_cmd.KeyPointers(step))
+        {
+            const EloqKey *wkey = tx_key.GetKey<EloqKey>();
+            if (wkey != nullptr &&
+                !RedisServiceImpl::CheckKeyAdmissible(*wkey, &reply))
+            {
+                return brpc::REDIS_CMD_HANDLED;
+            }
+        }
+    }
+
     MultiObjectCommandTxRequest tx_req(redis_impl_->RedisTableName(ctx->db_id),
                                        &watch_cmd,
                                        false,

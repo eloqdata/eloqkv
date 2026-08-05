@@ -10,7 +10,7 @@ After cloning: `git submodule update --init --recursive`.
 
 ## Technical Docs — Read These First
 
-`docs/` contains module-by-module design documentation (index: `docs/README.md`). **Before working on an unfamiliar module, read its doc**: `01` overview/bootstrap, `02` command processing & transactions, `03` data model (objects/commands/catalog), `04` Lua/pub-sub/blocking commands, `05` namespaces, `06` vector search, `07` RDB-AOF interop & tools. Engine internals are documented in `data_substrate/docs/`.
+`docs/` contains module-by-module design documentation (index: `docs/README.md`). **Before working on an unfamiliar module, read its doc**: `01` overview/bootstrap, `02` command processing & transactions, `03` data model (objects/commands/catalog), `04` Lua/pub-sub/blocking commands, `05` namespaces, `06` vector search, `07` RDB-AOF interop & tools, `08` paged large objects. Engine internals are documented in `data_substrate/docs/`.
 
 **Maintenance rule: when a code change alters behavior described in `docs/`, update the corresponding doc in the same change.** Each doc lists the source files it covers.
 

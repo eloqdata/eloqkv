@@ -15,6 +15,8 @@ This repo is the **protocol layer only**. The transaction/storage engine lives i
 | [05-namespaces.md](05-namespaces.md) | Namespace isolation & management, tokens, namespace GC | `include/namespace/`, `src/namespace/` |
 | [06-vector-search.md](06-vector-search.md) | Vector indexes (HNSW), vector commands, index durability | `include/vector/`, `src/vector/` |
 | [07-persistence-and-tools.md](07-persistence-and-tools.md) | DUMP/RESTORE RDB interop, eloqkv2rdb / eloqkv2aof exporters | `redis_rdb_restore.*`, `src/tools/` |
+| [08-paged-objects.md](08-paged-objects.md) | large collections as a resident metadata block + independently fetched/evicted/flushed pages (implemented for hash, v1; dark by default via the conversion threshold) | large-hash representation, the engine page-management layer (`PageFrameTable`/`PagedTxObject`), HSCAN, replay/standby behavior |
+| [08-paged-objects-test-plan.md](08-paged-objects-test-plan.md) | comprehensive release qualification for the paged-hash feature | command/protocol coverage, lifecycle states, EloqStore deployment matrix, concurrency, fault injection, memory pressure, checkpoint/replay/failover, and soak testing |
 
 Engine-side reading: `data_substrate/docs/README.md` (index), especially `02-threading-model.md` (bthread/TxProcessor contract — required reading before touching anything concurrent) and `05-data-model-and-catalog.md` (the TxObject/TxCommand model EloqKV plugs into).
 

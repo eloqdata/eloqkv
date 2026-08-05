@@ -60,10 +60,14 @@ cmake-build*
 
 bin
 bld
+# Variant build trees (bld-asan, bld-eloqstore, bld-logsv, ...) and the
+# standby harness's runtime state, all output like bld/ itself.
+bld-*
 bin
 cmake/
 tests/tmp
 *.cnf
+__pycache__/
 
 *.pb.*
 

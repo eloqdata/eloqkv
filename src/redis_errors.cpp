@@ -79,6 +79,9 @@ const char *redis_error_messages[] = {
     "ERR delete vector from index failed",
     "ERR search vector in index failed",
     "ERR SELECT is not allowed in custom namespace",
+    "ERR key begins with a reserved internal prefix",
+    "ERR this command is not yet supported on a paged object",
+    "ERR field/value is too large for this hash's page size",
 };
 
 extern const char *redis_get_error_messages(int nr)

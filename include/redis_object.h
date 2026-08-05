@@ -56,7 +56,13 @@ enum struct RedisObjectType
     TTLList = 7,
     TTLHash = 8,
     TTLZset = 10,
-    TTLSet = 11
+    TTLSet = 11,
+    // Paged large-object representations (docs/08-paged-objects.md §5). The
+    // values are on-disk format from the moment the first paged row is
+    // written; reserved here ahead of the implementation so no other tag can
+    // take them.
+    PagedHash = 12,
+    TTLPagedHash = 13
 };
 
 struct RedisEloqObject : public txservice::TxObject
@@ -106,6 +112,18 @@ public:
     {
         return static_cast<int32_t>(ObjectType());
     }
+
+    /**
+     * @brief Length-bounded, FALLIBLE row parse for STORE-sourced bytes
+     * (docs/08 §5): the tag read is bounds-checked and the paged types —
+     * the ones with store-side validation — return nullptr on a malformed
+     * row instead of undefined reads. Monolithic types keep their legacy
+     * unbounded parse (their rows are trusted as before; bounding them is a
+     * separate, pre-existing gap).
+     */
+    txservice::TxRecord::Uptr DeserializeObject(const char *buf,
+                                                size_t avail,
+                                                size_t &offset) const override;
 
     TxRecord::Uptr DeserializeObject(const char *buf,
                                      size_t &offset) const override;

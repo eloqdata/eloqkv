@@ -307,6 +307,19 @@ public:
 
     void ExecuteSetConfig(ConfigCommand *cmd);
 
+    /**
+     * @brief The single admission gate for every PHYSICAL key a command
+     * supplies. Every ExecuteCommand overload that builds a transaction
+     * request runs each of its parsed keys through this BEFORE the request
+     * exists (docs/08-paged-objects.md §5): the public length limit (which
+     * reserves the page-key overhead below the store's key ceiling) and the
+     * reserved \x00EKVPAGE prefix (a user key carrying it could alias a
+     * live page row).
+     * @return true if the key is admissible; false after emitting the error
+     * to `output` (when non-null). The caller owns transaction abort.
+     */
+    static bool CheckKeyAdmissible(const EloqKey &key, OutputHandler *output);
+
     bool ExecuteCommand(RedisConnectionContext *ctx,
                         DirectCommand *cmd,
                         OutputHandler *output);

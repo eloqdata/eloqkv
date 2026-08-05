@@ -70,6 +70,7 @@
 #include "redis_connection_context.h"
 #include "redis_handler.h"
 #include "redis_metrics.h"
+#include "redis_paged_defs.h"
 #include "redis_stats.h"
 #include "redis_string_match.h"
 #include "sharder.h"
@@ -126,6 +127,33 @@ DEFINE_uint32(slow_log_max_length,
 
 DEFINE_bool(enable_redis_stats, true, "Enable to collect redis statistics.");
 DEFINE_bool(enable_cmd_sort, false, "Enable to sort command in Multi-Exec.");
+// Paged large-object knobs (docs/08-paged-objects.md). The threshold defaults
+// to 0 = conversion disabled, so the feature ships dark (§11); the page size
+// governs only objects converted after a change, since each object records
+// its page size in its metadata (§4).
+// These are uint32 deliberately, on two counts. Semantically both are bounded
+// far below 4 GB: the threshold sits in the low-single-digit MB range (§11)
+// and the reply bound cannot usefully exceed MAX_OBJECT_SIZE (256 MB).
+// Mechanically, DEFINE_uint64 does not compile in this TU at all: it expands
+// to a `using fLU64::...`, and cc_request.h declares uint64 flags inside
+// namespace txservice, so the name matches both ::fLU64 and txservice::fLU64.
+// Every other flag here is likewise int32/uint32/bool/string.
+DEFINE_uint32(paged_hash_convert_threshold,
+              0,
+              "Logical size in bytes at which a hash converts to the paged "
+              "representation; 0 disables conversion.");
+DEFINE_uint32(paged_hash_page_size,
+              128 * 1024,
+              "Page size in bytes for newly converted paged objects.");
+DEFINE_uint32(paged_object_reply_bound,
+              256 * 1024 * 1024,
+              "Whole-object commands (HGETALL and friends) on a paged object "
+              "error out if the reply would exceed this many bytes.");
+DEFINE_uint32(paged_ttl_slack_seconds,
+              3600,
+              "Slack added to a paged object's metadata-row store TTL so the "
+              "row outlives un-checkpointed TTL extensions across a crash "
+              "(docs/08-paged-objects.md \"TTL and store-side reclamation\").");
 DEFINE_string(isolation_level,
               "ReadCommitted",
               "Isolation level of simple commands.");
@@ -177,6 +205,65 @@ std::string ExecCommand(const std::string &cmd)
 
 namespace EloqKV
 {
+/**
+ * @brief The paged metadata row's store-TTL slack in seconds (docs/08 §9).
+ * Wrapping the flag in an accessor keeps redis_paged_hash_object.h free of a
+ * gflags dependency, and keeps the flag definition here with its siblings.
+ */
+uint32_t GetPagedTtlSlackSeconds()
+{
+    return FLAGS_paged_ttl_slack_seconds;
+}
+
+/**
+ * @brief The size ceiling a paged object's writes are checked against — the
+ * same MAX_OBJECT_SIZE the monolithic types use. Raising it is what paging
+ * eventually enables, but that is a separate decision (docs/08 §14), so for
+ * now paged and monolithic hashes share one limit.
+ */
+uint64_t GetPagedMaxObjectSize()
+{
+    return MAX_OBJECT_SIZE;
+}
+
+/**
+ * @brief Logical size at which a monolithic hash converts to the paged
+ * representation (docs/08 §11), or 0 when conversion is disabled — the
+ * default, which is what keeps the whole feature dark until it is switched on
+ * per cluster.
+ *
+ * This runtime knob is the feature's ONLY gate, and it gates creation alone.
+ * Reading paged rows is unconditional (see
+ * RedisEloqObject::DeserializeObject): a binary that could create them but
+ * not read them back would abort the moment it restarted on its own store.
+ *
+ * @return the threshold in bytes, or 0 meaning "never convert".
+ */
+uint64_t GetPagedConvertThreshold()
+{
+    return FLAGS_paged_hash_convert_threshold;
+}
+
+/**
+ * @brief The page size newly converted objects are built with. Existing
+ * objects keep the size recorded in their own metadata for life, so changing
+ * this is never a migration (§4).
+ */
+uint32_t GetPagedPageSize()
+{
+    return FLAGS_paged_hash_page_size;
+}
+
+/**
+ * @brief Byte ceiling on a whole-object reply from a paged object (docs/08
+ * §3): HGETALL and friends error out before faulting a single page when the
+ * reply would exceed it, since logical size is metadata-resident.
+ */
+uint64_t GetPagedObjectReplyBound()
+{
+    return FLAGS_paged_object_reply_bound;
+}
+
 namespace
 {
 // Wall-clock unix time in nanoseconds. Stored on each slow-log entry so the
@@ -206,11 +293,24 @@ brpc::Acceptor *server_acceptor = nullptr;
 
 // The maximum size of a object.
 constexpr uint64_t MAX_OBJECT_SIZE = 256 * 1024 * 1024;  // 256MB
+// The public key limit RESERVES the page-key overhead below the store's key
+// ceiling (docs/08 §5 "Key-length budget"). Conversion to the paged
+// representation is key-blind — the object never sees its own key (§4) — so
+// the only place the "every page key fits the store" property can be
+// enforced is here: any key the server accepts must remain encodable as
+// <magic><len><key><kind><page id> on every backend.
 #if defined(DATA_STORE_TYPE_ELOQDSS_ELOQSTORE)
-constexpr uint64_t MAX_KEY_SIZE = 2048;
+// EloqStore rejects store keys above half its 4 KB data page.
+constexpr uint64_t kStoreKeyCeiling = 2048;
 #else
-constexpr uint64_t MAX_KEY_SIZE = 32 * 1024 * 1024;  // 32MB
+// RocksDB and the cloud variants impose no comparable small ceiling; keep
+// the historical 32 MB limit. The 4-byte page-key length field spans it, so
+// reserving the codec overhead below it costs 17 bytes and does not shrink
+// the public limit in practice.
+constexpr uint64_t kStoreKeyCeiling = 32 * 1024 * 1024;
 #endif
+constexpr uint64_t MAX_KEY_SIZE =
+    kStoreKeyCeiling - txservice::kPageKeyOverhead;
 
 // Maintain slow log for each bthread task group.
 
@@ -2115,6 +2215,49 @@ TxErrorCode RedisServiceImpl::MultiExec(
         return TxErrorCode::NO_ERROR;
     }
 
+    // The queued path bypasses the ExecuteCommand overloads (requests are
+    // built by ParseMultiCommand), so the key admission gate runs HERE, over
+    // every key of every queued request, before anything executes. Without
+    // it, MULTI{ MSET <derived page key> ... }EXEC would sidestep the
+    // reserved-prefix and length checks.
+    for (auto &req_variant : cmd_reqs)
+    {
+        bool admissible = true;
+        if (auto *obj_req = std::get_if<ObjectCommandTxRequest>(&req_variant))
+        {
+            const EloqKey *key = obj_req->Key()->GetKey<EloqKey>();
+            admissible =
+                key == nullptr || CheckKeyAdmissible(*key, &redis_reply);
+        }
+        else if (auto *multi_req =
+                     std::get_if<MultiObjectCommandTxRequest>(&req_variant))
+        {
+            txservice::MultiObjectTxCommand *mcmd = multi_req->Command();
+            for (size_t step = 0; admissible && step < mcmd->CmdSteps(); ++step)
+            {
+                for (const txservice::TxKey &tx_key : *mcmd->KeyPointers(step))
+                {
+                    const EloqKey *key = tx_key.GetKey<EloqKey>();
+                    if (key != nullptr &&
+                        !CheckKeyAdmissible(*key, &redis_reply))
+                    {
+                        admissible = false;
+                        break;
+                    }
+                }
+            }
+        }
+        if (!admissible)
+        {
+            // CheckKeyAdmissible already emitted the precise error.
+            if (txm != nullptr)
+            {
+                AbortTx(txm);
+            }
+            return TxErrorCode::UNDEFINED_ERR;
+        }
+    }
+
     if (txm == nullptr)
     {
         // Init transaction state machine and execute the requests.
@@ -2702,6 +2845,35 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
     return true;
 }
 
+bool RedisServiceImpl::CheckKeyAdmissible(const EloqKey &key,
+                                          OutputHandler *output)
+{
+    if (key.Length() > MAX_KEY_SIZE)
+    {
+        if (output != nullptr)
+        {
+            output->OnError(redis_get_error_messages(RD_ERR_KEY_TOO_BIG));
+        }
+        return false;
+    }
+    // The \x00EKVPAGE prefix names paged-object page rows in the store
+    // keyspace (docs/08-paged-objects.md §5). Rejecting user keys that carry
+    // it turns an astronomically unlikely silent collision into a
+    // deterministic error, and must hold for EVERY key on EVERY command
+    // path: one unvalidated multi-key write (MSET of an exact derived page
+    // key) would overwrite a live page row.
+    if (IsReservedPagedKey(std::string_view(key.Buf(), key.Length())))
+    {
+        if (output != nullptr)
+        {
+            output->OnError(
+                redis_get_error_messages(RD_ERR_RESERVED_KEY_PREFIX));
+        }
+        return false;
+    }
+    return true;
+}
+
 bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
                                       txservice::TransactionExecution *txm,
                                       const EloqKey &key,
@@ -2710,12 +2882,8 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
                                       bool auto_commit,
                                       bool always_redirect)
 {
-    if (key.Length() > MAX_KEY_SIZE)
+    if (!CheckKeyAdmissible(key, output))
     {
-        if (output != nullptr)
-        {
-            output->OnError(redis_get_error_messages(RD_ERR_KEY_TOO_BIG));
-        }
         if (auto_commit)
         {
             AbortTx(txm);
@@ -2768,6 +2936,25 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
                                       bool auto_commit,
                                       bool always_redirect)
 {
+    // Every key of every step passes the same admission gate as the
+    // single-key path — MSET/MGET/DEL/EXISTS and friends must not be a
+    // side door around the length limit or the reserved page prefix.
+    for (size_t step = 0; step < cmd->CmdSteps(); ++step)
+    {
+        for (const txservice::TxKey &tx_key : *cmd->KeyPointers(step))
+        {
+            const EloqKey *key = tx_key.GetKey<EloqKey>();
+            if (key != nullptr && !CheckKeyAdmissible(*key, output))
+            {
+                if (auto_commit)
+                {
+                    AbortTx(txm);
+                }
+                return false;
+            }
+        }
+    }
+
     MultiObjectCommandTxRequest tx_req(
         RedisTableName(ctx->db_id), cmd, auto_commit, always_redirect, txm);
 
@@ -2782,6 +2969,14 @@ bool RedisServiceImpl::ExecuteCommand(RedisConnectionContext *ctx,
                                       OutputHandler *output,
                                       bool auto_commit)
 {
+    if (!CheckKeyAdmissible(key, output))
+    {
+        if (auto_commit)
+        {
+            AbortTx(txm);
+        }
+        return false;
+    }
     ObjectCommandTxRequest tx_req(table, &key, cmd, auto_commit, true, txm);
 
     auto res = ExecuteTxRequest(txm, &tx_req, nullptr, output);

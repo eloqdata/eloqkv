@@ -71,8 +71,18 @@ static const int RD_ERR_VECTOR_INDX_UPDATE_FAILED = RD_ERR_FIRST + 43;
 static const int RD_ERR_VECTOR_INDX_DELETE_FAILED = RD_ERR_FIRST + 44;
 static const int RD_ERR_VECTOR_INDX_SEARCH_FAILED = RD_ERR_FIRST + 45;
 static const int RD_ERR_SELECT_FORBIDDEN_IN_NS = RD_ERR_FIRST + 46;
+static const int RD_ERR_RESERVED_KEY_PREFIX = RD_ERR_FIRST + 47;
+// Temporary, removed as the per-command paged audit completes (plan Phase 4 /
+// docs/08 §15.1): a hash command with no paged implementation yet refuses a
+// paged object explicitly, rather than static_cast-ing it to RedisHashObject
+// — which would be undefined behaviour. Unreachable in shipped builds while
+// conversion is gated off by default.
+static const int RD_ERR_PAGED_UNSUPPORTED_CMD = RD_ERR_FIRST + 48;
+// A single field+value is larger than the paged object's page size, and
+// out-of-line large values are not implemented yet (docs/08 §4, §14).
+static const int RD_ERR_PAGED_RECORD_TOO_BIG = RD_ERR_FIRST + 49;
 
-static const int RD_ERR_LAST = RD_ERR_SELECT_FORBIDDEN_IN_NS;
+static const int RD_ERR_LAST = RD_ERR_PAGED_RECORD_TOO_BIG;
 
 extern const char *redis_error_messages[];
 extern const char *redis_get_error_messages(int nr);

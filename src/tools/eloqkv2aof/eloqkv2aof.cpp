@@ -29,6 +29,7 @@
 #include "eloqkv_key.h"
 #include "gflags/gflags.h"
 #include "glog/logging.h"
+#include "page_key_codec.h"  // txservice::HasPageKeyMagic (docs/08 §5)
 #include "redis_hash_object.h"
 #include "redis_list_object.h"
 #include "redis_object.h"
@@ -282,6 +283,18 @@ struct ParseWorker
             for (size_t idx = 0; idx < entry_vector_->size(); idx++)
             {
                 KvEntry &entry = entry_vector_->at(idx);
+                // Page rows of paged objects (docs/08-paged-objects.md §5)
+                // are raw page images under reserved \x00EKVPAGE-prefixed
+                // keys, not serialized objects: parsing one as an object
+                // reads its first byte as a type tag and produces garbage.
+                // Skip them here; the object itself is refused in
+                // DeserializeToTxRecord when its metadata row is met, so a
+                // paged store never exports silently truncated content.
+                if (txservice::HasPageKeyMagic(std::string_view(
+                        entry.key_str_.data(), entry.key_str_.size())))
+                {
+                    continue;
+                }
                 EloqKey eloq_key(entry.key_str_.data(), entry.key_str_.size());
                 txservice::TxRecord::Uptr eloq_rec;
 
@@ -391,6 +404,21 @@ struct ParseWorker
             case RedisObjectType::TTLZset:
                 typed_rec.reset(new RedisZsetTTLObject());
                 break;
+            case RedisObjectType::PagedHash:
+            case RedisObjectType::TTLPagedHash:
+                // A paged hash's fields live in separate page rows (docs/08
+                // §5); this row is only its metadata block. Exporting it as a
+                // hash needs reassembly this tool does not do yet, and
+                // continuing would either crash (the Hash cast) or silently
+                // export an EMPTY hash for an object that has data. Refuse
+                // the whole export: a backup missing objects is worse than no
+                // backup.
+                LOG(ERROR)
+                    << "Encountered a PAGED hash row. This tool cannot "
+                       "reassemble paged objects yet (docs/08-paged-objects.md "
+                       "§13); aborting the export rather than dropping the "
+                       "object's content.";
+                std::abort();
             default:
                 assert(false);
             }

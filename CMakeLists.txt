@@ -164,6 +164,7 @@ endif()
 
 option(VECTOR_INDEX_ENABLED "Enable vector index" OFF)
 message("VECTOR_INDEX_ENABLED: ${VECTOR_INDEX_ENABLED}")
+
 # Add compile definitions based on options
 if(WITH_DATA_STORE STREQUAL "DYNAMODB")
     set(KV_STORAGE_VAL 1 CACHE STRING "dynamodb" FORCE)
@@ -459,6 +460,7 @@ set(ABSEIL
     absl::span
 )
 
+
 add_subdirectory(lua)
 add_subdirectory(fpconv)
 
@@ -490,6 +492,58 @@ endif()
 if(NOT BUILD_ELOQKV_AS_LIBRARY)
     add_executable(eloqkv src/redis_server.cpp ${RESELOQ_RESOURCES})
     target_link_libraries(eloqkv ${DYNAMIC_LIB} ${RESELOQ_LIBRARY} ${ABSEIL} lua fpconv)
+
+    # Paged-object unit tests (docs/08-paged-objects-plan.md Phases 1-2, 5):
+    # Phase 1 covers the structural invariants, Phase 2 the flush/fetch round
+    # trip against a fake store, Phase 5 the partial-eviction policy. They
+    # exercise the real RedisPagedHashObject, whose vtable reaches the full
+    # protocol layer, so they link a static build of the eloqkv sources
+    # (everything but main) plus the same libraries as the executable.
+    ADD_LIBRARY(eloqkv_paged_test_lib STATIC ${RESELOQ_RESOURCES})
+    TARGET_LINK_LIBRARIES(eloqkv_paged_test_lib ${DYNAMIC_LIB}
+                          ${RESELOQ_LIBRARY} ${ABSEIL} lua fpconv)
+    # PAGED_TEST_COVERAGE instruments ONLY the test executables' own TUs.
+    # The paged feature is header-inline, so every paged line a test
+    # exercises is compiled into the test TU and measured; the support lib
+    # stays uninstrumented. Measure with:
+    #   gcovr -r .. --filter '.*paged.*' --object-directory .
+    option(PAGED_TEST_COVERAGE "Instrument paged unit tests for gcov" OFF)
+    foreach(paged_test paged_hash_core_test paged_flush_roundtrip_test
+                       paged_eviction_test paged_object_command_test
+                       paged_codec_fuzz_test paged_backfill_engine_test)
+        add_executable(${paged_test} tests/unit_cc/${paged_test}.cpp)
+        target_link_libraries(${paged_test} eloqkv_paged_test_lib
+                              ${DYNAMIC_LIB} ${RESELOQ_LIBRARY} ${ABSEIL}
+                              lua fpconv)
+        set_target_properties(${paged_test} PROPERTIES CXX_STANDARD 20)
+        if(PAGED_TEST_COVERAGE)
+            target_compile_options(${paged_test} PRIVATE --coverage)
+            target_link_options(${paged_test} PRIVATE --coverage)
+        endif()
+        add_test(NAME ${paged_test} COMMAND ${paged_test})
+    endforeach()
+
+    # Optional continuous fuzzing uses the exact same bounded parser entry
+    # point as paged_codec_fuzz_test's deterministic corpus replay. Keep it
+    # opt-in because -fsanitize=fuzzer is Clang-specific and owns main().
+    option(PAGED_BUILD_FUZZERS "Build paged-object libFuzzer targets" OFF)
+    if(PAGED_BUILD_FUZZERS)
+        if(NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+            message(FATAL_ERROR "PAGED_BUILD_FUZZERS requires Clang")
+        endif()
+        add_executable(paged_codec_fuzzer
+                       tests/unit_cc/paged_codec_fuzz_test.cpp)
+        target_compile_definitions(paged_codec_fuzzer PRIVATE
+                                   PAGED_LIBFUZZER=1)
+        target_compile_options(paged_codec_fuzzer PRIVATE
+                               -fsanitize=fuzzer,address,undefined)
+        target_link_options(paged_codec_fuzzer PRIVATE
+                            -fsanitize=fuzzer,address,undefined)
+        target_link_libraries(paged_codec_fuzzer eloqkv_paged_test_lib
+                              ${DYNAMIC_LIB} ${RESELOQ_LIBRARY} ${ABSEIL}
+                              lua fpconv)
+        set_target_properties(paged_codec_fuzzer PROPERTIES CXX_STANDARD 20)
+    endif()
 endif()
 
 if(WITH_BOOST_STACKTRACE)

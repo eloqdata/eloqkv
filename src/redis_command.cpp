@@ -67,6 +67,7 @@
 #include "redis_hash_object.h"
 #include "redis_list_object.h"
 #include "redis_object.h"
+#include "redis_paged_hash_object.h"
 #include "redis_rdb_restore.h"
 #include "redis_service.h"
 #include "redis_set_object.h"
@@ -1431,8 +1432,14 @@ txservice::TxObject *SetCommand::CommitOn(txservice::TxObject *obj_ptr)
             auto &str_obj = static_cast<RedisStringObject &>(*new_obj_uptr);
             str_obj.CommitSet(value_);
         }
-        auto &str_obj = static_cast<RedisStringObject &>(*new_obj_uptr);
-        str_obj.CommitSet(value_);
+        // Exactly ONE CommitSet: both branches above have already stored the
+        // value. A second call was silently destroying it on every
+        // deserialized command — CommitSet CLONES a view (the primary's
+        // client path, where the redundant call merely copied twice and hid
+        // the bug) but MOVES an owned value (standby apply and WAL replay),
+        // so the first call emptied value_ and the second installed the
+        // empty string. Primary/standby divergence on `SET` over any
+        // non-string object.
         return static_cast<txservice::TxObject *>(new_obj_uptr.release());
     }
 }
@@ -5615,6 +5622,33 @@ HSetCommand::HSetCommand(const HSetCommand &other)
     }
 }
 
+/**
+ * @brief The hash inline-record cap (docs/08 §4, §14), enforced at the
+ * command: with paged conversion enabled, a field+value record larger than
+ * `page_size / 8` is REFUSED outright rather than silently leaving the hash
+ * monolithic-forever. Records that size belong in the deferred out-of-line
+ * large-value runs; until those land, admitting them either wedges the
+ * object out of paging (monolithic decline) or degrades the extendible
+ * directory toward its quadratic regime (inline capacity → 1), so the honest
+ * contract is an error the client sees.
+ *
+ * Dark servers (threshold 0, the default) are exempt: §11's contract is that
+ * a server without conversion enabled behaves exactly like stock Redis.
+ * Checked in ExecuteOn — pre-WAL, so replay and standby (#509, CommitOn
+ * only) never meet a record the cap would refuse.
+ *
+ * @return true if the record must be refused.
+ */
+static bool HashRecordExceedsInlineCap(std::string_view field,
+                                       std::string_view value)
+{
+    if (GetPagedConvertThreshold() == 0)
+    {
+        return false;
+    }
+    return !RedisPagedHashObject::RecordFits(field, value, GetPagedPageSize());
+}
+
 txservice::ExecResult HSetCommand::ExecuteOn(const txservice::TxObject &object)
 {
     RedisHashResult &hash_result = result_;
@@ -5624,6 +5658,34 @@ txservice::ExecResult HSetCommand::ExecuteOn(const txservice::TxObject &object)
         return txservice::ExecResult::Fail;
     }
 
+    // The §4/§14 inline-record cap, on every pair and both representations.
+    for (const auto &[field, value] : field_value_pairs_)
+    {
+        if (HashRecordExceedsInlineCap(field.StringView(), value.StringView()))
+        {
+            hash_result.err_code_ = RD_ERR_PAGED_RECORD_TOO_BIG;
+            return txservice::ExecResult::Fail;
+        }
+    }
+
+    // Representation dispatch (docs/08-paged-objects.md §6 "Dispatch
+    // prerequisite"): the object-side Execute overloads are non-virtual and
+    // reached by a static downcast, and a paged payload is a different class
+    // — not a RedisHashObject — so it must be routed before that cast. A null
+    // AsPaged() is every monolithic object, which continues unchanged.
+    if (object.AsPaged() != nullptr)
+    {
+        const auto &paged_obj =
+            static_cast<const RedisPagedHashObject &>(object);
+        std::optional<bool> paged_pass = paged_obj.Execute(*this);
+        if (!paged_pass.has_value())
+        {
+            return txservice::ExecResult::Yield;
+        }
+        return *paged_pass ? txservice::ExecResult::Write
+                           : txservice::ExecResult::Fail;
+    }
+
     const auto &hash_obj = static_cast<const RedisHashObject &>(object);
     bool pass = hash_obj.Execute(*this);
     return pass ? txservice::ExecResult::Write : txservice::ExecResult::Fail;
@@ -5631,9 +5693,26 @@ txservice::ExecResult HSetCommand::ExecuteOn(const txservice::TxObject &object)
 
 txservice::TxObject *HSetCommand::CommitOn(txservice::TxObject *obj_ptr)
 {
+    if (obj_ptr->AsPaged() != nullptr)
+    {
+        auto &paged_obj = static_cast<RedisPagedHashObject &>(*obj_ptr);
+        // A false return means a page was missing: the object is unchanged
+        // and the caller retries after fetching (§10). Returning obj_ptr is
+        // right either way — the "not ready" signal travels through
+        // HasPendingFaults(), since CommitOn has no in-band channel.
+        paged_obj.CommitHset(field_value_pairs_);
+        return obj_ptr;
+    }
+
     auto &hash_obj = static_cast<RedisHashObject &>(*obj_ptr);
     hash_obj.CommitHset(field_value_pairs_);
-    return obj_ptr;
+
+    // Conversion (docs/08 §11) runs in CommitOn rather than ExecuteOn
+    // because standby apply and WAL replay run Deserialize + CommitOn only —
+    // an ExecuteOn-side trigger would never fire there and representations
+    // would diverge by construction (#509). The policy itself is shared by
+    // every mutator and import path; see MaybeConvertHashToPaged.
+    return MaybeConvertHashToPaged(obj_ptr);
 }
 
 void HSetCommand::Serialize(std::string &str) const
@@ -5709,6 +5788,23 @@ txservice::ExecResult HLenCommand::ExecuteOn(const txservice::TxObject &object)
         return txservice::ExecResult::Fail;
     }
 
+    // Representation dispatch (docs/08-paged-objects.md §6 "Dispatch
+    // prerequisite"): the object-side Execute overloads are non-virtual and
+    // reached by a static downcast, and a paged payload is a different class
+    // — not a RedisHashObject — so it must be routed before that cast. A null
+    // AsPaged() is every monolithic object, which continues unchanged.
+    if (object.AsPaged() != nullptr)
+    {
+        const auto &paged_obj =
+            static_cast<const RedisPagedHashObject &>(object);
+        if (!paged_obj.Execute(*this))
+        {
+            // Pages missing: nothing read, no reply built (§6).
+            return txservice::ExecResult::Yield;
+        }
+        return txservice::ExecResult::Read;
+    }
+
     const RedisHashObject &hash_obj =
         static_cast<const RedisHashObject &>(object);
     hash_obj.Execute(*this);
@@ -5741,6 +5837,19 @@ txservice::ExecResult HStrLenCommand::ExecuteOn(
     {
         hash_result.err_code_ = RD_ERR_WRONG_TYPE;
         return txservice::ExecResult::Fail;
+    }
+
+    // Representation dispatch (docs/08 §6): route a paged payload before the
+    // static downcast below, which assumes RedisHashObject.
+    if (object.AsPaged() != nullptr)
+    {
+        const auto &paged_obj =
+            static_cast<const RedisPagedHashObject &>(object);
+        if (!paged_obj.Execute(*this))
+        {
+            return txservice::ExecResult::Yield;
+        }
+        return txservice::ExecResult::Read;
     }
 
     const auto &hash_obj = static_cast<const RedisHashObject &>(object);
@@ -5788,6 +5897,23 @@ txservice::ExecResult HGetCommand::ExecuteOn(const txservice::TxObject &object)
     {
         hash_result.err_code_ = RD_ERR_WRONG_TYPE;
         return txservice::ExecResult::Fail;
+    }
+
+    // Representation dispatch (docs/08-paged-objects.md §6 "Dispatch
+    // prerequisite"): the object-side Execute overloads are non-virtual and
+    // reached by a static downcast, and a paged payload is a different class
+    // — not a RedisHashObject — so it must be routed before that cast. A null
+    // AsPaged() is every monolithic object, which continues unchanged.
+    if (object.AsPaged() != nullptr)
+    {
+        const auto &paged_obj =
+            static_cast<const RedisPagedHashObject &>(object);
+        if (!paged_obj.Execute(*this))
+        {
+            // Pages missing: nothing read, no reply built (§6).
+            return txservice::ExecResult::Yield;
+        }
+        return txservice::ExecResult::Read;
     }
 
     const RedisHashObject &hash_obj =
@@ -7564,6 +7690,22 @@ std::unique_ptr<txservice::TxRecord> RecoverObjectCommand::CreateObject(
     const char *ptr = result_.data();
     const RedisObjectType obj_type = static_cast<const RedisObjectType>(*ptr);
 
+    // A paged image can never be legitimately logged as a recovery object
+    // (docs/08 §16): its serialization is metadata-only, so replaying it as
+    // an overwrite would silently drop page contents. The apply path
+    // suppresses ttl_reset_ for paged payloads, so meeting one of these
+    // tags here means that guard was bypassed — die loudly in every build
+    // rather than reconstruct a hollow object (the Debug-only default arm
+    // below let Release null-deref instead).
+    if (obj_type == RedisObjectType::PagedHash ||
+        obj_type == RedisObjectType::TTLPagedHash)
+    {
+        LOG(FATAL) << "RecoverObjectCommand carries a PAGED image (tag "
+                   << static_cast<int>(obj_type)
+                   << "); paged TTL resets must log the plain command "
+                      "(docs/08 §16).";
+    }
+
     std::unique_ptr<txservice::TxRecord> obj = nullptr;
     switch (obj_type)
     {
@@ -7933,7 +8075,12 @@ txservice::ExecResult ExpireCommand::ExecuteOn(
     }
     }
 
-    if (ttl_reset == true)
+    // Belt to the engine-side §16 guard: never even BUILD the recover image
+    // for a paged object. In a multi-command transaction this ExecuteOn runs
+    // on the DIRTY payload, which may already be a paged twin while the
+    // committed payload is not — serializing it here would stage the exact
+    // metadata-only image §16 forbids, one engine miss away from the WAL.
+    if (ttl_reset && object.AsPaged() == nullptr)
     {
         recover_ttl_obj_cmd_ = std::make_unique<RecoverObjectCommand>();
         obj.Serialize(recover_ttl_obj_cmd_->result_);
@@ -7949,6 +8096,21 @@ txservice::TxObject *ExpireCommand::CommitOn(txservice::TxObject *obj_ptr)
     RedisEloqObject *obj = static_cast<RedisEloqObject *>(obj_ptr);
     RedisObjectType obj_type = obj->ObjectType();
     txservice::TxObject *result_ttl_obj = obj_ptr;
+
+    // Representation dispatch (docs/08 §6): see PersistCommand::CommitOn —
+    // the monolithic arms below downcast by LOGICAL type, which a paged
+    // payload shares, making the casts undefined behavior on it. The TTL
+    // family is virtual on TxRecord.
+    if (obj_ptr->AsPaged() != nullptr)
+    {
+        if (obj->HasTTL())
+        {
+            obj->SetTTL(expire_ts_);
+            return obj_ptr;
+        }
+        return static_cast<txservice::TxObject *>(
+            obj->AddTTL(expire_ts_).release());
+    }
 
     switch (obj_type)
     {
@@ -8230,7 +8392,12 @@ txservice::ExecResult PersistCommand::ExecuteOn(
     }
     }
 
-    if (ttl_reset == true)
+    // Belt to the engine-side §16 guard: never even BUILD the recover image
+    // for a paged object. In a multi-command transaction this ExecuteOn runs
+    // on the DIRTY payload, which may already be a paged twin while the
+    // committed payload is not — serializing it here would stage the exact
+    // metadata-only image §16 forbids, one engine miss away from the WAL.
+    if (ttl_reset && object.AsPaged() == nullptr)
     {
         recover_ttl_obj_cmd_ = std::make_unique<RecoverObjectCommand>();
         obj.Serialize(recover_ttl_obj_cmd_->result_);
@@ -8246,6 +8413,21 @@ txservice::TxObject *PersistCommand::CommitOn(txservice::TxObject *obj_ptr)
     txservice::TxObject *result_ptr = obj_ptr;
     RedisEloqObject *obj = static_cast<RedisEloqObject *>(obj_ptr);
     RedisObjectType obj_type = obj->ObjectType();
+
+    // Representation dispatch (docs/08 §6): a paged payload is routed before
+    // the concrete monolithic downcasts below — casting a paged TTL twin to
+    // RedisHashTTLObject is undefined behavior even where virtual dispatch
+    // happens to land right (a reported bug). The TTL family is virtual on
+    // TxRecord, so the twin swap needs no concrete type at all.
+    if (obj_ptr->AsPaged() != nullptr)
+    {
+        if (obj->HasTTL())
+        {
+            return static_cast<txservice::TxObject *>(
+                obj->RemoveTTL().release());
+        }
+        return obj_ptr;
+    }
 
     switch (obj_type)
     {
@@ -15199,9 +15381,30 @@ txservice::ExecResult HDelCommand::ExecuteOn(const txservice::TxObject &object)
         return txservice::ExecResult::Fail;
     }
 
-    const RedisHashObject &hash_obj =
-        static_cast<const RedisHashObject &>(object);
-    CommandExecuteState state = hash_obj.Execute(*this);
+    // Representation dispatch (docs/08-paged-objects.md §6 "Dispatch
+    // prerequisite"): the object-side Execute overloads are non-virtual and
+    // reached by a static downcast, and a paged payload is a different class
+    // — not a RedisHashObject — so it must be routed before that cast. A null
+    // AsPaged() is every monolithic object, which continues unchanged.
+    CommandExecuteState state;
+    if (object.AsPaged() != nullptr)
+    {
+        const auto &paged_obj =
+            static_cast<const RedisPagedHashObject &>(object);
+        std::optional<CommandExecuteState> paged_state =
+            paged_obj.Execute(*this);
+        if (!paged_state.has_value())
+        {
+            return txservice::ExecResult::Yield;
+        }
+        state = *paged_state;
+    }
+    else
+    {
+        const RedisHashObject &hash_obj =
+            static_cast<const RedisHashObject &>(object);
+        state = hash_obj.Execute(*this);
+    }
 
     switch (state)
     {
@@ -15218,6 +15421,19 @@ txservice::ExecResult HDelCommand::ExecuteOn(const txservice::TxObject &object)
 
 txservice::TxObject *HDelCommand::CommitOn(txservice::TxObject *const obj_ptr)
 {
+    if (obj_ptr->AsPaged() != nullptr)
+    {
+        auto &paged_obj = static_cast<RedisPagedHashObject &>(*obj_ptr);
+        // nullptr means the key is deleted: an empty collection is an absent
+        // key, and a paged object is no exception.
+        bool paged_now_empty = false;
+        if (!paged_obj.CommitHdel(del_list_, paged_now_empty))
+        {
+            // Not ready: unchanged, faults recorded, retry after fetching.
+            return obj_ptr;
+        }
+        return paged_now_empty ? nullptr : obj_ptr;
+    }
     auto &hash_obj = static_cast<RedisHashObject &>(*obj_ptr);
     bool empty_after_removal = hash_obj.CommitHdel(del_list_);
     return empty_after_removal ? nullptr : obj_ptr;
@@ -15283,6 +15499,23 @@ txservice::ExecResult HExistsCommand::ExecuteOn(
         return txservice::ExecResult::Fail;
     }
 
+    // Representation dispatch (docs/08-paged-objects.md §6 "Dispatch
+    // prerequisite"): the object-side Execute overloads are non-virtual and
+    // reached by a static downcast, and a paged payload is a different class
+    // — not a RedisHashObject — so it must be routed before that cast. A null
+    // AsPaged() is every monolithic object, which continues unchanged.
+    if (object.AsPaged() != nullptr)
+    {
+        const auto &paged_obj =
+            static_cast<const RedisPagedHashObject &>(object);
+        if (!paged_obj.Execute(*this))
+        {
+            // Pages missing: nothing read, no reply built (§6).
+            return txservice::ExecResult::Yield;
+        }
+        return txservice::ExecResult::Read;
+    }
+
     const RedisHashObject &hash_obj =
         static_cast<const RedisHashObject &>(object);
     hash_obj.Execute(*this);
@@ -15334,6 +15567,19 @@ txservice::ExecResult HGetAllCommand::ExecuteOn(
         return txservice::ExecResult::Fail;
     }
 
+    // Representation dispatch (docs/08 §6): route a paged payload before the
+    // static downcast below, which assumes RedisHashObject.
+    if (object.AsPaged() != nullptr)
+    {
+        const auto &paged_obj =
+            static_cast<const RedisPagedHashObject &>(object);
+        if (!paged_obj.Execute(*this))
+        {
+            return txservice::ExecResult::Yield;
+        }
+        return txservice::ExecResult::Read;
+    }
+
     const RedisHashObject &hash_obj =
         static_cast<const RedisHashObject &>(object);
     hash_obj.Execute(*this);
@@ -15380,6 +15626,33 @@ txservice::ExecResult HIncrByCommand::ExecuteOn(
         return txservice::ExecResult::Fail;
     }
 
+    // §4/§14 cap with the WORST-CASE rendered value — an int64 renders to
+    // at most 20 bytes, so this bound is exact for the record the commit
+    // writes (a review hole: checking the field alone let a boundary-sized
+    // field produce an over-cap record).
+    static constexpr char kInt64Pad[21] = "-9223372036854775808";
+    if (HashRecordExceedsInlineCap(field_.StringView(),
+                                   std::string_view(kInt64Pad, 20)))
+    {
+        hash_result.err_code_ = RD_ERR_PAGED_RECORD_TOO_BIG;
+        return txservice::ExecResult::Fail;
+    }
+
+    // Representation dispatch (docs/08 §6): route a paged payload before the
+    // static downcast below, which assumes RedisHashObject.
+    if (object.AsPaged() != nullptr)
+    {
+        const auto &paged_obj =
+            static_cast<const RedisPagedHashObject &>(object);
+        std::optional<bool> paged_pass = paged_obj.Execute(*this);
+        if (!paged_pass.has_value())
+        {
+            return txservice::ExecResult::Yield;
+        }
+        return *paged_pass ? txservice::ExecResult::Write
+                           : txservice::ExecResult::Fail;
+    }
+
     const RedisHashObject &hash_obj =
         static_cast<const RedisHashObject &>(object);
     bool cmd_success = hash_obj.Execute(*this);
@@ -15390,9 +15663,16 @@ txservice::ExecResult HIncrByCommand::ExecuteOn(
 txservice::TxObject *HIncrByCommand::CommitOn(
     txservice::TxObject *const obj_ptr)
 {
+    if (obj_ptr->AsPaged() != nullptr)
+    {
+        auto &paged_obj = static_cast<RedisPagedHashObject &>(*obj_ptr);
+        paged_obj.CommitHincrby(field_, score_);
+        return obj_ptr;
+    }
     auto &hash_obj = static_cast<RedisHashObject &>(*obj_ptr);
     hash_obj.CommitHincrby(field_, score_);
-    return obj_ptr;
+    // Same post-mutation conversion policy as HSET (§11).
+    return MaybeConvertHashToPaged(obj_ptr);
 }
 
 void HIncrByCommand::Serialize(std::string &str) const
@@ -15450,9 +15730,46 @@ txservice::ExecResult HIncrByFloatCommand::ExecuteOn(
         return txservice::ExecResult::Fail;
     }
 
+    // §4/§14 cap, field-only fast-fail: a giant FIELD NAME is refused
+    // before any work. The exact record check happens after Execute renders
+    // the result below (ld2string's fixed notation reaches ~330 bytes for a
+    // double-range value, so the field-only check under-counts — a review
+    // hole).
+    if (HashRecordExceedsInlineCap(field_.StringView(), ""))
+    {
+        hash_result.err_code_ = RD_ERR_PAGED_RECORD_TOO_BIG;
+        return txservice::ExecResult::Fail;
+    }
+
+    // Representation dispatch (docs/08 §6).
+    if (object.AsPaged() != nullptr)
+    {
+        const auto &paged_obj =
+            static_cast<const RedisPagedHashObject &>(object);
+        std::optional<bool> paged_pass = paged_obj.Execute(*this);
+        if (!paged_pass.has_value())
+        {
+            return txservice::ExecResult::Yield;
+        }
+        return *paged_pass ? txservice::ExecResult::Write
+                           : txservice::ExecResult::Fail;
+    }
+
     const RedisHashObject &hash_obj =
         static_cast<const RedisHashObject &>(object);
     bool cmd_success = hash_obj.Execute(*this);
+    if (cmd_success)
+    {
+        // Exact record check with the rendered result Execute just built —
+        // the monolithic half of the same review hole.
+        const std::string &rendered =
+            std::get<std::string>(hash_result.result_);
+        if (HashRecordExceedsInlineCap(field_.StringView(), rendered))
+        {
+            hash_result.err_code_ = RD_ERR_PAGED_RECORD_TOO_BIG;
+            return txservice::ExecResult::Fail;
+        }
+    }
     return cmd_success ? txservice::ExecResult::Write
                        : txservice::ExecResult::Fail;
 }
@@ -15460,9 +15777,16 @@ txservice::ExecResult HIncrByFloatCommand::ExecuteOn(
 txservice::TxObject *HIncrByFloatCommand::CommitOn(
     txservice::TxObject *const obj_ptr)
 {
+    if (obj_ptr->AsPaged() != nullptr)
+    {
+        auto &paged_obj = static_cast<RedisPagedHashObject &>(*obj_ptr);
+        paged_obj.CommitHIncrByFloat(field_, incr_);
+        return obj_ptr;
+    }
     auto &hash_obj = static_cast<RedisHashObject &>(*obj_ptr);
     hash_obj.CommitHIncrByFloat(field_, incr_);
-    return obj_ptr;
+    // Same post-mutation conversion policy as HSET (§11).
+    return MaybeConvertHashToPaged(obj_ptr);
 }
 
 void HIncrByFloatCommand::Serialize(std::string &str) const
@@ -15510,6 +15834,19 @@ txservice::ExecResult HMGetCommand::ExecuteOn(const txservice::TxObject &object)
     {
         hash_result.err_code_ = RD_ERR_WRONG_TYPE;
         return txservice::ExecResult::Fail;
+    }
+
+    // Representation dispatch (docs/08 §6): route a paged payload before the
+    // static downcast below, which assumes RedisHashObject.
+    if (object.AsPaged() != nullptr)
+    {
+        const auto &paged_obj =
+            static_cast<const RedisPagedHashObject &>(object);
+        if (!paged_obj.Execute(*this))
+        {
+            return txservice::ExecResult::Yield;
+        }
+        return txservice::ExecResult::Read;
     }
 
     const RedisHashObject &hash_obj =
@@ -15603,6 +15940,19 @@ txservice::ExecResult HKeysCommand::ExecuteOn(const txservice::TxObject &object)
         return txservice::ExecResult::Fail;
     }
 
+    // Representation dispatch (docs/08 §6): route a paged payload before the
+    // static downcast below, which assumes RedisHashObject.
+    if (object.AsPaged() != nullptr)
+    {
+        const auto &paged_obj =
+            static_cast<const RedisPagedHashObject &>(object);
+        if (!paged_obj.Execute(*this))
+        {
+            return txservice::ExecResult::Yield;
+        }
+        return txservice::ExecResult::Read;
+    }
+
     const RedisHashObject &hash_obj =
         static_cast<const RedisHashObject &>(object);
     hash_obj.Execute(*this);
@@ -15641,6 +15991,19 @@ txservice::ExecResult HValsCommand::ExecuteOn(const txservice::TxObject &object)
     {
         hash_result.err_code_ = RD_ERR_WRONG_TYPE;
         return txservice::ExecResult::Fail;
+    }
+
+    // Representation dispatch (docs/08 §6): route a paged payload before the
+    // static downcast below, which assumes RedisHashObject.
+    if (object.AsPaged() != nullptr)
+    {
+        const auto &paged_obj =
+            static_cast<const RedisPagedHashObject &>(object);
+        if (!paged_obj.Execute(*this))
+        {
+            return txservice::ExecResult::Yield;
+        }
+        return txservice::ExecResult::Read;
     }
 
     const RedisHashObject &hash_obj =
@@ -15689,6 +16052,28 @@ txservice::ExecResult HSetNxCommand::ExecuteOn(
         return txservice::ExecResult::Fail;
     }
 
+    // The §4/§14 inline-record cap, both representations.
+    if (HashRecordExceedsInlineCap(key_.StringView(), value_.StringView()))
+    {
+        hash_result.err_code_ = RD_ERR_PAGED_RECORD_TOO_BIG;
+        return txservice::ExecResult::Fail;
+    }
+
+    // Representation dispatch (docs/08 §6): route a paged payload before the
+    // static downcast below, which assumes RedisHashObject.
+    if (object.AsPaged() != nullptr)
+    {
+        const auto &paged_obj =
+            static_cast<const RedisPagedHashObject &>(object);
+        std::optional<bool> paged_pass = paged_obj.Execute(*this);
+        if (!paged_pass.has_value())
+        {
+            return txservice::ExecResult::Yield;
+        }
+        return *paged_pass ? txservice::ExecResult::Write
+                           : txservice::ExecResult::Fail;
+    }
+
     const RedisHashObject &hash_obj =
         static_cast<const RedisHashObject &>(object);
     bool success = hash_obj.Execute(*this);
@@ -15697,9 +16082,16 @@ txservice::ExecResult HSetNxCommand::ExecuteOn(
 
 txservice::TxObject *HSetNxCommand::CommitOn(txservice::TxObject *const obj_ptr)
 {
+    if (obj_ptr->AsPaged() != nullptr)
+    {
+        auto &paged_obj = static_cast<RedisPagedHashObject &>(*obj_ptr);
+        paged_obj.CommitHSetNx(key_, value_);
+        return obj_ptr;
+    }
     auto &hash_obj = static_cast<RedisHashObject &>(*obj_ptr);
     hash_obj.CommitHSetNx(key_, value_);
-    return obj_ptr;
+    // Same post-mutation conversion policy as HSET (§11).
+    return MaybeConvertHashToPaged(obj_ptr);
 }
 
 void HSetNxCommand::Serialize(std::string &str) const
@@ -15755,6 +16147,18 @@ txservice::ExecResult HRandFieldCommand::ExecuteOn(
     {
         hash_result.err_code_ = RD_ERR_WRONG_TYPE;
         return txservice::ExecResult::Fail;
+    }
+
+    // Representation dispatch (docs/08 §6).
+    if (object.AsPaged() != nullptr)
+    {
+        const auto &paged_obj =
+            static_cast<const RedisPagedHashObject &>(object);
+        if (!paged_obj.Execute(*this))
+        {
+            return txservice::ExecResult::Yield;
+        }
+        return txservice::ExecResult::Read;
     }
 
     const RedisHashObject &hash_obj =
@@ -15836,6 +16240,19 @@ txservice::ExecResult HScanCommand::ExecuteOn(const txservice::TxObject &object)
     {
         hash_result.err_code_ = RD_ERR_WRONG_TYPE;
         return txservice::ExecResult::Fail;
+    }
+
+    // Representation dispatch (docs/08 §6). Unlike the monolithic path below,
+    // the paged implementation honours the cursor (§12).
+    if (object.AsPaged() != nullptr)
+    {
+        const auto &paged_obj =
+            static_cast<const RedisPagedHashObject &>(object);
+        if (!paged_obj.Execute(*this))
+        {
+            return txservice::ExecResult::Yield;
+        }
+        return txservice::ExecResult::Read;
     }
 
     const RedisHashObject &hash_obj =
@@ -15981,6 +16398,15 @@ txservice::ExecResult DumpCommand::ExecuteOn(const txservice::TxObject &object)
 {
     const RedisEloqObject &eloq_obj =
         dynamic_cast<const RedisEloqObject &>(object);
+
+    // DUMP of a paged object needs page reassembly, deferred past v1 (docs/08
+    // §7). Report it as the specific "unsupported on paged" error rather than
+    // a generic syntax error.
+    if (object.AsPaged() != nullptr)
+    {
+        result_.err_code_ = RD_ERR_PAGED_UNSUPPORTED_CMD;
+        return txservice::ExecResult::Read;
+    }
 
     if (!ConvertEloqObjectToRedisDumpPayload(eloq_obj, result_.str_))
     {
@@ -16129,12 +16555,17 @@ txservice::TxObject *RestoreCommand::CommitOn(txservice::TxObject *obj_ptr)
         // Release ownership and return the new TTL object
         // The old object (robj) will be automatically destroyed when unique_ptr
         // goes out of scope
-        return static_cast<txservice::TxObject *>(
-            result_ttl_obj_uptr.release());
+        // An IMPORTED hash is subject to the same conversion policy as one
+        // grown by commands (§11): a RESTORE of an above-threshold hash must
+        // not produce a permanently monolithic object. The helper returns
+        // its argument unchanged for every other type, and carries the TTL.
+        // The unique_ptr form is required here: this object was built locally,
+        // so a conversion must destroy it rather than leave it unowned.
+        return MaybeConvertHashToPaged(std::move(result_ttl_obj_uptr));
     }
 
     // Release ownership and return the object
-    return static_cast<txservice::TxObject *>(robj.release());
+    return MaybeConvertHashToPaged(std::move(robj));
 }
 
 void RestoreCommand::Serialize(std::string &str) const
@@ -16319,6 +16750,21 @@ std::unique_ptr<txservice::TxRecord> RedisMemoryUsageCommand::CreateObject(
 txservice::ExecResult RedisMemoryUsageCommand::ExecuteOn(
     const txservice::TxObject &object)
 {
+    // Representation dispatch (docs/08 §15.3). For a paged object the two
+    // sizes differ by orders of magnitude: SerializedLength() is the METADATA
+    // ROW (~0.01% of the object), so reporting it here would tell a client
+    // its multi-GB hash occupies a few hundred bytes. LogicalBytes() is the
+    // whole-object logical size — the same quantity the conversion threshold
+    // and MAX_OBJECT_SIZE are checked against — and, unlike a resident-bytes
+    // answer, it does not change when pages are evicted or faulted back in.
+    if (object.AsPaged() != nullptr)
+    {
+        const auto &paged_obj =
+            static_cast<const RedisPagedHashObject &>(object);
+        result_.int_val_ = static_cast<int64_t>(paged_obj.LogicalBytes());
+        result_.err_code_ = RD_OK;
+        return txservice::ExecResult::Read;
+    }
     const auto &obj = static_cast<const RedisEloqObject &>(object);
     result_.int_val_ = obj.SerializedLength();
     result_.err_code_ = RD_OK;

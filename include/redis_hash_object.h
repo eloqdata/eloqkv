@@ -230,6 +230,24 @@ public:
     void CommitHSetNx(EloqString &, EloqString &);
     void CommitHIncrByFloat(EloqString &, long double);
 
+    /**
+     * @brief Views of every field/value pair, for building the paged
+     * representation at conversion (docs/08 §11). Views borrow this object's
+     * storage, so the caller must consume them before it is destroyed — which
+     * the conversion does, constructing the paged object immediately.
+     */
+    std::vector<std::pair<std::string_view, std::string_view>> FieldsView()
+        const
+    {
+        std::vector<std::pair<std::string_view, std::string_view>> out;
+        out.reserve(hash_map_.size());
+        for (const auto &[field, value] : hash_map_)
+        {
+            out.emplace_back(field.StringView(), value.StringView());
+        }
+        return out;
+    }
+
 protected:
     void SetField(EloqString &field, EloqString &value);
     absl::flat_hash_map<EloqString, EloqString> hash_map_;

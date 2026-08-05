@@ -262,6 +262,22 @@ void ConvertEloqkvFlagsToTxFlags(INIReader *config_reader)
         }
     }
 
+    // Busy-poll window for brpc workers before they may park. Exposed here so
+    // the ini can tune it: DataSubstrate only DEFAULTS it (to 1 ms), and an
+    // explicit setting from either the command line or this file wins. Raising
+    // it above brpc's timer cadence (~53 ms idle) pins a core per node, so it
+    // is worth being able to set deliberately rather than by accident.
+    if (config_reader->HasValue("local", "worker_polling_time_us") &&
+        CheckCommandLineFlagIsDefault("worker_polling_time_us"))
+    {
+        int64_t polling_us =
+            config_reader->GetInteger("local", "worker_polling_time_us", 1000);
+        GFLAGS_NAMESPACE::SetCommandLineOption(
+            "worker_polling_time_us", std::to_string(polling_us).c_str());
+        LOG(INFO) << "Converted eloqkv config 'worker_polling_time_us' to: "
+                  << polling_us;
+    }
+
     // Convert eloqkv ip_port_list to tx_ip_port_list (with ports +10000)
     if (IsEloqkvFlagSet("ip_port_list"))
     {
