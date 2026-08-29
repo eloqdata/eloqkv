@@ -4730,46 +4730,6 @@ void RedisServiceImpl::ExecuteGetConfig(ConfigCommand *cmd)
 
 void RedisServiceImpl::ExecuteSetConfig(ConfigCommand *cmd)
 {
-    std::vector<std::optional<uint32_t>> parsed_maxclients(cmd->keys_.size());
-    for (size_t i = 0; i < cmd->keys_.size(); ++i)
-    {
-        if (cmd->keys_[i] != "maxclients")
-        {
-            continue;
-        }
-
-        uint64_t value = 0;
-        const std::string_view text = cmd->values_[i];
-        if (!text.empty() && text.front() == '-')
-        {
-            cmd->error_message_ =
-                "ERR CONFIG SET failed (possibly related to argument "
-                "'maxclients') - argument must be between 1 and 4294967295 "
-                "inclusive";
-            return;
-        }
-        const auto [end, error] =
-            std::from_chars(text.data(), text.data() + text.size(), value);
-        if (error == std::errc::invalid_argument ||
-            end != text.data() + text.size())
-        {
-            cmd->error_message_ =
-                "ERR CONFIG SET failed (possibly related to argument "
-                "'maxclients') - argument couldn't be parsed into an integer";
-            return;
-        }
-        if (error == std::errc::result_out_of_range || value == 0 ||
-            value > std::numeric_limits<uint32_t>::max())
-        {
-            cmd->error_message_ =
-                "ERR CONFIG SET failed (possibly related to argument "
-                "'maxclients') - argument must be between 1 and 4294967295 "
-                "inclusive";
-            return;
-        }
-        parsed_maxclients[i] = static_cast<uint32_t>(value);
-    }
-
     bool expected = false;
     while (!config_accessing_.compare_exchange_strong(
         expected, true, std::memory_order_acq_rel))
@@ -4781,15 +4741,44 @@ void RedisServiceImpl::ExecuteSetConfig(ConfigCommand *cmd)
     {
         if (cmd->keys_[i] == "maxclients")
         {
-            const uint32_t maxclients = *parsed_maxclients[i];
+            uint64_t value = 0;
+            const std::string_view text = cmd->values_[i];
+            if (!text.empty() && text.front() == '-')
+            {
+                cmd->error_message_ =
+                    "ERR CONFIG SET failed (possibly related to argument "
+                    "'maxclients') - argument must be between 1 and "
+                    "4294967295 inclusive";
+                break;
+            }
+            const auto [end, error] =
+                std::from_chars(text.data(), text.data() + text.size(), value);
+            if (error == std::errc::invalid_argument ||
+                end != text.data() + text.size())
+            {
+                cmd->error_message_ =
+                    "ERR CONFIG SET failed (possibly related to argument "
+                    "'maxclients') - argument couldn't be parsed into an "
+                    "integer";
+                break;
+            }
+            if (error == std::errc::result_out_of_range || value == 0 ||
+                value > std::numeric_limits<uint32_t>::max())
+            {
+                cmd->error_message_ =
+                    "ERR CONFIG SET failed (possibly related to argument "
+                    "'maxclients') - argument must be between 1 and "
+                    "4294967295 inclusive";
+                break;
+            }
+            const uint32_t maxclients = static_cast<uint32_t>(value);
             if (brpc_server_ == nullptr ||
                 brpc_server_->SetRedisMaxConnections(maxclients) != 0)
             {
                 cmd->error_message_ =
                     "ERR CONFIG SET failed (possibly related to argument "
                     "'maxclients') - unable to update the Redis listener";
-                config_accessing_.store(false, std::memory_order_release);
-                return;
+                break;
             }
             max_connection_count_.store(maxclients, std::memory_order_relaxed);
             config_["maxclients"] = std::to_string(maxclients);
