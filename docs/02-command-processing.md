@@ -47,7 +47,8 @@ service layer only; engine internals are in `data_substrate/docs/` (esp. `02-thr
    listen address, starts the metrics collector thread and namespace GC daemon. In `bootstrap`
    mode it exits the process right here after table creation (`src/redis_service.cpp:704-721`).
 6. brpc `Server::Start()` with `server_options.redis_service = redis_service_impl` (ownership
-   transfers to the server) and optional SSL options; then `RunUntilAskedToQuit()`
+   transfers to the server), the public listener declared Redis-only, `redis_max_connections` set
+   from `maxclients`, and optional force-SSL settings; then `RunUntilAskedToQuit()`
    (`src/redis_server.cpp:502-548`).
 
 ## 2. Request path end-to-end
@@ -99,7 +100,18 @@ key ≤ 32 MB (2 KB for the EloqStore backend) and object ≤ 256 MB
 
 ## 3. Connection state machine
 
-One `RedisConnectionContext` per socket, created by `NewConnectionContext`
+The brpc acceptor enforces `maxclients` only on the Redis-only public listener, immediately after
+the kernel accepts a TCP connection and before it creates a brpc `Socket`. Over-limit plaintext
+connections receive `-ERR max number of clients reached` and are closed; SSL-capable listeners
+close over-limit connections before TLS authentication or handshake work. Other EloqKV brpc/RPC
+servers are not subject to this limit. The acceptor reserves connection slots atomically before
+socket creation, so idle clients count toward the limit and concurrent accepts cannot overshoot it.
+`CONFIG GET maxclients` reports the active limit and `CONFIG SET maxclients <count>` atomically
+changes it for subsequent accepts. Lowering the limit does not disconnect established clients.
+The runtime value is not written back to disk; a restart loads `maxclients` from the `[local]`
+section of `eloqkv.ini` (or its gflag override) again.
+
+One `RedisConnectionContext` per admitted socket, created by `NewConnectionContext`
 (`src/redis_service.cpp:5917`) and owned by brpc's per-socket parsing context. Key fields
 (`include/redis_connection_context.h:61-170`):
 
@@ -304,8 +316,9 @@ the special MOVED/READONLY translations of §6.
 ## 9. Stats, INFO, slow log, metrics
 
 - `RedisStats` (`src/redis_stats.cpp`) exposes brpc bvars when `--enable_redis_stats` (default
-  on): connections received/rejected/closed, blocked clients, read/write/multi-object command
-  counters. Incremented in the connection ctor/dtor and in `ExecuteTxRequest`/
+  on): connections received/closed, blocked clients, and read/write/multi-object command
+  counters. Rejected connections come from the Redis listener's brpc admission counter. The
+  remaining counters are incremented in the connection ctor/dtor and in `ExecuteTxRequest`/
   `ExecuteMultiObjTxRequest` (4486-4496, 4528-4536). `INFO` is a `DirectCommand`
   (`include/redis_command.h:811`) assembled from these counters plus service fields captured at
   Init (OS info, exe path, memory; `src/redis_service.cpp:587-630`).

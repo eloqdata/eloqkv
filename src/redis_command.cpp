@@ -1791,8 +1791,15 @@ void InfoCommand::Execute(RedisServiceImpl *redis_impl,
     if (redis_impl->IsEnableRedisStats())
     {
         conn_received_count_ = RedisStats::GetConnReceivedCount();
-        conn_rejected_count_ = RedisStats::GetConnRejectedCount();
-        connecting_count_ = RedisStats::GetConnectingCount();
+        conn_rejected_count_ =
+            server_acceptor == nullptr
+                ? 0
+                : server_acceptor->RejectedRedisConnectionCount();
+        // The acceptor owns the maxclients slots, so use the same source for
+        // connected_clients. This includes idle sockets that have not sent a
+        // first Redis command yet.
+        connecting_count_ =
+            server_acceptor == nullptr ? 0 : server_acceptor->ConnectionCount();
         blocked_clients_count_ = RedisStats::GetBlockedClientsCount();
 
         cmd_read_count_ = RedisStats::GetReadCommandsCount();
@@ -2827,6 +2834,11 @@ void ConfigCommand::OutputResult(OutputHandler *reply) const
 {
     if (flag_ == CONFIG_SET)
     {
+        if (!error_message_.empty())
+        {
+            reply->OnError(error_message_);
+            return;
+        }
         reply->OnStatus("OK");
         return;
     }

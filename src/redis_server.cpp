@@ -505,10 +505,17 @@ int main(int argc, char *argv[])
     // Notice: redis_service_impl will be deleted in server's destructor.
     server_options.redis_service = redis_service_impl.release();
     server_options.has_builtin_services = false;
+    // This listener is exclusively RESP. Declaring it as such lets brpc
+    // enforce maxclients immediately after accept, before any optional TLS
+    // handshake, without applying the limit to EloqKV's other RPC servers.
+    server_options.enabled_protocols = "redis";
+    server_options.redis_max_connections =
+        redis_service_ptr->MaxConnectionCount();
 
     // Configure TLS if enabled
     if (redis_service_ptr->IsTlsEnabled())
     {
+        server_options.force_ssl = true;
         brpc::ServerSSLOptions *ssl_options =
             server_options.mutable_ssl_options();
 
