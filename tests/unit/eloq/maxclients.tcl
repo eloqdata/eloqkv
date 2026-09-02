@@ -9,9 +9,14 @@ start_server {tags {"maxclients network"}} {
         # limit is below the current connection count.
         assert_equal {PONG} [r ping]
 
+        if {$::tls} {
+            set expected_rejection {*I/O error*}
+        } else {
+            set expected_rejection {*ERR max*reached*}
+        }
         set rejected [catch {redis_deferring_client} rejection]
         assert_equal {1} $rejected
-        assert_match {*ERR max*reached*} $rejection
+        assert_match $expected_rejection $rejection
 
         assert_error {*argument must be between 1 and 4294967295 inclusive*} {
             r config set maxclients 0

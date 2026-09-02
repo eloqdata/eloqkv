@@ -621,6 +621,9 @@ private:
     // after Start(). The pointer is used only by CONFIG SET to update the
     // Redis-only public acceptor's atomic admission limit.
     brpc::Server *brpc_server_{nullptr};
+    // Race-free cache for startup and INFO reads. config_accessing_ serializes
+    // CONFIG mutations; relaxed access here does not synchronize the brpc
+    // acceptor update, which uses its own atomic state.
     std::atomic<uint32_t> max_connection_count_{0};
 
     bool enable_redis_stats_;
