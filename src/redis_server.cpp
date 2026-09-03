@@ -25,6 +25,8 @@
 #include <gflags/gflags.h>
 #include <glog/logging.h>
 
+#include <cstdint>
+#include <limits>
 #include <sstream>
 #include <string>
 
@@ -43,6 +45,12 @@ constexpr char VERSION[] = "1.3.2";
 // EloqKV flags - these are converted to tx flags
 DEFINE_string(ip, "127.0.0.1", "Redis IP");
 DEFINE_int32(port, 6379, "Redis Port");
+DEFINE_int32(admin_port,
+             0,
+             "Administrative Redis port; 0 disables the admin listener");
+DEFINE_uint32(admin_maxclients,
+              16,
+              "Maximum connections accepted by the admin Redis listener");
 DEFINE_string(ip_port_list, "", "redis server cluster ip port list");
 DEFINE_string(standby_ip_port_list,
               "",
@@ -62,6 +70,80 @@ DEFINE_string(voter_ip_port_list,
 // Global variable defined in redis_service.cpp
 extern brpc::Acceptor *EloqKV::server_acceptor;
 extern std::string EloqKV::redis_ip_port;
+
+namespace
+{
+/**
+ * A non-owning Redis service view for the administrative listener.
+ *
+ * brpc::Server owns and deletes ServerOptions::redis_service, so the primary
+ * RedisServiceImpl cannot be installed in two Server instances directly. The
+ * primary Server owns the implementation; the administrative Server owns this
+ * proxy and is always stopped and destroyed first.
+ */
+class RedisServiceProxy final : public brpc::RedisService
+{
+public:
+    explicit RedisServiceProxy(EloqKV::RedisServiceImpl *service)
+        : service_(service)
+    {
+    }
+
+    std::unique_ptr<brpc::ConnectionContext> NewConnectionContext(
+        brpc::Socket *socket) const override
+    {
+        return service_->NewConnectionContext(socket);
+    }
+
+    brpc::RedisCommandHandlerResult DispatchCommand(
+        brpc::ConnectionContext *ctx,
+        const std::vector<butil::StringPiece> &args,
+        brpc::RedisReply *output,
+        bool flush_batched) const override
+    {
+        return service_->DispatchCommand(ctx, args, output, flush_batched);
+    }
+
+private:
+    EloqKV::RedisServiceImpl *service_;
+};
+
+void ConfigureRedisListener(brpc::ServerOptions *options,
+                            EloqKV::RedisServiceImpl *redis_service,
+                            size_t max_connections,
+                            const char *listener_name)
+{
+    std::string n_bthreads;
+    GFLAGS_NAMESPACE::GetCommandLineOption("bthread_concurrency", &n_bthreads);
+    options->num_threads = std::stoi(n_bthreads);
+    options->has_builtin_services = false;
+    options->enabled_protocols = "redis";
+    options->redis_max_connections = max_connections;
+
+    if (!redis_service->IsTlsEnabled())
+    {
+        return;
+    }
+
+    options->force_ssl = true;
+    brpc::ServerSSLOptions *ssl_options = options->mutable_ssl_options();
+    ssl_options->default_cert.certificate = redis_service->GetTlsCertFile();
+    ssl_options->default_cert.private_key = redis_service->GetTlsKeyFile();
+
+    LOG(INFO) << "TLS enabled for " << listener_name
+              << " Redis listener. Certificate: "
+              << redis_service->GetTlsCertFile()
+              << ", Key: " << redis_service->GetTlsKeyFile();
+}
+
+std::string RedisListenAddress(uint32_t port)
+{
+    const auto &network_config = DataSubstrate::Instance().GetNetworkConfig();
+    const std::string ip =
+        network_config.bind_all ? "0.0.0.0" : network_config.local_ip;
+    return ip + ":" + std::to_string(port);
+}
+}  // namespace
 
 void PrintHelloText()
 {
@@ -450,6 +532,33 @@ int main(int argc, char *argv[])
     // Convert eloqkv flags to tx flags
     ConvertEloqkvFlagsToTxFlags(&config_reader);
 
+    const int64_t configured_admin_port =
+        IsEloqkvFlagSet("admin_port")
+            ? FLAGS_admin_port
+            : config_reader.GetInteger("local", "admin_port", FLAGS_admin_port);
+    const int64_t configured_admin_maxclients =
+        IsEloqkvFlagSet("admin_maxclients")
+            ? FLAGS_admin_maxclients
+            : config_reader.GetInteger(
+                  "local", "admin_maxclients", FLAGS_admin_maxclients);
+    if (configured_admin_port < 0 ||
+        configured_admin_port > std::numeric_limits<uint16_t>::max())
+    {
+        LOG(ERROR) << "admin_port must be between 0 and "
+                   << std::numeric_limits<uint16_t>::max();
+        return -1;
+    }
+    if (configured_admin_maxclients <= 0 ||
+        configured_admin_maxclients > std::numeric_limits<uint32_t>::max())
+    {
+        LOG(ERROR) << "admin_maxclients must be between 1 and "
+                   << std::numeric_limits<uint32_t>::max();
+        return -1;
+    }
+    const uint32_t admin_port = static_cast<uint32_t>(configured_admin_port);
+    const uint32_t admin_maxclients =
+        static_cast<uint32_t>(configured_admin_maxclients);
+
     // Step 1: Initialize DataSubstrate
     if (!DataSubstrate::Instance().Init(config_file))
     {
@@ -461,6 +570,9 @@ int main(int argc, char *argv[])
     LOG(INFO) << "Starting EloqKV Server ...";
     DataSubstrate::Instance().EnableEngine(txservice::TableEngine::EloqKv);
     brpc::Server server;
+    // Declared after the primary Server so that its non-owning Redis service
+    // proxy is destroyed before the primary Server deletes RedisServiceImpl.
+    brpc::Server admin_server;
     brpc::ServerOptions server_options;
     auto redis_service_impl =
         std::make_unique<EloqKV::RedisServiceImpl>(config_file, VERSION);
@@ -499,37 +611,26 @@ int main(int argc, char *argv[])
 #endif
         return -1;
     }
-    std::string n_bthreads;
-    GFLAGS_NAMESPACE::GetCommandLineOption("bthread_concurrency", &n_bthreads);
-    server_options.num_threads = std::stoi(n_bthreads);
+    if (admin_port != 0 && admin_port == redis_service_ptr->GetRedisPort())
+    {
+        LOG(ERROR) << "admin_port must differ from the primary Redis port";
+        redis_service_ptr->Stop();
+        DataSubstrate::Instance().Shutdown();
+#if BRPC_WITH_GLOG
+        google::ShutdownGoogleLogging();
+#endif
+        return -1;
+    }
+
     // Notice: redis_service_impl will be deleted in server's destructor.
     server_options.redis_service = redis_service_impl.release();
-    server_options.has_builtin_services = false;
     // This listener is exclusively RESP. Declaring it as such lets brpc
     // enforce maxclients immediately after accept, before any optional TLS
     // handshake, without applying the limit to EloqKV's other RPC servers.
-    server_options.enabled_protocols = "redis";
-    server_options.redis_max_connections =
-        redis_service_ptr->MaxConnectionCount();
-
-    // Configure TLS if enabled
-    if (redis_service_ptr->IsTlsEnabled())
-    {
-        server_options.force_ssl = true;
-        brpc::ServerSSLOptions *ssl_options =
-            server_options.mutable_ssl_options();
-
-        // Set server certificate and key (required when TLS is enabled)
-        // Validation in Init() ensures both files are provided
-        ssl_options->default_cert.certificate =
-            redis_service_ptr->GetTlsCertFile();
-        ssl_options->default_cert.private_key =
-            redis_service_ptr->GetTlsKeyFile();
-
-        LOG(INFO) << "TLS enabled for brpc server. Certificate: "
-                  << redis_service_ptr->GetTlsCertFile()
-                  << ", Key: " << redis_service_ptr->GetTlsKeyFile();
-    }
+    ConfigureRedisListener(&server_options,
+                           redis_service_ptr,
+                           redis_service_ptr->MaxConnectionCount(),
+                           "primary");
 
     if (server.Start(redis_ip_port.c_str(), &server_options) != 0)
     {
@@ -541,6 +642,37 @@ int main(int argc, char *argv[])
 #endif
         return -1;
     }
+    EloqKV::server_acceptor = server.GetAcceptor();
+
+    std::string admin_ip_port;
+    if (admin_port != 0)
+    {
+        admin_ip_port = RedisListenAddress(admin_port);
+        brpc::ServerOptions admin_server_options;
+        // The proxy exposes exactly the same service behavior while keeping
+        // ownership and connection admission independent between listeners.
+        admin_server_options.redis_service =
+            new RedisServiceProxy(redis_service_ptr);
+        ConfigureRedisListener(&admin_server_options,
+                               redis_service_ptr,
+                               admin_maxclients,
+                               "administrative");
+        if (admin_server.Start(admin_ip_port.c_str(), &admin_server_options) !=
+            0)
+        {
+            LOG(ERROR) << "Failed to start the administrative Redis listener "
+                       << "on " << admin_ip_port;
+            server.Stop(0);
+            server.Join();
+            EloqKV::server_acceptor = nullptr;
+            redis_service_ptr->Stop();
+            DataSubstrate::Instance().Shutdown();
+#if BRPC_WITH_GLOG
+            google::ShutdownGoogleLogging();
+#endif
+            return -1;
+        }
+    }
 
     if (!FLAGS_alsologtostderr)
     {
@@ -549,10 +681,27 @@ int main(int argc, char *argv[])
     }
     LOG(INFO) << "==== EloqKV Server Started, listening on " << redis_ip_port
               << "====";
-
-    EloqKV::server_acceptor = server.GetAcceptor();
+    if (admin_port != 0)
+    {
+        if (!FLAGS_alsologtostderr)
+        {
+            std::cout << "Administrative Redis listener started on "
+                      << admin_ip_port << std::endl;
+        }
+        LOG(INFO) << "==== Administrative Redis listener started on "
+                  << admin_ip_port << ", maxclients=" << admin_maxclients
+                  << " ====";
+    }
 
     server.RunUntilAskedToQuit();
+
+    // Stop the proxy listener before stopping the shared RedisServiceImpl.
+    if (admin_server.IsRunning())
+    {
+        admin_server.Stop(0);
+        admin_server.Join();
+    }
+    EloqKV::server_acceptor = nullptr;
 
     if (!FLAGS_alsologtostderr)
     {

@@ -48,8 +48,12 @@ service layer only; engine internals are in `data_substrate/docs/` (esp. `02-thr
    mode it exits the process right here after table creation (`src/redis_service.cpp:704-721`).
 6. brpc `Server::Start()` with `server_options.redis_service = redis_service_impl` (ownership
    transfers to the server), the public listener declared Redis-only, `redis_max_connections` set
-   from `maxclients`, and optional force-SSL settings; then `RunUntilAskedToQuit()`
-   (`src/redis_server.cpp:502-548`).
+   from `maxclients`, and optional force-SSL settings. When `admin_port` is nonzero, a second
+   Redis-only `brpc::Server` starts on the same bind address with an independent
+   `admin_maxclients` limit. Its non-owning service proxy forwards connection-context creation and
+   every command to the primary `RedisServiceImpl`, so command, authentication, namespace, and TLS
+   behavior remain shared. The primary server then waits in `RunUntilAskedToQuit()`
+   (`src/redis_server.cpp`).
 
 ## 2. Request path end-to-end
 
@@ -110,6 +114,16 @@ socket creation, so idle clients count toward the limit and concurrent accepts c
 changes it for subsequent accepts. Lowering the limit does not disconnect established clients.
 The runtime value is not written back to disk; a restart loads `maxclients` from the `[local]`
 section of `eloqkv.ini` (or its gflag override) again.
+
+An optional administrative listener (`admin_port`, disabled by default) has its own Acceptor and
+fixed `admin_maxclients` admission limit. Reaching the primary `maxclients` therefore does not
+consume administrative connection slots. `CONFIG SET maxclients` deliberately continues to
+update only the primary listener, preserving the independent escape path. Both listeners share
+the same process file-descriptor limit and bthread/engine resources: deployments must leave FD
+headroom above `maxclients + admin_maxclients`, and the second listener does not guarantee access
+after process-wide FD, memory, CPU, or scheduler exhaustion. The administrative port inherits the
+primary bind address, authentication, and force-TLS configuration and exposes the same command
+dispatcher; protect it with host/network access controls.
 
 One `RedisConnectionContext` per admitted socket, created by `NewConnectionContext`
 (`src/redis_service.cpp:5917`) and owned by brpc's per-socket parsing context. Key fields
