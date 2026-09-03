@@ -124,6 +124,7 @@ set ::next_test 0
 
 set ::host 127.0.0.1
 set ::port 6379; # port for external server
+set ::admin_port 0; # optional administrative port for external server tests
 set ::baseport 21111; # initial port for spawned redis servers
 set ::portcount 8000; # we don't wanna use more than 10000 to avoid collision with cluster bus ports
 set ::traceleaks 0
@@ -645,6 +646,7 @@ proc print_help_screen {} {
         "--tls-module       Run tests in TLS mode with Redis module."
         "--host <addr>      Run tests against an external host."
         "--port <port>      TCP port to use against external host."
+        "--admin-port <port> Administrative port of the external host, if enabled."
         "--baseport <port>  Initial port number for spawned redis servers."
         "--portcount <num>  Port range for spawned redis servers."
         "--singledb         Use a single database, avoid SELECT."
@@ -711,6 +713,9 @@ for {set j 0} {$j < [llength $argv]} {incr j} {
         incr j
     } elseif {$opt eq {--port}} {
         set ::port $arg
+        incr j
+    } elseif {$opt eq {--admin-port}} {
+        set ::admin_port $arg
         incr j
     } elseif {$opt eq {--baseport}} {
         set ::baseport $arg

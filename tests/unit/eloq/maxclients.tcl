@@ -28,4 +28,26 @@ start_server {tags {"maxclients network"}} {
 
         r config set maxclients $original
     }
+
+    if {$::admin_port != 0} {
+        test {Admin listener remains available when primary maxclients is reached} {
+            set original [lindex [r config get maxclients] 1]
+            assert_equal {OK} [r config set maxclients 1]
+
+            if {$::tls} {
+                set expected_rejection {*I/O error*}
+            } else {
+                set expected_rejection {*ERR max*reached*}
+            }
+            set rejected [catch {redis_deferring_client} rejection]
+            assert_equal {1} $rejected
+            assert_match $expected_rejection $rejection
+
+            set admin [redis $::host $::admin_port 0 $::tls]
+            assert_equal {PONG} [$admin ping]
+            $admin close
+
+            r config set maxclients $original
+        }
+    }
 }
