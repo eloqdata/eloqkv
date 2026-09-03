@@ -42,6 +42,7 @@
 #include <filesystem>
 #include <fstream>
 #include <functional>
+#include <limits>
 #include <memory>
 #include <nlohmann/json.hpp>
 #include <optional>
@@ -232,6 +233,7 @@ RedisServiceImpl::RedisServiceImpl(const std::string &config_file,
 
 bool RedisServiceImpl::Init(brpc::Server &brpc_server)
 {
+    brpc_server_ = &brpc_server;
     INIReader config_reader(config_file_);
 
     if (!config_file_.empty() && config_reader.ParseError() != 0)
@@ -242,6 +244,10 @@ bool RedisServiceImpl::Init(brpc::Server &brpc_server)
 
     // Engine registration: EloqKv
     auto &ds = DataSubstrate::Instance();
+
+    max_connection_count_.store(ds.GetCoreConfig().maxclients,
+                                std::memory_order_relaxed);
+    config_.try_emplace("maxclients", std::to_string(MaxConnectionCount()));
 
     databases = config_reader.GetInteger("local", "databases", 16);
 
@@ -4733,13 +4739,58 @@ void RedisServiceImpl::ExecuteSetConfig(ConfigCommand *cmd)
     }
     for (size_t i = 0; i < cmd->keys_.size(); ++i)
     {
-        config_[std::string(cmd->keys_[i])] = std::string(cmd->values_[i]);
-        if (cmd->keys_[i] == "slowlog-log-slower-than")
+        if (cmd->keys_[i] == "maxclients")
         {
+            uint64_t value = 0;
+            const std::string_view text = cmd->values_[i];
+            if (!text.empty() && text.front() == '-')
+            {
+                cmd->error_message_ =
+                    "ERR CONFIG SET failed (possibly related to argument "
+                    "'maxclients') - argument must be between 1 and "
+                    "4294967295 inclusive";
+                break;
+            }
+            const auto [end, error] =
+                std::from_chars(text.data(), text.data() + text.size(), value);
+            if (error == std::errc::invalid_argument ||
+                end != text.data() + text.size())
+            {
+                cmd->error_message_ =
+                    "ERR CONFIG SET failed (possibly related to argument "
+                    "'maxclients') - argument couldn't be parsed into an "
+                    "integer";
+                break;
+            }
+            if (error == std::errc::result_out_of_range || value == 0 ||
+                value > std::numeric_limits<uint32_t>::max())
+            {
+                cmd->error_message_ =
+                    "ERR CONFIG SET failed (possibly related to argument "
+                    "'maxclients') - argument must be between 1 and "
+                    "4294967295 inclusive";
+                break;
+            }
+            const uint32_t maxclients = static_cast<uint32_t>(value);
+            if (brpc_server_ == nullptr ||
+                brpc_server_->SetRedisMaxConnections(maxclients) != 0)
+            {
+                cmd->error_message_ =
+                    "ERR CONFIG SET failed (possibly related to argument "
+                    "'maxclients') - unable to update the Redis listener";
+                break;
+            }
+            max_connection_count_.store(maxclients, std::memory_order_relaxed);
+            config_["maxclients"] = std::to_string(maxclients);
+        }
+        else if (cmd->keys_[i] == "slowlog-log-slower-than")
+        {
+            config_[std::string(cmd->keys_[i])] = std::string(cmd->values_[i]);
             slow_log_threshold_ = std::stoul(std::string(cmd->values_[i]));
         }
         else if (cmd->keys_[i] == "slowlog-max-len")
         {
+            config_[std::string(cmd->keys_[i])] = std::string(cmd->values_[i]);
             ResizeSlowLog(std::stoul(std::string(cmd->values_[i])));
         }
     }
@@ -6514,8 +6565,7 @@ metrics::Meter *RedisServiceImpl::GetMeter(std::size_t core_id) const
 
 size_t RedisServiceImpl::MaxConnectionCount() const
 {
-    auto &ds = DataSubstrate::Instance();
-    return ds.GetCoreConfig().maxclients;
+    return max_connection_count_.load(std::memory_order_relaxed);
 }
 
 }  // namespace EloqKV

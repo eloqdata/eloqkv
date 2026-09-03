@@ -24,8 +24,10 @@
 #include <brpc/redis.h>
 #include <bthread/task_group.h>
 
+#include <atomic>
 #include <cassert>
 #include <cstddef>
+#include <cstdint>
 #include <map>
 #include <memory>  //std::unique_ptr
 #include <string>
@@ -156,6 +158,7 @@ class RedisServiceImpl;
 class NamespaceStorage;
 
 const std::unordered_set<std::string> redis_config_keys = {
+    "maxclients",
     "slowlog-log-slower-than",
     "slowlog-max-len",
 };
@@ -543,6 +546,8 @@ public:
 
     void ResizeSlowLog(uint32_t len);
 
+    // Returns the active Redis listener limit. CONFIG SET may update this
+    // value without changing the startup configuration in DataSubstrate.
     size_t MaxConnectionCount() const;
 
     static bool SendTxRequest(TransactionExecution *txm,
@@ -611,6 +616,15 @@ private:
     // thread that it is acquired.
     std::atomic_bool config_accessing_{false};
     std::unordered_map<std::string, std::string> config_;
+
+    // The Server outlives the service because it owns this RedisServiceImpl
+    // after Start(). The pointer is used only by CONFIG SET to update the
+    // Redis-only public acceptor's atomic admission limit.
+    brpc::Server *brpc_server_{nullptr};
+    // Race-free cache for startup and INFO reads. config_accessing_ serializes
+    // CONFIG mutations; relaxed access here does not synchronize the brpc
+    // acceptor update, which uses its own atomic state.
+    std::atomic<uint32_t> max_connection_count_{0};
 
     bool enable_redis_stats_;
     bool skip_kv_;

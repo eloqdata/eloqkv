@@ -1321,6 +1321,7 @@ struct ConfigCommand : public DirectCommand
     std::vector<std::string_view> keys_;
     std::vector<std::string_view> values_;
     std::vector<std::string> results_;
+    std::string error_message_;
 };
 
 struct TimeCommand : public DirectCommand
