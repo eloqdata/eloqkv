@@ -474,16 +474,18 @@ function bootstrap_eloqkv() {
 #                <data_store> [extra...]
 function run_scenario() {
   local store_type=$1 log_name=$2 build_type=$3 evicted=$4 wal=$5 data_store=$6
+  local admin_port=6380
   shift 6
 
-  launch_eloqkv "${store_type}" "${log_name}" 6379 "${wal}" "${data_store}" "$@"
+  launch_eloqkv "${store_type}" "${log_name}" 6379 "${wal}" "${data_store}" \
+    --admin_port="${admin_port}" "$@"
   wait_until_ready
   echo "Redis server is ready!"
 
   # See run_cluster_scenario: tear down from a trap so a failing suite still
   # releases the port.
   trap stop_single_node RETURN
-  run_tcl_tests all "${build_type}" false "${evicted}"
+  run_tcl_tests all "${build_type}" false "${evicted}" "${admin_port}"
 }
 
 # Stop the node started by the enclosing run_scenario.
@@ -579,6 +581,7 @@ function run_tcl_tests() {
     fault_inject=""
   fi
   local evicted=${4:-false}
+  local admin_port=${5:-0}
   local no_evicted="--tags -needs:no_evicted"
   if [[ $evicted = "false" ]]; then
     no_evicted=""
@@ -593,6 +596,7 @@ function run_tcl_tests() {
     tclsh tests/test_helper.tcl \
     --host 127.0.0.1 \
     --port 6379 \
+    --admin-port ${admin_port} \
     --tags -needs:repl \
     --tags -needs:config-maxmemory \
     --tags -needs:debug \
