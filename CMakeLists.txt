@@ -13,7 +13,7 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1335 USA
 cmake_minimum_required(VERSION 3.12)
-project(eloqkv C CXX)
+project(eloqkv VERSION 1.3.5 LANGUAGES C CXX)
 
 set(ELOQ_THIRD_PARTY_HELPER_CANDIDATES
     "${CMAKE_CURRENT_SOURCE_DIR}/data_substrate/cmake/EloqThirdParty.cmake"
@@ -481,6 +481,7 @@ endif()
 # Only build executable in standalone mode
 if(NOT BUILD_ELOQKV_AS_LIBRARY)
     add_executable(eloqkv src/redis_server.cpp ${RESELOQ_RESOURCES})
+    target_compile_definitions(eloqkv PRIVATE ELOQKV_VERSION="${PROJECT_VERSION}")
     target_link_libraries(eloqkv ${DYNAMIC_LIB} ${RESELOQ_LIBRARY} ${ABSEIL} lua fpconv)
 endif()
 
