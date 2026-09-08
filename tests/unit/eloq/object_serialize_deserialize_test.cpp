@@ -3,6 +3,7 @@
 #include <time.h>
 
 #include <catch2/catch_all.hpp>
+#include <cstdint>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -27,6 +28,77 @@ struct Rob
         return M;
     }
 };
+
+TEST_CASE("SET serialization preserves the command image and prefix",
+          "[set-serialization]")
+{
+    const size_t value_size = GENERATE(size_t{0},
+                                       size_t{1},
+                                       size_t{15},
+                                       size_t{16},
+                                       size_t{1024},
+                                       size_t{1 << 20});
+    const std::string prefix = GENERATE(std::string{}, std::string("p\0fx", 4));
+    std::string value(value_size, 'v');
+    if (!value.empty())
+    {
+        value[value.size() / 2] = '\0';
+    }
+    const int32_t flags = OBJ_SET_EX | OBJ_SET_XX;
+    const uint64_t expiry = 1788869029841;
+    EloqKV::SetCommand command(value, flags, expiry);
+    std::string image = prefix;
+    command.Serialize(image);
+
+    // Encode the established wire layout independently, including embedded
+    // NULs.
+    const uint8_t type = static_cast<uint8_t>(EloqKV::RedisCommandType::SET);
+    const uint32_t length = value.size();
+    std::string expected = prefix;
+    expected.append(reinterpret_cast<const char *>(&type), sizeof(type));
+    expected.append(reinterpret_cast<const char *>(&flags), sizeof(flags));
+    expected.append(reinterpret_cast<const char *>(&length), sizeof(length));
+    expected.append(value);
+    expected.append(reinterpret_cast<const char *>(&expiry), sizeof(expiry));
+    REQUIRE(image == expected);
+
+    EloqKV::SetCommand replay;
+    replay.Deserialize(std::string_view(image).substr(prefix.size() + 1));
+    REQUIRE(replay.value_.StringView() == value);
+    REQUIRE(replay.flag_ == flags);
+    REQUIRE(replay.obj_expire_ts_ == expiry);
+}
+
+TEST_CASE("SET serialization reserves the complete large image",
+          "[set-serialization]")
+{
+    const std::string prefix = GENERATE(std::string{}, std::string(127, 'p'));
+    const std::string value(1 << 20, 'v');
+    EloqKV::SetCommand command(value);
+    const size_t image_size = sizeof(uint8_t) + sizeof(int32_t) +
+                              sizeof(uint32_t) + value.size() +
+                              sizeof(uint64_t);
+    std::string image = prefix;
+    std::string reserved = prefix;
+    reserved.reserve(prefix.size() + image_size);
+    command.Serialize(image);
+
+    REQUIRE(image.size() == prefix.size() + image_size);
+    // Compare against this standard library's reserve behavior, not a fixed
+    // allocator size class. Without the reservation, the trailing TTL grows
+    // the 1 MiB image a second time.
+    REQUIRE(image.capacity() == reserved.capacity());
+
+    image.reserve(image.size() + image_size);
+    const char *reserved_data = image.data();
+    const size_t reserved_capacity = image.capacity();
+    command.Serialize(image);
+    REQUIRE(image.size() == prefix.size() + 2 * image_size);
+    REQUIRE(image.data() == reserved_data);
+    REQUIRE(image.capacity() == reserved_capacity);
+    REQUIRE(std::string_view(image).substr(prefix.size(), image_size) ==
+            std::string_view(image).substr(prefix.size() + image_size));
+}
 
 TEST_CASE("zset_object-string")
 {
