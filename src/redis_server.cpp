@@ -125,14 +125,20 @@ void ConfigureRedisListener(brpc::ServerOptions *options,
         return;
     }
 
-    options->force_ssl = true;
+    // Optional TLS preserves plaintext client compatibility during rolling
+    // upgrades. Secure deployments can require TLS and reject plaintext before
+    // Redis authentication or command processing.
+    options->force_ssl = redis_service->IsTlsRequired();
     brpc::ServerSSLOptions *ssl_options = options->mutable_ssl_options();
     ssl_options->default_cert.certificate = redis_service->GetTlsCertFile();
     ssl_options->default_cert.private_key = redis_service->GetTlsKeyFile();
 
-    LOG(INFO) << "TLS enabled for " << listener_name
-              << " Redis listener. Certificate: "
-              << redis_service->GetTlsCertFile()
+    LOG(INFO) << (redis_service->IsTlsRequired() ? "Required" : "Optional")
+              << " TLS enabled for " << listener_name << " Redis listener; "
+              << (redis_service->IsTlsRequired()
+                      ? "plaintext connections are rejected. "
+                      : "plaintext connections remain accepted. ")
+              << "Certificate: " << redis_service->GetTlsCertFile()
               << ", Key: " << redis_service->GetTlsKeyFile();
 }
 

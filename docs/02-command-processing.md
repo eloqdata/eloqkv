@@ -34,22 +34,25 @@ service layer only; engine internals are in `data_substrate/docs/` (esp. `02-thr
    (`src/redis_server.cpp:152-423`; reverse mapping `TxPortToRedisPort`,
    `include/redis_service.h:185`).
 2. `DataSubstrate::Instance().Init(config_file)` then `EnableEngine(TableEngine::EloqKv)`.
-3. `RedisServiceImpl::Init()` (`src/redis_service.cpp:219`) — *before* the engine starts:
+3. `RedisServiceImpl::Init()` (`src/redis_service.cpp:237`) — *before* the engine starts:
    registers the EloqKv engine with `DataSubstrate::RegisterEngine` along with prebuilt tables
    (`data_table_0..N-1` for `databases` logical DBs, default 16, plus the two namespace tables
    `__ns_0` and `ns_data_0`; `src/redis_service.cpp:232-281`), the catalog factory, per-command
    metric definitions, and the pub/sub publish callback. It also parses isolation/protocol flags
-   (§3), TLS settings (`enable_tls`, `tls_cert_file`, `tls_key_file`; TLS forces io_uring off,
-   `src/redis_service.cpp:528-531`), and builds the command table via `AddHandlers()`.
+   (§3), TLS settings (`enable_tls`, `require_tls`, `tls_cert_file`, `tls_key_file`; TLS forces
+   io_uring off, `src/redis_service.cpp:532-616`), and builds the command table via
+   `AddHandlers()`.
 4. `DataSubstrate::Instance().Start()` — engine up (TxService, store handler, log service).
-5. `RedisServiceImpl::Start()` (`src/redis_service.cpp:635`) — second phase: grabs
+5. `RedisServiceImpl::Start()` (`src/redis_service.cpp:666`) — second phase: grabs
    `TxService`/`DataStoreHandler` pointers, sizes per-core slow-log structures, computes the
    listen address, starts the metrics collector thread and namespace GC daemon. In `bootstrap`
-   mode it exits the process right here after table creation (`src/redis_service.cpp:704-721`).
+   mode it exits the process right here after table creation (`src/redis_service.cpp:734-751`).
 6. brpc `Server::Start()` with `server_options.redis_service = redis_service_impl` (ownership
    transfers to the server), the public listener declared Redis-only, `redis_max_connections` set
-   from `maxclients`, and optional force-SSL settings. When `admin_port` is nonzero, a second
-   Redis-only `brpc::Server` starts on the same bind address with an independent
+   from `maxclients`, and TLS settings. TLS-enabled listeners accept both TLS and plaintext RESP
+   connections for rolling-upgrade compatibility by default. Setting `require_tls=true` rejects
+   plaintext before Redis authentication or command processing. When `admin_port` is nonzero, a
+   second Redis-only `brpc::Server` starts on the same bind address with an independent
    `admin_maxclients` limit. Its non-owning service proxy forwards connection-context creation and
    every command to the primary `RedisServiceImpl`, so command, authentication, namespace, and TLS
    behavior remain shared. The primary server then waits in `RunUntilAskedToQuit()`
@@ -122,7 +125,7 @@ update only the primary listener, preserving the independent escape path. Both l
 the same process file-descriptor limit and bthread/engine resources: deployments must leave FD
 headroom above `maxclients + admin_maxclients`, and the second listener does not guarantee access
 after process-wide FD, memory, CPU, or scheduler exhaustion. The administrative port inherits the
-primary bind address, authentication, and force-TLS configuration and exposes the same command
+primary bind address, authentication, and TLS configuration and exposes the same command
 dispatcher; protect it with host/network access controls.
 
 One `RedisConnectionContext` per admitted socket, created by `NewConnectionContext`
