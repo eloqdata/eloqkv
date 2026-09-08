@@ -50,6 +50,13 @@ Lifecycle of e.g. `SET k v` (cross-ref [02-command-processing.md](02-command-pro
 3. On commit, `cmd->CommitOn(obj)` applies the mutation via the object's `Commit*` helpers (`CommitHset`, `CommitSAdd`, ...) and returns the resulting object pointer — possibly a *different* object (TTL twin added/removed) or `nullptr` for "now deleted" (`DelCommand::CommitOn`, and any `ModifiedToEmpty` path such as `SAddCommand::CommitOn` returning nullptr when the set empties).
 4. `OutputResult` renders `result_` to the client.
 
+`SetCommand::Serialize` appends the command type, flags, value length, value,
+and expiration timestamp in that order. It reserves space for the complete
+image, including any existing destination prefix and the trailing timestamp,
+before appending. This avoids growing a large value buffer a second time just
+to add the timestamp, without changing the command format used by replication
+and WAL replay.
+
 Key predicates as EloqKV implements them:
 
 | Predicate | Meaning here | Examples |

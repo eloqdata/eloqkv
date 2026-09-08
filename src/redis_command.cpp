@@ -43,6 +43,7 @@
 #include <random>
 #include <shared_mutex>
 #include <sstream>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <tuple>
@@ -1439,13 +1440,24 @@ txservice::TxObject *SetCommand::CommitOn(txservice::TxObject *obj_ptr)
 
 void SetCommand::Serialize(std::string &str) const
 {
+    std::string_view value_view = value_.StringView();
+    uint32_t len = value_view.size();
+    constexpr size_t fixed_size =
+        sizeof(uint8_t) + sizeof(int32_t) + sizeof(uint32_t) + sizeof(uint64_t);
+    const size_t available = str.max_size() - str.size();
+    if (available < fixed_size || len > available - fixed_size)
+    {
+        throw std::length_error(
+            "SET command image exceeds string maximum size");
+    }
+    // Include the trailing TTL so appending it cannot double a large buffer.
+    str.reserve(str.size() + fixed_size + len);
+
     uint8_t cmd_type = static_cast<uint8_t>(RedisCommandType::SET);
     str.append(reinterpret_cast<const char *>(&cmd_type), sizeof(uint8_t));
 
     auto *flag_ptr = reinterpret_cast<const char *>(&flag_);
     str.append(flag_ptr, sizeof(int32_t));
-    std::string_view value_view = value_.StringView();
-    uint32_t len = value_view.size();
     str.append(reinterpret_cast<const char *>(&len), sizeof(uint32_t));
     str.append(value_view.data(), len);
     str.append(reinterpret_cast<const char *>(&obj_expire_ts_),
