@@ -533,9 +533,10 @@ bool RedisServiceImpl::Init(brpc::Server &brpc_server)
     enable_tls_ = !CheckCommandLineFlagIsDefault("enable_tls")
                       ? FLAGS_enable_tls
                       : config_reader.GetBoolean("local", "enable_tls", false);
-    require_tls_ = !CheckCommandLineFlagIsDefault("require_tls")
-                       ? FLAGS_require_tls
-                       : config_reader.GetBoolean("local", "require_tls", false);
+    require_tls_ =
+        !CheckCommandLineFlagIsDefault("require_tls")
+            ? FLAGS_require_tls
+            : config_reader.GetBoolean("local", "require_tls", false);
 
     if (require_tls_ && !enable_tls_)
     {
