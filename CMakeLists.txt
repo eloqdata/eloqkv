@@ -13,7 +13,7 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1335 USA
 cmake_minimum_required(VERSION 3.12)
-project(eloqkv VERSION 1.3.5 LANGUAGES C CXX)
+project(eloqkv VERSION 1.3.6 LANGUAGES C CXX)
 
 set(ELOQ_THIRD_PARTY_HELPER_CANDIDATES
     "${CMAKE_CURRENT_SOURCE_DIR}/data_substrate/cmake/EloqThirdParty.cmake"
