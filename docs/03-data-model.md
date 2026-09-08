@@ -1,132 +1,137 @@
-# Data Model: Keys, Redis-Type Objects, Commands, and the Catalog Plug-in
+# 03 — Data Model and Engine Plug-in
 
-EloqKV plugs into the Data Substrate engine through four artifacts: `EloqKey` (the engine's `TxKey` implementation — a raw byte-string key, CRC16-hashed with Redis hash-tag support), `RedisEloqObject` and its five type subclasses (String/List/Hash/Set/Zset, each with a TTL twin — the `TxObject`s that live in `ObjectCcMap` entries), ~100 `TxCommand` subclasses in `redis_command.h` (mutations execute *on the owner shard* and only small results travel; serialized command images, not values, go to the WAL and to standbys), and `RedisCatalogFactory`/`RedisTableSchema` (registered for `TableEngine::EloqKv`, mapping each Redis database to one prebuilt hash-partitioned table `data_table_<n>`). This doc covers each layer plus the end-to-end TTL design. The generic object/command machinery (ApplyCc, CmdSetEntry, BufferedTxnCmdList) is the engine's: see `data_substrate/docs/05-data-model-and-catalog.md` §3 and `data_substrate/docs/03-concurrency-control.md`. Siblings: [01-architecture-overview.md](01-architecture-overview.md), [02-command-processing.md](02-command-processing.md), [04-scripting-pubsub-blocking.md](04-scripting-pubsub-blocking.md), [05-namespaces.md](05-namespaces.md), [06-vector-search.md](06-vector-search.md), [07-persistence-and-tools.md](07-persistence-and-tools.md).
+EloqKV exposes Redis data through the Data Substrate object-command model. The
+integration consists of a physical key type (`EloqKey`), five Redis object
+families, transactional command objects, and a catalog factory that creates the
+engine's object concurrency-control maps and scanners.
 
-## 1. One Redis Database = One Engine Table
+## Tables and keys
 
-At startup `RedisServiceImpl::Init` builds `databases` (config key `local.databases`, default 16) prebuilt tables named `data_table_0` .. `data_table_<databases-1>`, each a `TableName{name, TableType::Primary, TableEngine::EloqKv}`, plus two system tables: `__ns_0` (namespace registry) and `ns_data_0` (shared data table for all non-default namespaces) — `src/redis_service.cpp:232-281`. All are handed to `DataSubstrate::RegisterEngine(TableEngine::EloqKv, &catalog_factory, ...)` (`src/redis_service.cpp:315`), which seeds the engine catalog so no DDL ever runs for Redis databases.
+The default namespace maps each configured Redis database to one prebuilt
+primary table named `data_table_<n>`. `SELECT` changes the table selected by the
+connection; no DDL is issued for Redis databases. Namespace metadata and
+non-default namespace data use separate prebuilt tables described in
+[05-namespaces.md](05-namespaces.md).
 
-- **KV (store) table name**: `"eloqkv_" + table_name` (`include/redis_service.h:574`, must match `txservice::KvTablePrefixOf`), e.g. `eloqkv_data_table_0`. The catalog image passed for each prebuilt table *is* this kv table name (wrapped per store backend, `src/redis_service.cpp:247-257`).
-- **SELECT** is a `DirectCommand` that just validates `0 <= db_id < databases` and stores it in the connection context (`src/redis_command.cpp:1736-1753`); it is rejected inside a non-default namespace. Every data command then resolves its table via `RedisServiceImpl::RedisTableName(db_id)`: `redis_table_names_[db_id]` in the default namespace, else always `ns_data_0` (`src/redis_service.cpp:5863-5870`) — namespaces multiplex one table by key prefix (see [05-namespaces.md](05-namespaces.md)).
-- **Partitioning**: `TableEngine::EloqKv` tables are hash-partitioned and `IsObjectTable() == true` in the engine (table in `data_substrate/docs/05-data-model-and-catalog.md` §1); the factory's scanner is `HashParitionCcScanner<EloqKey, RedisEloqObject>` (`src/eloqkv_catalog_factory.cpp:611-617`).
+`EloqKey` owns the physical key bytes used by the object table. Normal key
+construction applies the active namespace prefix, while `EloqKey::Raw` is the
+explicit path for bytes that are already physical. Hashing follows Redis CRC16
+hash-tag semantics, so keys sharing a `{tag}` are assigned together. The
+engine/message encoding of a key is distinct from the raw key bytes used by the
+KV-store boundary; both formats are compatibility-sensitive.
 
-## 2. EloqKey (`include/eloqkv_key.h`, `src/eloqkv_key.cpp`)
+## Redis objects
 
-`EloqKey` wraps a single `EloqString` (`eloqkv_key.h:448`). It implements the duck-typed `TxKey` contract described in `data_substrate/docs/05-data-model-and-catalog.md` §2; `EloqKey::TxKeyImpl()` (`eloqkv_key.h:440`) instantiates the type-erasure vtable.
+Every stored value is a `RedisEloqObject`, with concrete implementations for
+string, list, hash, set, and sorted set. Each family also has a TTL-bearing
+variant. The TTL variant reports the same logical Redis type as its non-TTL
+counterpart, so type checks and commands do not need a second semantic type.
 
-- **Namespace prefixing**: the ordinary constructors (`EloqKey(string_view)`, `EloqKey(buf,len)`, `FromNamespace`) run the key through `CreateEloqStringFromNamespace`, which prepends the thread-local `current_namespace` unless it is `default`/empty (`eloqkv_key.h:49-70`, `include/namespace/context.h:18-50`). `EloqKey::Raw()` (`eloqkv_key.h:72-80`) bypasses prefixing — use it for bytes that are already physical (deserialization, scan cursors).
-- **Hashing**: `Hash()` is Redis-cluster-compatible CRC16-XMODEM with hash-tag support — if the key contains `{...}` only the substring inside is hashed (`eloqkv_key.h:170-221`; table in `src/eloqkv_key.cpp:27-66`). The hash is only 16 bits; keys sharing a hash tag co-locate in the same bucket. `HashFromSerializedKey` (`eloqkv_key.h:264`) hashes straight from a serialized buffer (no key materialization; wired to `RedisCatalogFactory::KeyHash`, `src/eloqkv_catalog_factory.cpp:664`).
-- **Serialization**: `Serialize` writes a `uint16_t` length prefix + raw bytes (`eloqkv_key.h:223-248`) — used in WAL records and inter-node messages. `KVSerialize`/`KVDeserialize` are the *raw bytes only* (`eloqkv_key.h:275-283`) — the form stored as the KV-store key. Comparison is plain memcmp order on the byte string (`eloqkv_key.h:140-161`).
-- **Infinities**: `NegativeInfinity()`/`PositiveInfinity()` are function-local singletons compared **by address** in `operator==`/`<` (`eloqkv_key.h:121-161`, 381-403); `Type()` reports `KeyType` by address too (`eloqkv_key.h:419-433`). `PackedNegativeInfinity()` is a single `0x00` byte (`eloqkv_key.h:405-417`), the serializable stand-in required by range metadata.
-- **Limits**: `MAX_KEY_SIZE` = 2 KB for EloqStore builds, 32 MB otherwise (`src/redis_service.cpp:195-198`), enforced per command in `ExecuteCommand` (`src/redis_service.cpp:2665`).
-- `MemUsage()` = key byte length (`eloqkv_key.h:321`); `NeedsDefrag` delegates to `EloqString`'s mimalloc page-utilization check (< 0.8 → defrag, `include/eloq_string.h:145-158`).
+The first byte of the serialized object identifies the concrete object class;
+the remaining payload contains that object's logical value and, for TTL
+variants, its expiration. `RedisObjectType` values are therefore a durable
+format contract and must not be renumbered. `DeserializeObject` uses that tag
+to recreate the concrete `TxRecord` when the engine loads a record.
 
-## 3. Redis-Type Objects (`include/redis_object.h` + five `redis_*_object.h/.cpp`)
+Objects maintain the serialized-size information needed to reject a mutation
+whose post-image exceeds EloqKV's object limit. Empty collections are not kept
+as stored objects: a successful command that produces an empty value returns a
+deletion result to the engine.
 
-`RedisEloqObject : txservice::TxObject` is the common base. `RedisObjectType` assigns each concrete class a 1-byte on-disk tag — **the enum values are a persistence format; never reorder** (comment at `redis_object.h:44-45`): `String=0, List=1, Hash=2, Del=3, Zset=4, Set=5, TTLString=6, TTLList=7, TTLHash=8, TTLZset=10, TTLSet=11`. `RedisEloqObject::DeserializeObject` dispatches on that first byte to construct the right subclass (`src/redis_object.cpp:33-77`); `SetEncodedBlob` (store-handler path) just calls `Deserialize` on the blob (`redis_object.h:113-119`).
+## Command execution contract
 
-| Redis type | Class (file) | Internal representation | TTL twin | Serialized layout (after 1-byte type [+ 8-byte ttl for TTL twin]) |
-|---|---|---|---|---|
-| string | `RedisStringObject` (`redis_string_object.h:39`) | one `EloqString` | `RedisStringTTLObject` (`:256`) | `uint32` len + bytes |
-| list | `RedisListObject` (`redis_list_object.h:38`) | `std::deque<EloqString>` (`:224`) | `RedisListTTLObject` (`:231`) | `uint32` count, then per element `uint32` len + bytes |
-| hash | `RedisHashObject` (`redis_hash_object.h:40`) | `absl::flat_hash_map<EloqString, EloqString>` (`:235`) | `RedisHashTTLObject` (`:241`) | `uint32` count, then per pair `uint32` klen + key + `uint32` vlen + val |
-| set | `RedisHashSetObject` (`redis_set_object.h:36`) | `absl::flat_hash_set<EloqString>` (`:99`) | `RedisHashSetTTLObject` (`:105`) | `uint32` count, then per member `uint32` len + bytes |
-| zset | `RedisZsetObject` (`redis_zset_object.h:38`) | `std::set<ZNode,Cmp>` ordered by (score, field) **plus** `absl::flat_hash_map<string_view,double>` whose keys *view into* the set's `ZNode` strings (`:341-342`, `:216-234`) | `RedisZsetTTLObject` (`:349`) | `uint32` count, then per member `uint32` len + field + 8-byte `double` score |
+Transactional Redis commands implement `txservice::TxCommand` and carry both
+the operation's parameters and its result. Their lifecycle separates decision
+from mutation:
 
-Unlike Redis, there are **no small-object encoding switches** (no listpack/intset/skiplist transitions): each type has exactly one in-memory representation. The only "encoding switch" is TTL/non-TTL, implemented as a *class change*: `AddTTL(ttl)` move-constructs the TTL twin (e.g. `src/redis_string_object.cpp:806`), `RemoveTTL()` moves back (e.g. `redis_string_object.h:392`). TTL twins deliberately report the **base** `ObjectType()` (e.g. `redis_string_object.h:288-293`) so type checks never see TTL-ness; only `Serialize` emits the TTL tag.
+1. The service parses arguments, constructs the physical key and command, and
+   submits them in a transaction request.
+2. On the owner shard, `ExecuteOn` reads the current object, checks types and
+   preconditions, and records the result without mutating the object.
+3. If the transaction commits, `CommitOn` applies the chosen mutation. It may
+   replace the concrete object, change TTL representation, or return `nullptr`
+   to delete the key.
+4. `OutputResult` renders the stored result through the service's output
+   abstraction.
 
-- **Size accounting**: every collection object incrementally maintains `serialized_length_` ("estimated memory size... so the persistent storage flush wouldn't fail", `redis_hash_object.h:236-238`). It is returned by `SerializedLength()`, answers `MEMORY USAGE` (`src/redis_command.cpp:16283-16290`, plus key length at output), and gates writes against `MAX_OBJECT_SIZE` = 256 MB (`src/redis_service.cpp:194`): each mutating `Execute` rejects with `RD_ERR_OBJECT_TOO_BIG` when the post-image would exceed it (e.g. `src/redis_set_object.cpp:71`, `src/redis_list_object.cpp:88`, `src/redis_string_object.cpp:227`). Note `TxRecord::MemUsage()` defaults to 0 and only `RedisStringObject` overrides it (`redis_string_object.h:189-201`, ≤16 bytes counts as inline); shard memory pressure for collections is tracked through the per-shard mimalloc heaps rather than per-object `MemUsage` (inference from the absence of overrides).
-- **Where each serialization is used**: `Serialize(std::string&)`/`Serialize(std::vector<char>&,offset)` produce the same format; the engine calls them when flushing dirty objects to the KV store and when shipping whole objects between nodes (e.g. `data_substrate/tx_service/include/cc/template_cc_map.h:2214`, `:10694+`). The WAL normally carries serialized *commands*, not objects (engine doc §3) — full object images enter the log only via `RecoverObjectCommand` (§6) and `RestoreCommand`. `DUMP`/`RESTORE` use a separate Redis-RDB-compatible payload (RDB version 10 + CRC64 footer, `src/redis_command.cpp:15944-15968`); `RESTORE` auto-detects legacy EloqKV-native vs Redis RDB payloads (`RestorePayloadFormat`, `src/redis_command.cpp:16176-16223`).
-- `operator==` on hash/list/zset compares pointed-to contents regardless of owned-vs-view `EloqString` storage (`redis_hash_object.h:183-202`).
+This split lets concurrency control validate and buffer commands before their
+effects become visible. Read-only, overwrite, existence-gated, delete, and TTL
+properties are communicated through the generic `TxCommand` predicates rather
+than through Redis-specific engine logic.
 
-## 4. The TxCommand Contract (`include/redis_command.h`, `src/redis_command.cpp`)
+Mutating commands serialize to a command image whose leading
+`RedisCommandType` is used by WAL recovery, standby application, remote
+execution, and migration. These numeric values are explicitly assigned and
+append-only. Replay consumers apply the deserialized command's commit phase;
+therefore any choice made during owner-side execution that affects the
+mutation must be represented in the image delivered to replay consumers. The
+replay tests exercise this determinism independently of client reply behavior.
 
-`RedisCommand : txservice::TxCommand` adds one thing to the engine contract: `OutputResult(OutputHandler*)` (`redis_command.h:544-568`) — results render through an abstract handler so the same command serves RESP (brpc replier) and Lua (`include/output_handler.h:33`). Three non-transactional command kinds also exist: `DirectCommand` (no tx service at all: PING, SELECT, CLUSTER, INFO..., `redis_command.h:637`), `CustomCommand` (drives its own multi-request execution: SCAN, ZSCAN-wrapper..., `redis_command.h:677`), and the transactional families `StringCommand`/`ListCommand`/`HashCommand`/`HashSetCommand`/`ZsetCommand` (`redis_command.h:1307/1951/4322/4998/3398`), which fix the result type (`RedisStringResult`, `RedisListResult`, ... all `TxCommandResult` subclasses with `err_code_` + `Serialize/Deserialize` for returning results from a remote owner shard, `redis_command.h:420-542`) and implement `CreateObject(image)` to build/deserialize the right object subclass (`src/redis_command.cpp:1293-1304`).
+## Multi-key commands
 
-Lifecycle of e.g. `SET k v` (cross-ref [02-command-processing.md](02-command-processing.md)):
+`RedisMultiObjectCommand` groups keys and child commands into one or more
+stages. Keys within a stage are submitted together; the command interprets the
+stage results before advancing. This supports single-stage multi-key reads and
+writes, read/compute/write operations, moves, and blocking operations without
+embedding those algorithms in the service dispatcher.
 
-1. Parse: `ParseSetCommand` & friends produce `(EloqKey, SetCommand)`; `RedisServiceImpl::ExecuteCommand` wraps them in an `ObjectCommandTxRequest{RedisTableName(db_id), &key, cmd}` (`src/redis_service.cpp:2693-2712`).
-2. The tx machine ships the command to the key's owner shard (`ApplyCc`); `ObjectCcMap::Execute` runs `cmd->ExecuteOn(object)` against the (possibly dirty) payload. **`ExecuteOn` never mutates**: object-side `Execute(XCommand&)` methods are `const`, validate types via `CheckTypeMatch`, fill `cmd->result_`, and return either an `ExecResult` (`Fail/Read/Write/Delete/Block/Unlock`) or a `CommandExecuteState` (`NoChange/Modified/ModifiedToEmpty`, `redis_object.h:37-42`) that the command translates.
-3. On commit, `cmd->CommitOn(obj)` applies the mutation via the object's `Commit*` helpers (`CommitHset`, `CommitSAdd`, ...) and returns the resulting object pointer — possibly a *different* object (TTL twin added/removed) or `nullptr` for "now deleted" (`DelCommand::CommitOn`, and any `ModifiedToEmpty` path such as `SAddCommand::CommitOn` returning nullptr when the set empties).
-4. `OutputResult` renders `result_` to the client.
+All stages share one `TransactionExecution`. Intermediate requests suppress
+auto-commit, and only the final outcome commits or aborts the transaction. The
+engine can coordinate keys across buckets and node groups; EloqKV does not
+impose a service-layer `CROSSSLOT` restriction on this command model.
 
-Key predicates as EloqKV implements them:
+## TTL lifecycle
 
-| Predicate | Meaning here | Examples |
-|---|---|---|
-| `IsReadOnly()` | No commit step; command needs no `Clone()` (clone returns nullptr by default, `redis_command.h:546`) | GET, LRANGE, ZSCORE, TTL |
-| `IsOverwrite()` | Post-image independent of pre-image → engine prunes all earlier buffered/logged commands for the object | SET (`redis_command.h:1379`), DEL (`:3183`), StoreListCommand (`:6534`), RESTORE-with-REPLACE (`:7346`), RecoverObjectCommand (`:7497`) |
-| `IgnoreOldValue()` | Skip fetching the old value from the KV store entirely (engine pretends a prior delete, `object_cc_map.h:601-612`) | plain SET without NX/XX/GET/KEEPTTL (`redis_command.h:1384-1392`) |
-| `IsDelete()` / `IsLazyDelete()` | Tombstone; UNLINK sets lazy (`redis_command.h:3188-3196`; `DelCommand(true)` for UNLINK, `src/eloqkv_catalog_factory.cpp:197-199`) | DEL/UNLINK |
-| `ProceedOnNonExistentObject()` / `ProceedOnExistentObject()` | NX/XX-style existence gating evaluated before execution | SET flags (`redis_command.h:1361-1377`), RESTORE replace (`:7336-7344`) |
-| `WillSetTTL()` | Command may change TTL without overwriting — triggers the recover-object WAL protocol (§6) | SET EX (`:1394`), EXPIRE (`:7712`), GETEX (`:7593`), PERSIST (`:7843`) |
-| `IsVolatile()` | Command object dies after execution (MULTI/Lua reuse); must be `Clone()`d to survive to commit (`redis_command.h:551-567`) | set via `SetVolatile()` e.g. on `StoreListCommand` (`:6489`) |
+Expiration is stored as an absolute epoch-millisecond timestamp in the
+TTL-bearing object. TTL-setting commands either update that representation or
+replace the object with its TTL/non-TTL counterpart.
 
-**Serialization for WAL/standby/migration**: every mutating command's `Serialize` writes a 1-byte `RedisCommandType` followed by its arguments (e.g. `SAddCommand::Serialize`, `src/redis_command.cpp`); the engine accumulates these images per object and replays them through `RedisTableSchema::CreateTxCommand(cmd_image)` (§7). Results generally do not enter the log (SPOP is the exception — it bookkeeps the popped members for idempotence, `SPopCommand::Serialize`). The standby forward serializes the **owner-side executed** command for **both** local and remote owners (engine `StandbyForwardEntry::AddTxCommand`; previously the remote path copied the coordinator's pre-`ExecuteOn` image): a standby applies commands commit-only and never re-runs `ExecuteOn`, so a command whose `ExecuteOn` mutates itself (ZADD flag filtering, LTRIM normalization, SPOP member selection) must ship its post-`ExecuteOn` image or replicas diverge (eloqdata/eloqkv#509; see the replay-determinism invariant in §9). Because that byte is a persisted/replicated wire code, `RedisCommandType` values are **explicitly numbered and append-only**: never renumber or reorder existing members, and keep build-flag-gated (`#ifdef`) commands in the reserved trailing range so toggling a flag can't shift a base command (guarded by `static_assert`s and `scripts/check_command_type_numbering.py`). Reordering it is what broke 1.2.3↔1.3.1 cross-version replication.
+Expiration is enforced lazily by the engine's object map. Reads treat an
+expired record as absent. A mutation against an expired record first retires
+the old value and then applies the command to a fresh logical object, keeping
+delete-and-recreate ordering transactional. Physical reclamation is left to
+the engine's cache/store cleanup paths.
 
-**Expired-object hook**: `RedisCommand::RetireExpiredTTLObjectCommand()` returns a fresh `DelCommand` (`src/redis_command.cpp:1288-1291`); the engine injects it ahead of the real command when it observes an expired TTL during ApplyCc (`object_cc_map.h:928`, `:1042`, `:1094`), so the expired object is deleted-then-recreated transactionally.
+TTL-only mutations require special replay handling: replay cannot reconstruct
+the value by changing only a timestamp when the prior object is unavailable.
+Such a command supplies a `RecoverObjectCommand` containing the complete
+post-operation value needed for independent WAL or standby application. TTL,
+expired-state, and recovery-image information must survive remote-owner
+execution as well as the local path.
 
-## 5. Multi-Key Commands (`RedisMultiObjectCommand`)
+## Catalog boundary
 
-`RedisMultiObjectCommand : txservice::MultiObjectTxCommand` (`redis_command.h:570-631`) holds parallel vectors `vct_key_ptrs_[step]` / `vct_cmd_ptrs_[step]`; the engine executes one step at a time (all keys in a step in parallel, then `HandleMiddleResult()` decides whether to continue, `IncrSteps()`, repeat). Dispatch goes through `MultiObjectCommandTxRequest` (`src/redis_service.cpp:2723-2727`). **There is no CROSSSLOT restriction** — no such check exists in the codebase (verified by grep); keys may hash to any bucket/node, and the engine runs the whole thing as one transaction (cross-ref [02-command-processing.md](02-command-processing.md)).
+`RedisCatalogFactory` creates `RedisTableSchema`, the primary
+`ObjectCcMap<EloqKey, RedisEloqObject>`, hash-partition scanners, range-map
+plumbing, keys, and empty records for `TableEngine::EloqKv` tables.
+`RedisTableSchema::CreateTxCommand` is the decoder for serialized command
+images.
 
-| Shape | Commands | Mechanics |
-|---|---|---|
-| Single step, N keys | MSET (`redis_command.h:5475`), MGET (`:5507`, repeated keys deduped via `raw_cmds_`; WRONGTYPE → nil), multi-key DEL/EXISTS (`MDelCommand`/`MExistsCommand`), SDIFF/SINTER/SUNION, ZDIFF/ZUNION/ZINTER, MWATCH, MHGET | one step; results aggregated in `OutputResult` |
-| Two steps, move | SMOVE = SRem then SAdd (`:5926`), LMOVE/RPOPLPUSH = LMovePop then LMovePush (`:5968-6018`) | `HandleMiddleResult` aborts step 2 if the source op failed; `IsPassed` checks both legs |
-| Two steps, read-then-store | ZUNIONSTORE/ZINTERSTORE (`:6158`: step 0 = `SZScanCommand` reads on N keys, step 1 = `ZAddCommand` on the destination), ZRANGESTORE, SDIFFSTORE/SINTERSTORE/SUNIONSTORE (destination via overwrite `StoreListCommand`/`SAddCommand` with `force_remove_add_`), MSETNX (exists-check then set), BITOP | middle handler computes the aggregate and loads it into the store-step command; store commands carry `is_in_the_middle_stage_` so commits **clone instead of move** their strings (a step's command may commit more than once, e.g. `SAddCommand::CommitOn` passing it to `CommitSAdd`) |
-| Blocking | BLMOVE (`:2848`, 4 steps: try-pop → block → re-pop → push), BLPOP/BRPOP/BLMPOP/LMPOP (`BLMPopCommand` `:2906`: one try-step per key, then a blocking step, then the pop), ZMPOP (`ZMPopCommand` `:4158`) | `ExecuteOn` returns `ExecResult::Block`; the request parks on the cc entry (engine doc §3). `IsExpired()` checks the deadline only in the blocking step (`:2877-2885`); `ForwardResult()` swaps in a `BlockDiscardCommand` when the wakeup yielded nothing (`src/redis_command.cpp:5280-5299`); `IsBlockCommand()` returns true. See [04-scripting-pubsub-blocking.md](04-scripting-pubsub-blocking.md). |
+Redis tables have no secondary-index schema, auto-increment value, or table
+statistics in this plug-in. SCAN/KEYS use the primary hash-table scanner;
+secondary and ordered-range scanners are not provided.
 
-## 6. TTL End-to-End
+## Cross-module invariants
 
-- **Representation**: absolute expiration in **epoch milliseconds** stored in the TTL twin's `ttl_` (`UINT64_MAX` = never). The comment "micro seconds" at `redis_command.h:7719` is stale — `ExpireCommand` compares against `ClockTsInMillseconds()` (`src/redis_command.cpp:7821`) and parsing computes `now_ms + seconds*1000` (`ParseExpireCommand`, `src/redis_command.cpp`).
-- **Setting**: `EXPIRE/PEXPIRE/EXPIREAT/PEXPIREAT` → `ExpireCommand` with NX/XX/GT/LT flags (`redis_command.h:7638-7726`); `SET ... EX/PX/EXAT/KEEPTTL` and `SETEX/PSETEX/GETEX` carry `obj_expire_ts_`/`expire_ts_`; `PERSIST` → `PersistCommand`. `CommitOn` either mutates `ttl_` in place (already a TTL object) or swaps the object for its TTL twin via `AddTTL` / back via `RemoveTTL` (`src/redis_command.cpp:7933+`, `:7747-7777`).
-- **Reading**: `TTL/PTTL/EXPIRETIME/PEXPIRETIME` share `TTLCommand` (read-only, `redis_command.h:7728`).
-- **Lazy enforcement (engine side)**: during ApplyCc the `ObjectCcMap` reads the payload's TTL; if expired, read-only commands return `RecordStatus::Deleted` immediately, and mutating commands set `ttl_expired_` so the engine first applies `RetireExpiredTTLObjectCommand()` (= `DelCommand`) and then runs the new command on a fresh object (`data_substrate/tx_service/include/cc/object_cc_map.h:657-673`, `:928`). Reads from the KV store likewise treat expired records as deleted, and physical reclamation is compaction-driven (`TTLCompactionFilter`) — `data_substrate/docs/09-store-handler.md` §"Record TTL". In-memory pages track `smallest_ttl_` so page cleaning can drop expired entries wholesale (`cc/cc_page_clean_guard.h:78-123`).
-- **WAL correctness for TTL-only writes**: EXPIRE/PERSIST/GETEX mutate only the TTL, are *not* overwrites, yet replay must not depend on fetching the old value from the KV store. So when they will actually reset a TTL, `ExecuteOn` serializes the **whole current object** into an attached `RecoverObjectCommand` (`recover_ttl_obj_cmd_`, `src/redis_command.cpp:7923-7927`, `:7741-7742`); the engine logs that command's image instead (`RecoverTTLObjectCommand()` hook, `object_cc_map.h:1085`). `RecoverObjectCommand` is itself an overwrite whose `CommitOn` rebuilds the TTL object from the embedded blob (`src/redis_command.cpp:7601-7677`). For a key owned by a **remote** node group the coordinator (not the owner) writes the WAL, so the owner returns these facts in `ApplyResponse` (engine fields 10-13, eloqdata/eloqkv#509): `ttl_reset` + `recover_cmd_image` (the owner-serialized snapshot, logged as an overwrite record), the **post-command** object `ttl` (validity horizon, else the remote path logged `UINT64_MAX` and recovery could resurrect an expired object), and `ttl_expired` (the coordinator prepends the retire `DelCommand` record for the expired-then-recreated key). The owner always reports the post-command ttl — an expired-recreation write reports `UINT64_MAX`, not the stale expired value, which also fixed a pre-existing *local* recovery loss (acknowledged expired-key recreations were discarded at replay). Old owners whose response omits fields 10-13 degrade to the previous behavior.
-- The checkpointer hands each record's TTL to the store handler (`BatchWriteRecords` items carry a ttl), keyed off `HasTTL()/GetTTL()` — `object_cc_map.h:640-652`, engine doc 09.
+- `RedisObjectType` and `RedisCommandType` numbers are persisted/wire-visible;
+  existing values are never renumbered.
+- `ExecuteOn` decides and records a result; `CommitOn` performs the mutation.
+- A command image must contain every owner-side choice needed for deterministic
+  commit-only replay.
+- Normal `EloqKey` construction applies the active namespace. Code handling an
+  already-composed key must use the raw factory explicitly.
+- Multi-stage operations retain one transaction until their final stage.
+- TTL-only recovery remains independent of the previous KV-store image.
 
-## 7. The Catalog Factory (`include/eloqkv_catalog_factory.h`, `src/eloqkv_catalog_factory.cpp`)
+## Source map
 
-`RedisTableSchema` is deliberately minimal: `RedisKeySchema` only carries `schema_ts_` (== table version; `CompareKeys` is a stub, `eloqkv_catalog_factory.h:40-70`), `RedisRecordSchema` is empty, the schema image *is* the kv table name, and `kv_info_` is a per-backend `KVCatalogInfo` (`DynamoCatalogInfo` / `RocksDBCatalogInfo` / plain `txservice::KVCatalogInfo` for DSS builds) holding `kv_table_name_` (`src/eloqkv_catalog_factory.cpp:57-99`). No indexes, no statistics, no auto-increment (`GetIndexes` asserts; `BindStatistics` no-op; `StatisticsObject` nullptr). `CreateSkEncoder` is not overridden — the base returns nullptr (`data_substrate/tx_service/include/catalog_factory.h:380`): EloqKV has no secondary keys.
-
-`RedisTableSchema::CreateTxCommand(cmd_image)` (`src/eloqkv_catalog_factory.cpp:107-560`) is the replay decoder: first byte → `RedisCommandType` → `make_unique<XCommand>()` → `Deserialize(rest)`. It is used by WAL recovery, standby command application, and bucket migration (engine doc §3). Note the switch also covers read-only commands (GET, HSCAN, ZRANGE...) because command images are also shipped for remote/forwarded execution, and several internal types appear: `RECOVER` (§6), `STORE_LIST`/`SORTABLE_LOAD` (SORT/...STORE plumbing), `BLOCKPOP`/`BLOCKDISCARD`, `SZSCAN` (zset/set union-store scans).
-
-`RedisCatalogFactory` overrides (`src/eloqkv_catalog_factory.cpp:562-691`):
-
-| Method | Implementation |
+| Claim | Repository source |
 |---|---|
-| `CreateTableSchema` | `RedisTableSchema` |
-| `CreatePkCcMap` | `ObjectCcMap<EloqKey, RedisEloqObject>` (`:571-588`) — the object/command cc map |
-| `CreateSkCcMap` / `CreateSkCcmScanner` / `CreateRangeCcmScanner` | `nullptr` (no secondary indexes; no range scans on hash tables) |
-| `CreateRangeMap` | `RangeCcMap<EloqKey>` (`:599-609`; required plumbing even for hash-partitioned engines) |
-| `CreatePkCcmScanner` | `HashParitionCcScanner<EloqKey, RedisEloqObject>` (SCAN/KEYS path) |
-| `CreateTableStatistics` (both) | `nullptr` — no stats for Redis tables |
-| `NegativeInfKey`/`PositiveInfKey`/`PackedNegativeInfinity`/`CreateTxKey`/`KeyHash` | delegate to `EloqKey` singletons/ctors/`HashFromSerializedKey` |
-| `CreateTxRecord` | `RedisEloqObject::Create()` — a base-class instance whose `DeserializeObject` re-types on first byte |
-
-## 8. Supporting Utilities (brief)
-
-| File | Purpose |
-|---|---|
-| `include/eloq_string.h` | 24-byte union string: Stack (≤23 bytes inline), Heap (owned, 16-byte-aligned alloc), View (non-owning) — discriminated by 2 flag bits. Copy/move of a View stays a View; call `Clone()` to own. Foundation of all object payloads; the reason commands distinguish move vs clone on commit. |
-| `include/redis_string_num.h` | Redis-compatible numeric/string conversions: `string2ll/string2ull/string2double/string2ld`, `d2string/ld2string`, overflow predicates — used by INCR*/ZADD/HINCRBY parsing and execution. |
-| `include/redis_string_match.h` | `stringmatchlen` — Redis glob matching (`*?[]\`) for KEYS/SCAN/HSCAN MATCH; `EloqKey::IsMatch` wraps it (`eloqkv_key.h:351-379`). |
-| `include/eloq_algorithm.h` | `GenRandMap` — random index selection with/without repetition for SRANDMEMBER/HRANDFIELD/ZRANDMEMBER. |
-| `include/b255.h` | Base-255 encoding of namespace IDs that never emits the `:` delimiter (key-prefix safety, see [05-namespaces.md](05-namespaces.md)). |
-| `include/base64url.h` | Header-only base64url decode/encode used for tokens (namespace auth). |
-
-## 9. Gotchas and Verified Invariants
-
-- **`RedisObjectType` values are on-disk format** — `Del=3` and `TTLZset=10` leave holes (no `9`); never renumber (`redis_object.h:44-60`).
-- **ExecuteOn is read-only; CommitOn mutates.** Object `Execute(...)` methods are `const` and must compute size-limit checks against the *would-be* post-image (`serialized_length_ + delta > MAX_OBJECT_SIZE` → `RD_ERR_OBJECT_TOO_BIG`, e.g. `src/redis_set_object.cpp:71`). If a command's `ExecuteOn` succeeded, `CommitOn` may not fail.
-- **Replay determinism for self-mutating commands (#509).** Standby apply and WAL recovery replay a command image via `Deserialize` + `CommitOn` only — never `ExecuteOn`. A command whose `ExecuteOn` mutates *its own* fields (not just the object) must therefore either (a) be safe to replay from a **pre-`ExecuteOn`** image because `CommitOn` re-evaluates the mutation — `CommitZAdd` re-applies the NX/XX/GT/LT filters through the shared `ZAdd*` helpers with the same LT→GT→NX→XX precedence, `CommitLTrim` re-normalizes its indices via `NormalizeLTrimRange` and clears the list on an empty range before any iterator arithmetic (the pre-existing `CommitLSet` index re-normalization is the model), or (b) guarantee the **post-`ExecuteOn`** image reaches every replay consumer, as `SPopCommand::Serialize` bookkeeps the popped members. Neither the pre- nor the post-image may silently drop a mutation. (`CommitLTrim`'s empty-range guard also fixed a pre-existing purely local UB: `LTRIM key 10 -2` on a 5-element list normalized to `(5,3)` and did out-of-bounds `begin()+5` arithmetic after truncation.)
-- **`serialized_length_` is maintained incrementally** and re-verified by asserts during `Serialize` (`redis_list_object.h:92`, `redis_zset_object.h:97`); `Deserialize` recomputes it. TTL twins exclude the 8 ttl bytes from `serialized_length_` and add them in `SerializedLength()` (`redis_hash_object.h:280-284` vs `:401`).
-- **Zset dual structure**: `z_hash_map_` keys are `string_view`s into `ZNode.field_` strings owned by `z_ordered_set_` (`redis_zset_object.h:334-342`); any code path that erases from the set must erase from the map first (and vice versa), and copy construction must rebuild the views.
-- **CommitOn returning `nullptr` means deletion** — empty collections are never stored (`CommandExecuteState::ModifiedToEmpty`; `DelCommand::CommitOn`, `src/redis_command.cpp`). Redis semantics "empty key = absent key" fall out of this.
-- **Namespace prefix is implicit in `EloqKey` construction** — constructing `EloqKey(sv)` anywhere picks up the bthread-local `current_namespace` (`namespace/context.h:46`). Internal code handling already-prefixed bytes must use `EloqKey::Raw`.
-- **TTL twins lie about their type on purpose** (`ObjectType()` returns the base type) so `IsMatchType`/`CheckTypeMatch` and all command code treat them as plain objects; only serialization and `HasTTL()` reveal TTL-ness.
-- **`is_in_the_middle_stage_` / `should_not_move_string`**: store-stage commands of multi-step commands clone strings on commit instead of moving them, because the same command instance can commit again (e.g. `RedisHashSetObject::CommitSAdd(paras, should_not_move_string)`, `redis_set_object.h:72`).
-- **MGET maps WRONGTYPE to nil** per Redis semantics (`redis_command.h:5536-5553`); `EXISTS` with repeated keys multiplies by occurrence count (`cnt_`, `redis_command.h:3289`).
-- **DUMP emits Redis-RDB-version-10 payloads with CRC64** (`redis_command.h:7286-7287`, `src/redis_command.cpp:15944`); RESTORE additionally accepts the older EloqKV-native dump format (version tag 0) for backward compatibility.
-- **Defrag**: `NeedsDefrag` walks object/string allocations and reports pages under 80% utilization (`src/redis_string_object.cpp:789`, `eloq_string.h:145`); the shard's defrag pass re-allocates such entries (engine-side mechanism).
+| Prebuilt Redis database tables and catalog registration | `src/redis_service.cpp`, `include/redis_service.h` |
+| Physical key ownership, namespace application, hashing, and serialization | `include/eloqkv_key.h`, `src/eloqkv_key.cpp`, `include/namespace/context.h` |
+| Object type tags and concrete record reconstruction | `include/redis_object.h`, `src/redis_object.cpp` |
+| String/list/hash/set/zset objects, TTL variants, and serialized-size accounting | `include/redis_string_object.h`, `include/redis_list_object.h`, `include/redis_hash_object.h`, `include/redis_set_object.h`, `include/redis_zset_object.h`, `src/redis_string_object.cpp`, `src/redis_list_object.cpp`, `src/redis_hash_object.cpp`, `src/redis_set_object.cpp`, `src/redis_zset_object.cpp`, `tests/unit/eloq/object_serialize_deserialize_test.cpp` |
+| Command execution, commit, result, and multi-object contracts | `include/redis_command.h`, `src/redis_command.cpp`, `src/redis_service.cpp` |
+| Stable command-image numbering and replay decoding | `include/redis_object.h`, `include/redis_command.h`, `src/eloqkv_catalog_factory.cpp`, `tests/unit/eloq/command_replay_test.cpp` |
+| Expiration and full-object TTL recovery | `include/redis_command.h`, `src/redis_command.cpp`, `data_substrate/tx_service/include/cc/object_cc_map.h`, `tests/unit/eloq/expire.tcl` |
+| EloqKV table schema, object map, and primary scanner | `include/eloqkv_catalog_factory.h`, `src/eloqkv_catalog_factory.cpp` |
