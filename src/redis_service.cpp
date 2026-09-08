@@ -144,6 +144,9 @@ DEFINE_string(
 DEFINE_bool(retry_on_occ_error, true, "Retry transaction on OCC caused error.");
 
 DEFINE_bool(enable_tls, false, "Enable TLS for brpc RPC connections");
+DEFINE_bool(require_tls,
+            false,
+            "Reject plaintext Redis connections when TLS is enabled");
 DEFINE_string(tls_cert_file, "", "Path to TLS certificate file (PEM format)");
 DEFINE_string(tls_key_file, "", "Path to TLS private key file (PEM format)");
 
@@ -530,6 +533,16 @@ bool RedisServiceImpl::Init(brpc::Server &brpc_server)
     enable_tls_ = !CheckCommandLineFlagIsDefault("enable_tls")
                       ? FLAGS_enable_tls
                       : config_reader.GetBoolean("local", "enable_tls", false);
+    require_tls_ = !CheckCommandLineFlagIsDefault("require_tls")
+                       ? FLAGS_require_tls
+                       : config_reader.GetBoolean("local", "require_tls", false);
+
+    if (require_tls_ && !enable_tls_)
+    {
+        LOG(ERROR) << "require_tls cannot be enabled when TLS is disabled. "
+                      "Please set enable_tls=true.";
+        return false;
+    }
 
     if (enable_tls_)
     {

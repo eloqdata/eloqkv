@@ -254,6 +254,10 @@ public:
     {
         return enable_tls_;
     }
+    bool IsTlsRequired() const
+    {
+        return require_tls_;
+    }
     const std::string &GetTlsCertFile() const
     {
         return tls_cert_file_;
@@ -653,6 +657,7 @@ private:
 
     // TLS configuration
     bool enable_tls_{false};
+    bool require_tls_{false};
     std::string tls_cert_file_;
     std::string tls_key_file_;
 
