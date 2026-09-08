@@ -48,7 +48,9 @@ service layer only; engine internals are in `data_substrate/docs/` (esp. `02-thr
    mode it exits the process right here after table creation (`src/redis_service.cpp:704-721`).
 6. brpc `Server::Start()` with `server_options.redis_service = redis_service_impl` (ownership
    transfers to the server), the public listener declared Redis-only, `redis_max_connections` set
-   from `maxclients`, and optional force-SSL settings. When `admin_port` is nonzero, a second
+   from `maxclients`, and optional TLS settings. TLS-enabled listeners accept both TLS and
+   plaintext RESP connections for rolling-upgrade compatibility. When `admin_port` is nonzero, a
+   second
    Redis-only `brpc::Server` starts on the same bind address with an independent
    `admin_maxclients` limit. Its non-owning service proxy forwards connection-context creation and
    every command to the primary `RedisServiceImpl`, so command, authentication, namespace, and TLS
@@ -122,7 +124,7 @@ update only the primary listener, preserving the independent escape path. Both l
 the same process file-descriptor limit and bthread/engine resources: deployments must leave FD
 headroom above `maxclients + admin_maxclients`, and the second listener does not guarantee access
 after process-wide FD, memory, CPU, or scheduler exhaustion. The administrative port inherits the
-primary bind address, authentication, and force-TLS configuration and exposes the same command
+primary bind address, authentication, and TLS configuration and exposes the same command
 dispatcher; protect it with host/network access controls.
 
 One `RedisConnectionContext` per admitted socket, created by `NewConnectionContext`

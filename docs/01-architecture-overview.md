@@ -55,7 +55,7 @@ Defined in `src/redis_server.cpp` / `src/redis_service.cpp`; engine flags are li
 | `cluster_mode` | — | strict Redis Cluster compatibility behavior |
 | `txn_isolation_level` / `protocol` / `isolation_level` | — | engine isolation/cc-protocol selection for txs ([02](02-command-processing.md)) |
 | `retry_on_occ_error` | — | auto-retry policy for OCC conflicts |
-| `enable_tls` / `tls_cert_file` / `tls_key_file` | off | TLS on the RESP port |
+| `enable_tls` / `tls_cert_file` / `tls_key_file` | off | optional TLS alongside plaintext on the RESP port |
 | `slow_log_threshold` / `slow_log_max_length` | — | SLOWLOG |
 | `enable_redis_stats`, `enable_cmd_sort` | — | INFO/stats behavior |
 | `cc_notify` | — | notify-based (vs polling) wakeup between layer and engine |
