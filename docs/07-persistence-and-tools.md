@@ -1,130 +1,113 @@
-# 07 — Redis-Format Persistence Interop & Offline Tools
+# 07 — Redis-Format Interop and Offline Export
 
-**Summary.** EloqKV does not persist data through RDB snapshots or AOF rewrite the way Redis does — native durability is the engine's replicated WAL plus background checkpoints into the kv store (see `data_substrate/docs/07-durability-and-recovery.md`). What this layer provides instead is *interop* with the Redis on-disk/wire formats for migration and tooling: (1) online `DUMP`/`RESTORE` commands that serialize/deserialize single values in Redis RDB payload format (`src/redis_rdb_restore.cpp`, `src/redis_command.cpp`), so `redis-cli --migrate`-style key copying works in both directions; and (2) offline exporters `eloqkv_to_rdb` and `eloqkv_to_aof` (`src/tools/`) that read the checkpointed kv store directly — either an embedded RocksDB directory or, since PR #485, a rocksdb-cloud snapshot in S3/GCS — and emit a Redis-loadable `dump.rdb` or AOF command stream. `SAVE`/`BGSAVE`/`BGREWRITEAOF` are not implemented at all; they return `ERR unknown command`.
+EloqKV's durability comes from Data Substrate WAL, recovery, checkpointing, and
+the configured KV store. Redis RDB/AOF support in this repository is an
+interoperability boundary, not the server's native durability mechanism.
 
-Related docs: [03-data-model.md](03-data-model.md) (the `RedisEloqObject` types and their native `Serialize()` format these tools convert from/to), [05-namespaces.md](05-namespaces.md), engine side `data_substrate/docs/07-durability-and-recovery.md` and `09-store-handler.md`.
+The layer provides two forms of interop:
 
-## 1. Positioning
+- online `DUMP`/`RESTORE` conversion for one Redis key; and
+- offline export from a checkpointed RocksDB-backed store to an RDB file or
+  RESP command streams.
 
-| Mechanism | Online? | Purpose | Source of truth |
-|---|---|---|---|
-| Engine WAL + checkpoint | yes | actual durability/recovery | `data_substrate` (TxLog + Checkpointer) |
-| `DUMP` / `RESTORE` | yes | per-key migration to/from real Redis | `src/redis_command.cpp:15944`, `src/redis_rdb_restore.cpp` |
-| `eloqkv_to_rdb` | no (offline) | full-store export to a Redis `dump.rdb` | `src/tools/eloqkv2rdb/eloqkv2rdb.cpp` |
-| `eloqkv_to_aof` | no (offline) | full-store export to RESP command files | `src/tools/eloqkv2aof/eloqkv2aof.cpp` |
+Whole-server Redis `SAVE`, `BGSAVE`, and AOF rewrite are not part of this
+architecture. Backup consistency is established by the underlying store or its
+snapshot mechanism before an offline exporter reads it.
 
-There is no RDB *loader* for whole files: imports into EloqKV go through `RESTORE` (or replaying an AOF stream of normal commands).
+## Online DUMP and RESTORE
 
-Vendored libs used here: `crcspeed/` is the CRC-64 (Jones polynomial, same as Redis) implementation used for DUMP payload and RDB file checksums (`CMakeLists.txt:403`); `fpconv/` is a Grisu2 double-to-shortest-string converter used by `d2string()` for score formatting (`include/redis_string_num.h:256`).
+`DUMP` runs as a read-only object command. It converts an EloqKV string, list,
+set, hash, or sorted set into a Redis RDB object payload and appends a
+version-10 Redis DUMP footer with CRC64. The emitted payload uses
+ordinary Redis encodings rather than preserving EloqKV's in-memory
+representation. TTL is not embedded in the object payload; `RESTORE` receives
+expiration separately.
 
-## 2. DUMP / RESTORE
+`RESTORE` verifies the footer before decoding. It accepts Redis payload
+versions 4 and 10 and retains version-zero decoding for legacy EloqKV-native
+payloads. Redis encodings for the five supported logical types are normalized
+into EloqKV's object serialization; unsupported object families are rejected.
+The decoder bounds expanded strings and
+collection sizes and validates compact-container structure before constructing
+an object.
 
-### 2.1 DUMP (EloqKV → Redis payload)
+After conversion, `RESTORE` is an ordinary transactional overwrite/existence-
+gated `RedisCommand`. `REPLACE` controls whether an existing key may be
+overwritten, and the supplied relative or absolute TTL selects the TTL-bearing
+object representation at commit. Database and namespace routing are inherited
+from normal command dispatch.
 
-`DumpCommand::ExecuteOn` (`src/redis_command.cpp:15944`) converts the live object via `ConvertEloqObjectToRedisDumpPayload` (`src/redis_rdb_restore.cpp:1424`), then appends the standard 10-byte Redis DUMP footer: 2-byte little-endian RDB version `10` (`redis_dump_version_`, `include/redis_command.h:7287`) + 8-byte CRC-64 over everything before it (`src/redis_command.cpp:15958`). Encodings emitted are deliberately plain (no listpack/ziplist/intset, no LZF):
+The compatibility contract is logical data, not physical encoding identity:
+compact Redis containers decode to EloqKV objects, and a later `DUMP` may emit
+a different valid Redis representation of the same value.
 
-| EloqKV type | RDB type byte emitted |
-|---|---|
-| String | 0 (`RDB_TYPE_STRING`) |
-| List | 1 (`RDB_TYPE_LIST`, plain length-prefixed elements) |
-| Set | 2 (`RDB_TYPE_SET`) |
-| Hash | 4 (`RDB_TYPE_HASH`) |
-| Zset | 5 (`RDB_TYPE_ZSET_2`, binary little-endian double scores) |
+## Offline exporters
 
-Any other object type makes the conversion fail and DUMP returns a syntax error (`src/redis_rdb_restore.cpp:1486`, `src/redis_command.cpp:15949-15952`). Footer version 10 corresponds to Redis 7.0; real Redis only accepts payload versions ≤ its own RDB version, so (inference) Redis ≤ 6.x will reject EloqKV DUMP output while 7.x accepts it.
+Exporter targets depend on the configured storage build:
 
-### 2.2 RESTORE — version & checksum gate
-
-`ParseRestoreCommand` (`src/redis_command.cpp:20005`) verifies the payload *at parse time* via `RestoreCommand::VerifyDumpPayload` (`src/redis_command.cpp:16176`):
-
-- footer version `0` → legacy **EloqKV-native** payload (the object's own `Serialize()` image, produced by DUMP before Redis compatibility was added; `include/redis_command.h:7284-7286`). Checksum verified with `crc64speed_big` (initialized at server start, `src/redis_service.cpp:369`).
-- footer version `4` or `10` → **Redis RDB** payload; checksum verified with `crc64` (byte-swapped on big-endian hosts).
-- anything else (including version 9 from Redis 5/6 and version 11 from Redis 7.2+) → rejected: "DUMP payload version or checksum are wrong".
-
-Redis-format payloads are then converted into the native object image by `ConvertRedisDumpPayloadToEloqPayload` (`src/redis_rdb_restore.cpp:1417`). Supported RDB object encodings:
-
-| RDB type (byte) | Decodes to | Notes |
+| Build | Exporters | Input |
 |---|---|---|
-| STRING (0) | String | int8/16/32 and LZF-compressed strings handled (`Reader::ReadString`, `src/redis_rdb_restore.cpp:245`) |
-| LIST (1), LIST_ZIPLIST (10), QUICKLIST (14), QUICKLIST2 (18) | List | quicklist2 plain + packed (listpack) node containers (`:1355-1396`) |
-| SET (2), SET_INTSET (11), SET_LISTPACK (20) | Set | |
-| ZSET (3, string scores incl. nan/±inf), ZSET_2 (5, binary doubles), ZSET_ZIPLIST (12), ZSET_LISTPACK (17) | Zset | |
-| HASH (4), HASH_ZIPLIST (13), HASH_LISTPACK (16) | Hash | |
-| Streams, modules, hash-with-field-TTL (21+), or any other type byte | **rejected** (`:1411-1412`) | |
+| `WITH_DATA_STORE=ROCKSDB` | `eloqkv_to_rdb`, `eloqkv_to_aof` | Local embedded RocksDB database |
+| `WITH_DATA_STORE=ELOQDSS_ROCKSDB_CLOUD_S3` | `eloqkv_to_rdb` | Named RocksDB-Cloud snapshot for each DSS shard |
+| Other store builds | None | — |
 
-Decode hardening: LZF output capped at 64 MiB, collection counts capped at 2^20 entries and sanity-checked against remaining bytes (`kMaxLzfDecodedLength`/`kMaxCollectionEntries`, `src/redis_rdb_restore.cpp:71-72`, `ValidateCount :140`); ziplist/listpack blobs must self-consistently terminate (back-length, 0xFF terminator, total-bytes header checked).
+Both exporters read the checkpoint/store representation directly; they do not
+replay the WAL. A committed write that has not reached the selected checkpoint
+or cloud snapshot is therefore outside the export. The local embedded-RocksDB
+path opens the database itself, while the cloud RDB path opens the named
+snapshot branches and scans the DSS composite key/value format.
 
-### 2.3 RESTORE — semantics
+The embedded-RocksDB readers enumerate the fixed `data_table_0` through
+`data_table_15` set, while the cloud reader accepts DSS table names with the
+`eloqkv_data_table_<n>` prefix. Neither path exports the namespace metadata
+table or the shared `ns_data_0` tenant table, so offline export is not a
+complete namespace backup.
 
-- `REPLACE`, `ABSTTL` supported; `IDLETIME`/`FREQ` parsed and validated but ignored (`uint64_t idle_time_sec_{0}; // unsupport`, `include/redis_command.h:7374-7375`).
-- TTL argument is milliseconds; without `ABSTTL` it is added to the current clock (`src/redis_command.cpp:20083-20087`). `RestoreCommand::CommitOn` builds the object from the native image and, if a TTL was given, swaps it for the TTL-variant object via `AddTTL` (`src/redis_command.cpp:16008-16098`).
-- Key-exists handling is done through the TxCommand protocol: `ProceedOnNonExistentObject()=true`, `ProceedOnExistentObject()=replace_` (`include/redis_command.h:7336-7344`); the default result is `RD_ERR_BUSY_KEY_EXIST` ("BUSYKEY") which stands when the object exists and `REPLACE` was not given (`include/redis_command.h:7383`).
-- Invalid payload + no `REPLACE`: the command is still routed (so BUSYKEY can win, matching Redis error precedence) carrying `payload_valid_=false`; with `REPLACE` it errors immediately (`src/redis_command.cpp:20096-20133`).
-- DUMP/RESTORE resolve tables through the connection's selected DB and namespace like any other command, so they work inside custom namespaces (inference from normal dispatch; see [05-namespaces.md](05-namespaces.md)).
+### RDB output
 
-## 3. eloqkv_to_rdb (offline RDB exporter)
+`eloqkv_to_rdb` writes a Redis RDB file containing database selection,
+expiration, key, and one of the five supported logical value types. The local
+and cloud readers decode their different KV-store record envelopes into the
+same `RedisEloqObject` model before RDB encoding. The file is terminated with a
+Redis-compatible CRC64.
 
-One source file, two very different builds, selected by `WITH_DATA_STORE` (`CMakeLists.txt:473-482`, install rules `:519-528`):
+The cloud reader uses the provided snapshot name for each shard, so its input
+view is fixed by the store's snapshot contract. It filters DSS records to
+EloqKV data-table names and reconstructs the Redis database number from the
+table name.
 
-| `WITH_DATA_STORE` | Tool built | Reads |
-|---|---|---|
-| `ROCKSDB` | `eloqkv_to_rdb`, `eloqkv_to_aof` | local embedded RocksDB dir (`--rocksdb_path`) |
-| `ELOQDSS_ROCKSDB_CLOUD_S3` / `_GCS` | `eloqkv_to_rdb` only | rocksdb-cloud snapshot in S3/GCS (PR #485, commit 794c6ff) |
-| anything else (incl. default `ELOQDSS_ELOQSTORE`) | none | — |
+### AOF output
 
-Both paths only see **checkpointed** data: writes that are committed in the WAL but not yet flushed by the engine checkpointer are *not* in the kv store and will be missing from the export.
+`eloqkv_to_aof` is available only for the local embedded-RocksDB build. It
+converts each logical object into Redis commands: scalar values become one
+write, collections become element writes, and TTL becomes a following expiry
+command. Worker outputs are independent RESP command streams and each emits
+its own database selections where needed.
 
-### 3.1 Legacy local-RocksDB path (`Rocksdb2RDB`, `eloqkv2rdb.cpp:2068`)
+AOF export preserves logical values and expiration but is not size-equivalent
+to the store: collection values expand into command-per-element streams.
 
-- Opens the RocksDB directory read-write (`rocksdb::DB::Open`), so it requires the server to be stopped (RocksDB LOCK file) — run it on a copy otherwise.
-- Discovers tables via the hardcoded catalog keys `data_table_{0..15}_catalog` in the default column family, reading the `kv_cf_name` wide column to find each DB's column family (`:2128-2167`). Exactly 16 databases are assumed (`const int databases = 16`, `:2129`); a store created with a different `databases` config crashes on `CHECK(status.ok())`.
-- Pipeline: single reader thread batches keys (`--round_batch_size`) into a pool sized `thread_count * pre_read_ratio`; `ParseWorker` threads deserialize the stored value (layout `[deleted i8][version i64][obj_type i8][payload]`, `:734-797`), drop deleted/TTL-expired entries, and append RDB-encoded bytes to pooled buffers; a single `WriteWorker` drains buffers to the file and folds them into the running CRC (`:572-625`). `SELECT db` opcodes are written between per-DB phases (`:2210-2217`).
+## Cross-module invariants
 
-### 3.2 RocksDB-Cloud path (`RocksdbCloud2RDB`, `eloqkv2rdb.cpp:1690`)
+- RDB/AOF interop is not EloqKV's recovery path; native recovery belongs to
+  Data Substrate.
+- `DUMP`/`RESTORE` preserve supported logical Redis values, not compact encoding
+  identity.
+- RESTORE treats payload bytes as untrusted and validates version, checksum,
+  container structure, and decode bounds before commit.
+- Offline exports contain only state visible in their selected checkpoint or
+  snapshot, never newer WAL-only commits.
+- Exporter build availability and input record format must match the configured
+  storage backend.
+- Offline exporters omit non-default namespace data and metadata.
 
-- **Point-in-time and safe against a live cluster**: it opens each shard's bucket with `cookie_on_open = <snapshot name>` and an empty `new_cookie_on_open` (`:1912-1913`), i.e. it mounts a named CLOUDMANIFEST branch created by the DSS backup API (`CreateSnapshotForBackup` rolls a branch named `{backup_name}-{shard_id}-{backup_ts}`, `data_substrate/store_handler/eloq_data_store_service/rocksdb_cloud_data_store.cpp:855-871`), with `disable_cloud_file_deletion=true` and no manifest roll (`:1862-1864`). `--snapshot_name` takes one comma-separated cookie per shard and must match `--shard_num` (`:2401-2408`).
-- Shard object paths follow the DSS layout `<object_path>/ds_{shard_id}` (`BuildShardObjectPath`, `:912`); shards are processed sequentially, each appending to the same output file.
-- Within a shard, `--thread_count` > 1 splits the keyspace into ranges weighted by live-SST sizes (`BuildShardRangeBoundaries`, `:1469`) and scans them in parallel (`ScanShardRange`, `:1556`). Each flushed buffer re-emits its own `SELECT db` prefix, so out-of-order buffer interleaving from multiple scan threads still yields a semantically correct RDB (`:1648-1654`, `acquire_buffer :1593`).
-- Key/value formats differ from the legacy path: keys are DSS-composite `{kv_table_name}/{partition_id}/{key}` (`ParseDssKey`, `:1349`); values are `[version_ts u64 (MSB = has_ttl)][ttl u64?][obj_type i8 + payload]` (`DeserializeDssValue`, `:1325`). Only tables whose kv name starts with `eloqkv_data_table_` are exported, with the DB index parsed from the suffix — FLUSHDB-renamed tables like `eloqkv_data_table_0_2026_...` still map to DB 0 (`ExtractDbNumberFromCatalogKey`, `:1432`).
-- S3 specifics: optional static credentials (`--aws_access_key_id/--aws_secret_key`, otherwise instance credentials), MinIO-style endpoints via `--rocksdb_cloud_s3_endpoint_url` with path-style addressing (`:1816-1840`), tunable SST cache (`--rocksdb_cloud_sst_file_cache_size`), local scratch dir `--db_path` (default `/tmp/eloqkv_rdb_export`). A progress line per shard prints keys/bytes/rates (`ShardProgressPrinter`, `:1057`).
+## Source map
 
-### 3.3 Output RDB structure (both paths)
-
-Header `REDIS0006` (`RedisRdbUtil::ParseHeader`, `:213`) — RDB file version 6, old enough that only base types are legal — then per key: optional `0xFD` seconds-resolution expiry, type byte 0–4, length-prefixed key, plain (non-compact) value encoding; trailer `0xFF` + little-endian CRC-64 of the whole file (`:2049-2059`, `:2283-2294`). Integer-looking strings are stored with int8/16/32 special encodings (`OutputString`, `:134`); LZF compression is stubbed out (`:113-115`, `:162-174`). Zset scores are written as `std::to_string(score)` strings under RDB type 3, with single-byte nan/±inf markers (`:335-353`).
-
-## 4. eloqkv_to_aof (offline AOF exporter)
-
-`src/tools/eloqkv2aof/eloqkv2aof.cpp` — built only for `WITH_DATA_STORE=ROCKSDB`. Same legacy local-RocksDB discovery (16 hardcoded `data_table_N_catalog` entries, `:485-524`) and the same reader/parser pool pipeline, but each `ParseWorker` writes its **own** output file `<output_file_dir>/<thread_idx>.aof` (`:531-533`), so the result is N independent RESP command streams, each self-contained (each tracks `last_db_idx_` and emits its own `SELECT`, `:301-305`). Object → command mapping (`RedisReplyUtil::ParseEloqKV`, `:98-200`):
-
-| Type | Commands emitted |
+| Claim | Repository source |
 |---|---|
-| String | one `SET key value` |
-| List | one `RPUSH key elem` **per element** |
-| Hash | one `HSET key field value` per pair |
-| Set | one `SADD key member` per member |
-| Zset | one `ZADD key score member` per member (score via `d2string`/fpconv, shortest round-trip) |
-| any TTL | trailing `EXPIREAT key <ttl_ms/1000>` |
-
-One-command-per-element makes output large: `test_result.md` records 13 GB of RocksDB exploding to a 188 GB AOF. Deleted and already-expired records are skipped, like the RDB tool.
-
-## 5. SAVE / BGSAVE / BGREWRITEAOF / LASTSAVE
-
-Not implemented and not stubbed: none of them appear in the `command_types` map (`src/redis_command.cpp:103+`) or the handler registry, so they fall through to `ERR unknown command` (`src/redis_service.cpp:6049-6057`). The only references are commented-out vendored Redis headers (`include/redis/server.h`). Durability is always-on engine WAL + checkpoint; backups are taken on the kv-store side (DSS snapshot/backup, `data_substrate/docs/07-durability-and-recovery.md`), not via Redis commands.
-
-## 6. Gotchas & invariants
-
-- **Exports are checkpoint-lagged.** Both offline tools read the kv store; un-checkpointed committed writes are absent. The cloud path is at least a consistent point-in-time snapshot (manifest branch); the legacy local path is only consistent because the server must be stopped.
-- **Encoding round-trips lose representation, not data.** RESTORE flattens every compact encoding (ziplist/listpack/intset/quicklist) into the regular EloqKV deque/flat_hash_map objects; DUMP never re-creates compact encodings. Values survive; memory layout and `OBJECT ENCODING` fidelity do not.
-- **Size caps on RESTORE.** Collections > 2^20 entries or LZF strings > 64 MiB inside a Redis-format payload are rejected (`src/redis_rdb_restore.cpp:71-72`) even though such keys can exist in Redis; legacy EloqKV-format (version 0) payloads bypass these decode caps entirely.
-- The RDB exporters compute the file CRC with `crc64speed` after calling `crc64speed_init()` (`eloqkv2rdb.cpp:2335`); the server initializes only the big-endian table variant for legacy DUMP verification (`crc64speed_init_big()`, `src/redis_service.cpp:369`) — three CRC entry points (`crc64`, `crc64speed`, `crc64speed_big`) all implement the same Jones CRC-64.
-
-## 7. Key files
-
-| File | Role |
-|---|---|
-| `src/redis_rdb_restore.cpp`, `include/redis_rdb_restore.h` | RDB payload codec (RESTORE decode, DUMP encode) |
-| `src/redis_command.cpp:15944-16249, 20005-20140` | DUMP/RESTORE command logic, footer verify, parse |
-| `src/tools/eloqkv2rdb/eloqkv2rdb.cpp` | offline RDB exporter (local + rocksdb-cloud) |
-| `src/tools/eloqkv2aof/eloqkv2aof.cpp` | offline AOF exporter (local RocksDB only) |
-| `crcspeed/`, `fpconv/` | vendored CRC-64 / double-formatting libs |
-| `CMakeLists.txt:473-528` | tool build/install wiring per `WITH_DATA_STORE` |
+| DUMP/RESTORE transaction semantics, footer verification, TTL, and `REPLACE` | `include/redis_command.h`, `src/redis_command.cpp`, `tests/unit/eloq/dump.tcl` |
+| Redis object-payload decoding, encoding, and validation | `include/redis_rdb_restore.h`, `src/redis_rdb_restore.cpp` |
+| Exporter build matrix | `CMakeLists.txt` |
+| Local/cloud RDB inputs, record decoding, data-table filtering, and RDB output | `src/tools/eloqkv2rdb/eloqkv2rdb.cpp` |
+| Embedded-RocksDB AOF conversion and worker streams | `src/tools/eloqkv2aof/eloqkv2aof.cpp` |
+| Native WAL/checkpoint/store durability boundary | `data_substrate/docs/07-durability-and-recovery.md`, `data_substrate/docs/09-store-handler.md`, `data_substrate/tx_service/include/checkpointer.h` |
