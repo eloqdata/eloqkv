@@ -525,6 +525,10 @@ option(BUILD_WITH_TESTS "Run unit-tests" OFF)
 if(${BUILD_WITH_TESTS})
     find_package(Catch2 REQUIRED)
 
+    add_executable(lua_lifetime_test ./tests/unit/eloq/lua_lifetime_test.cpp ${RESELOQ_RESOURCES})
+    target_link_libraries(lua_lifetime_test PRIVATE Catch2::Catch2WithMain ${ABSEIL} ${LOG_LIB} ${RESELOQ_LIBRARY} lua fpconv ${DYNAMIC_LIB})
+    add_test(NAME lua_lifetime_test COMMAND lua_lifetime_test WORKING_DIRECTORY ${CMAKE_BINARY_DIR})
+
     add_executable(object_serialize_deserialize_test ./tests/unit/eloq/object_serialize_deserialize_test.cpp ${RESELOQ_RESOURCES})
     target_link_libraries(object_serialize_deserialize_test PRIVATE Catch2::Catch2WithMain ${ABSEIL} ${LOG_LIB} ${RESELOQ_LIBRARY} lua fpconv ${DYNAMIC_LIB})
 
@@ -534,6 +538,7 @@ if(${BUILD_WITH_TESTS})
     target_link_libraries(command_replay_test PRIVATE Catch2::Catch2WithMain ${ABSEIL} ${LOG_LIB} ${RESELOQ_LIBRARY} lua fpconv ${DYNAMIC_LIB})
 
     add_test(NAME command_replay_test COMMAND command_replay_test WORKING_DIRECTORY ${CMAKE_BINARY_DIR})
+
     enable_testing()
 
     if (VECTOR_INDEX_ENABLED)

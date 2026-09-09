@@ -50,6 +50,54 @@ extern "C"
 
 namespace EloqKV
 {
+namespace
+{
+constexpr size_t kLuaGcGrowthThreshold = 64 * 1024;
+
+size_t LuaMemoryBytes(lua_State *lua)
+{
+    return static_cast<size_t>(lua_gc(lua, LUA_GCCOUNT, 0)) * 1024 +
+           lua_gc(lua, LUA_GCCOUNTB, 0);
+}
+
+struct LuaResetContext
+{
+    size_t baseline_bytes;
+    bool large_input;
+    bool collected{false};
+};
+
+int ResetLuaState(lua_State *lua)
+{
+    auto *context = static_cast<LuaResetContext *>(lua_touserdata(lua, 1));
+    lua_settop(lua, 0);
+
+    // Finalizers execute user Lua too. Keep its global-table restrictions
+    // while allowing these raw C writes, which cannot invoke metamethods or
+    // take a GC step. Pushing the field names can take a GC step.
+    lua_enablereadonlytable(lua, LUA_GLOBALSINDEX, 1);
+    lua_pushliteral(lua, "KEYS");
+    lua_pushnil(lua);
+    lua_enablereadonlytable(lua, LUA_GLOBALSINDEX, 0);
+    lua_rawset(lua, LUA_GLOBALSINDEX);
+    lua_enablereadonlytable(lua, LUA_GLOBALSINDEX, 1);
+    lua_pushliteral(lua, "ARGV");
+    lua_pushnil(lua);
+    lua_enablereadonlytable(lua, LUA_GLOBALSINDEX, 0);
+    lua_rawset(lua, LUA_GLOBALSINDEX);
+    lua_enablereadonlytable(lua, LUA_GLOBALSINDEX, 1);
+
+    const size_t used_bytes = LuaMemoryBytes(lua);
+    if (context->large_input ||
+        (used_bytes > context->baseline_bytes &&
+         used_bytes - context->baseline_bytes > kLuaGcGrowthThreshold))
+    {
+        lua_gc(lua, LUA_GCCOLLECT, 0);
+        context->collected = true;
+    }
+    return 0;
+}
+}  // namespace
 
 int EVPDigest(const void *data,
               size_t datalen,
@@ -322,10 +370,17 @@ LuaInterpreter::LuaInterpreter()
     SaveOnRegistry(lua_, "interpreter", this);
 
     RegisterRedisAPI(lua_);
+    lua_gc(lua_, LUA_GCCOLLECT, 0);
+    gc_baseline_bytes_ = LuaMemoryBytes(lua_);
+    lua_gc(lua_, LUA_GCSTOP, 0);
 }
 
 LuaInterpreter::~LuaInterpreter()
 {
+    // lua_close runs finalizers, including on VMs discarded without Reset.
+    // Their Redis calls must never use a completed transaction's hook.
+    script_call_ = {};
+    lua_enablereadonlytable(lua_, LUA_GLOBALSINDEX, 1);
     lua_close(lua_);
 }
 
@@ -382,6 +437,13 @@ void LuaInterpreter::SetGlobalArray(const char *name,
     lua_newtable(lua_);
     for (size_t j = 0; j < args.size(); j++)
     {
+        // Saturate once large input requires a collection. Net VM growth is
+        // insufficient when automatic GC has lowered usage below an older
+        // full-collection baseline.
+        input_bytes_since_reset_ =
+            std::min(kLuaGcGrowthThreshold + 1,
+                     input_bytes_since_reset_ +
+                         std::min(args[j].size(), kLuaGcGrowthThreshold + 1));
         lua_pushlstring(lua_, args[j].data(), args[j].size());
         lua_rawseti(lua_, -2, j + 1);
     }
@@ -415,7 +477,12 @@ bool LuaInterpreter::CallFunction(std::string_view sha, std::string *error)
         return false;
     }
     lua_enablereadonlytable(lua_, LUA_GLOBALSINDEX, 1);
+    // Only protected Lua execution may run user finalizers. Native argument
+    // setup and reply conversion can allocate too, but have no Lua error
+    // boundary and may run after the transaction has already completed.
+    lua_gc(lua_, LUA_GCRESTART, 0);
     int err = lua_pcall(lua_, 0, 1, -2);
+    lua_gc(lua_, LUA_GCSTOP, 0);
     lua_enablereadonlytable(lua_, LUA_GLOBALSINDEX, 0);
 
     if (err)
@@ -544,9 +611,29 @@ void LuaInterpreter::LuaReplyToRedisReply(brpc::RedisReply *output)
     lua_pop(lua_, 1);
 }
 
-void LuaInterpreter::CleanStack()
+bool LuaInterpreter::Reset()
 {
+    script_call_ = {};
     lua_settop(lua_, 0);
+    LuaResetContext context{gc_baseline_bytes_,
+                            input_bytes_since_reset_ > kLuaGcGrowthThreshold};
+    // lua_cpcall establishes protection before allocating its C closure.
+    // A bare lua_gc, or even lua_pushcfunction before lua_pcall, can otherwise
+    // let a user __gc error reach Lua's panic/exit path outside a script call.
+    const int status = lua_cpcall(lua_, ResetLuaState, &context);
+    lua_gc(lua_, LUA_GCSTOP, 0);
+    lua_enablereadonlytable(lua_, LUA_GLOBALSINDEX, 0);
+    lua_settop(lua_, 0);
+    input_bytes_since_reset_ = 0;
+    if (status != 0)
+    {
+        return false;
+    }
+    if (context.collected)
+    {
+        gc_baseline_bytes_ = LuaMemoryBytes(lua_);
+    }
+    return true;
 }
 
 /*
