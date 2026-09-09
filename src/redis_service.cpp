@@ -2675,6 +2675,7 @@ bool RedisServiceImpl::EvalLua(
             const std::string &error_msg = result;
             output->SetError("ERR Error compiling script (new function): " +
                              error_msg);
+            interpreter->SetScriptRedisHook(nullptr);
             AbortTx(txm);
             CleanAndReturnLuaInterpreter(std::move(interpreter));
             return false;

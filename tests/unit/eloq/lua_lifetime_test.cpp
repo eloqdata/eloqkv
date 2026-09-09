@@ -35,6 +35,33 @@ namespace
 using EloqKV::LuaInterpreter;
 using EloqKV::LuaInterpreterTestPeer;
 
+struct ScopedRedisStats
+{
+    ScopedRedisStats()
+    {
+        EloqKV::RedisStats::ExposeBVar();
+    }
+
+    ~ScopedRedisStats()
+    {
+        EloqKV::RedisStats::HideBVar();
+    }
+};
+
+struct ScopedSocket
+{
+    ~ScopedSocket()
+    {
+        if (id != brpc::INVALID_SOCKET_ID)
+        {
+            brpc::Socket::SetFailed(id);
+        }
+    }
+
+    brpc::SocketId id{brpc::INVALID_SOCKET_ID};
+    brpc::SocketUniquePtr socket;
+};
+
 void Evaluate(LuaInterpreter &interpreter,
               std::string_view script,
               brpc::RedisReply &reply)
@@ -400,4 +427,42 @@ TEST_CASE("Script flush contains finalizer errors from idle VMs",
     REQUIRE(service.ScriptFlush());
     REQUIRE(hook_calls == 0);
     REQUIRE(reply.integer() == 42);
+}
+
+TEST_CASE("Lua VM retirement preserves client connection counters",
+          "[lua][script-flush][stats]")
+{
+    ScopedRedisStats stats;
+    ScopedSocket socket;
+    brpc::SocketOptions options;
+    // A real brpc Socket object exercises the client-context constructor,
+    // without opening a network connection or a listening service.
+    REQUIRE(brpc::Socket::Create(options, &socket.id) == 0);
+    REQUIRE(brpc::Socket::Address(socket.id, &socket.socket) == 0);
+    REQUIRE(EloqKV::RedisStats::GetConnectingCount() == 0);
+    {
+        EloqKV::RedisConnectionContext client(socket.socket.get(), nullptr);
+        REQUIRE(EloqKV::RedisStats::GetConnReceivedCount() == 1);
+        REQUIRE(EloqKV::RedisStats::GetConnectingCount() == 1);
+        for (int iteration = 0; iteration < 4; ++iteration)
+        {
+            {
+                EloqKV::RedisServiceImpl service("", "test");
+                auto interpreter = service.GetLuaInterpreter();
+                butil::Arena arena;
+                brpc::RedisReply reply(&arena);
+                Evaluate(*interpreter, "return 42", reply);
+                service.CleanAndReturnLuaInterpreter(std::move(interpreter));
+                REQUIRE(service.ScriptFlush());
+                REQUIRE(EloqKV::RedisStats::GetConnectingCount() == 1);
+                service.CleanAndReturnLuaInterpreter(
+                    service.GetLuaInterpreter());
+            }
+            // Service destruction retires its remaining idle interpreter too.
+            REQUIRE(EloqKV::RedisStats::GetConnReceivedCount() == 1);
+            REQUIRE(EloqKV::RedisStats::GetConnectingCount() == 1);
+        }
+    }
+    REQUIRE(EloqKV::RedisStats::GetConnReceivedCount() == 1);
+    REQUIRE(EloqKV::RedisStats::GetConnectingCount() == 0);
 }
