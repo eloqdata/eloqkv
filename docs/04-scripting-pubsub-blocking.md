@@ -39,7 +39,10 @@ subscriptions. It holds raw connection-context pointers under its mutex, while
 each connection mirrors its memberships so unsubscribe replies and disconnect
 cleanup can remove them. Subscription acknowledgements and published messages
 are serialized as RESP2 arrays and written directly to the socket through the
-connection context.
+connection context. The registry mutex protects reply construction and
+flushing. Serialization transfers bytes into an owning socket buffer; the
+source reply and its arena are then released even when a write is queued or
+fails. This output lifetime is independent of brpc's incoming-command parser.
 
 Publishing has two paths:
 

@@ -93,6 +93,8 @@ public:
 
     brpc::RedisReply *GetOutput();
 
+    // Serialize and release the current reply before submitting its bytes to
+    // the socket. Callers must serialize access to output and its arena.
     bool FlushOutput();
 
     // Cache cursor content and return a hash key to fetch next.

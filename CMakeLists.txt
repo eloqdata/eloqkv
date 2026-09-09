@@ -534,6 +534,10 @@ if(${BUILD_WITH_TESTS})
     target_link_libraries(command_replay_test PRIVATE Catch2::Catch2WithMain ${ABSEIL} ${LOG_LIB} ${RESELOQ_LIBRARY} lua fpconv ${DYNAMIC_LIB})
 
     add_test(NAME command_replay_test COMMAND command_replay_test WORKING_DIRECTORY ${CMAKE_BINARY_DIR})
+
+    add_executable(pubsub_reply_lifetime_test ./tests/unit/eloq/pubsub_reply_lifetime_test.cpp ${RESELOQ_RESOURCES})
+    target_link_libraries(pubsub_reply_lifetime_test PRIVATE Catch2::Catch2WithMain ${ABSEIL} ${LOG_LIB} ${RESELOQ_LIBRARY} lua fpconv ${DYNAMIC_LIB})
+    add_test(NAME pubsub_reply_lifetime_test COMMAND pubsub_reply_lifetime_test WORKING_DIRECTORY ${CMAKE_BINARY_DIR})
     enable_testing()
 
     if (VECTOR_INDEX_ENABLED)
