@@ -58,7 +58,11 @@ public:
 
     void LuaReplyToRedisReply(brpc::RedisReply *);
 
-    void CleanStack();
+    // Release completed-call roots after reply conversion or error handling.
+    // Collect large transient allocations before an interpreter becomes idle.
+    // A finalizer error makes the VM unsuitable for reuse; the caller must
+    // destroy it instead of returning it to the interpreter pool.
+    bool Reset();
 
     static void sha1hex(char *digest, const char *script, size_t len);
 
@@ -69,6 +73,9 @@ public:
     }
 
 private:
+    friend class RedisServiceImpl;
+    friend struct LuaInterpreterTestPeer;
+
     int RedisGenericCommand(bool raise_error);
 
     static int RedisCallCommand(lua_State *lua);
@@ -84,6 +91,11 @@ private:
     static void *GetFromRegistry(lua_State *lua, const char *name);
 
     lua_State *lua_;
+    size_t gc_baseline_bytes_{0};
+    size_t input_bytes_since_reset_{0};
+    // Protected by RedisServiceImpl::script_mutex_ when checking out/returning
+    // this interpreter; an active interpreter remains exclusively owned.
+    uint64_t script_cache_generation_{0};
 
     /* Recursive RedisGenericCommand calls detection. */
     // TODO(zkl): making this atomic?

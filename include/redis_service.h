@@ -30,6 +30,7 @@
 #include <cstdint>
 #include <map>
 #include <memory>  //std::unique_ptr
+#include <optional>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -296,9 +297,11 @@ public:
         TransactionExecution *txm,
         RedisConnectionContext *ctx);
 
-    bool EvalLua(const RedisConnectionContext *ctx,
-                 const std::vector<butil::StringPiece> &args,
-                 brpc::RedisReply *output);
+    bool EvalLua(
+        const RedisConnectionContext *ctx,
+        const std::vector<butil::StringPiece> &args,
+        brpc::RedisReply *output,
+        std::optional<uint64_t> resolved_script_generation = std::nullopt);
 
     store::DataStoreHandler *GetStoreHandler() const
     {
@@ -572,7 +575,10 @@ public:
                                     TemplateTxRequest<Subtype, T> *tx_req,
                                     OutputHandler *error);
 
-    std::unique_ptr<LuaInterpreter> GetLuaInterpreter();
+    // An EVALSHA request keeps the generation in which its body was resolved,
+    // even if FLUSH runs before checkout or between transaction retries.
+    std::unique_ptr<LuaInterpreter> GetLuaInterpreter(
+        std::optional<uint64_t> resolved_script_generation = std::nullopt);
 
     void CleanAndReturnLuaInterpreter(std::unique_ptr<LuaInterpreter>);
 
@@ -611,6 +617,9 @@ private:
 
     std::shared_mutex script_mutex_;
     std::unordered_map<std::string, std::string> scripts_;
+    // The same mutex serializes FLUSH with pool checkout/return. Interpreters
+    // active during FLUSH finish normally, then are discarded on return.
+    uint64_t script_cache_generation_{0};
 
     NamespaceManager namespace_manager_;
 

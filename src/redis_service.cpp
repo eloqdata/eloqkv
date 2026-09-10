@@ -1386,22 +1386,37 @@ bool RedisServiceImpl::SendTxRequest(TransactionExecution *txm,
     return true;
 }
 
-std::unique_ptr<LuaInterpreter> RedisServiceImpl::GetLuaInterpreter()
+std::unique_ptr<LuaInterpreter> RedisServiceImpl::GetLuaInterpreter(
+    std::optional<uint64_t> resolved_script_generation)
 {
+    std::shared_lock<std::shared_mutex> lock(script_mutex_);
     std::unique_ptr<LuaInterpreter> interpreter;
-    bool success = lua_interpreters_.try_dequeue(interpreter);
+    const uint64_t generation =
+        resolved_script_generation.value_or(script_cache_generation_);
+    // A request resolved before FLUSH may still finish, but its old body must
+    // not enter a current-generation VM or repopulate the interpreter cache.
+    const bool success = generation == script_cache_generation_ &&
+                         lua_interpreters_.try_dequeue(interpreter);
     if (!success)
     {
-        return std::make_unique<LuaInterpreter>();
+        interpreter = std::make_unique<LuaInterpreter>();
     }
+    interpreter->script_cache_generation_ = generation;
     return interpreter;
 }
 
 void RedisServiceImpl::CleanAndReturnLuaInterpreter(
     std::unique_ptr<LuaInterpreter> lua_state)
 {
-    lua_state->CleanStack();
-    lua_interpreters_.enqueue(std::move(lua_state));
+    if (!lua_state->Reset())
+    {
+        return;
+    }
+    std::shared_lock<std::shared_mutex> lock(script_mutex_);
+    if (lua_state->script_cache_generation_ == script_cache_generation_)
+    {
+        lua_interpreters_.enqueue(std::move(lua_state));
+    }
 }
 
 void RedisServiceImpl::AddHandlers()
@@ -2458,8 +2473,19 @@ TxErrorCode RedisServiceImpl::MultiExec(
 
 bool RedisServiceImpl::ScriptFlush()
 {
-    std::unique_lock<std::shared_mutex> lock(script_mutex_);
-    scripts_.clear();
+    std::vector<std::unique_ptr<LuaInterpreter>> retired;
+    std::unique_ptr<LuaInterpreter> interpreter;
+    {
+        std::unique_lock<std::shared_mutex> lock(script_mutex_);
+        scripts_.clear();
+        ++script_cache_generation_;
+        while (lua_interpreters_.try_dequeue(interpreter))
+        {
+            retired.emplace_back(std::move(interpreter));
+        }
+    }
+    // lua_close runs user finalizers. Destroy retired VMs after releasing the
+    // cache mutex, including when a finalizer reports an error.
     return true;
 }
 
@@ -2540,15 +2566,18 @@ bool RedisServiceImpl::Evalsha(const RedisConnectionContext *ctx,
     }
     std::vector<butil::StringPiece> eval_args = args;
     std::string script_body = iter->second;
+    const uint64_t resolved_script_generation = script_cache_generation_;
     eval_args[1] = script_body;
     lock.unlock();
 
-    return EvalLua(ctx, eval_args, output);
+    return EvalLua(ctx, eval_args, output, resolved_script_generation);
 }
 
-bool RedisServiceImpl::EvalLua(const RedisConnectionContext *ctx,
-                               const std::vector<butil::StringPiece> &args,
-                               brpc::RedisReply *output)
+bool RedisServiceImpl::EvalLua(
+    const RedisConnectionContext *ctx,
+    const std::vector<butil::StringPiece> &args,
+    brpc::RedisReply *output,
+    std::optional<uint64_t> resolved_script_generation)
 {
     // the script content stores in args[1]
     // 1. parse script and keys and args
@@ -2617,7 +2646,8 @@ bool RedisServiceImpl::EvalLua(const RedisConnectionContext *ctx,
         TransactionExecution *txm = NewTxm(txn_isolation_level_, txn_protocol_);
 
         // get lua lua_state
-        std::unique_ptr<LuaInterpreter> interpreter = GetLuaInterpreter();
+        std::unique_ptr<LuaInterpreter> interpreter =
+            GetLuaInterpreter(resolved_script_generation);
 
         // Populate the argv and keys table accordingly to the arguments that
         // EVAL received.
@@ -2645,6 +2675,7 @@ bool RedisServiceImpl::EvalLua(const RedisConnectionContext *ctx,
             const std::string &error_msg = result;
             output->SetError("ERR Error compiling script (new function): " +
                              error_msg);
+            interpreter->SetScriptRedisHook(nullptr);
             AbortTx(txm);
             CleanAndReturnLuaInterpreter(std::move(interpreter));
             return false;
@@ -2659,6 +2690,9 @@ bool RedisServiceImpl::EvalLua(const RedisConnectionContext *ctx,
         }
         std::string error;
         bool ok = interpreter->CallFunction(sha, &error);
+        // The script is finished; CommitTx/AbortTx may recycle its txm before
+        // reply conversion or interpreter cleanup runs.
+        interpreter->SetScriptRedisHook(nullptr);
         if (!ok)
         {
             // abort tx

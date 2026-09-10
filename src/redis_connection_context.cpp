@@ -59,7 +59,12 @@ RedisConnectionContext::~RedisConnectionContext()
         AbortTx(txm);
     }
 
-    RedisStats::IncrConnClosed();
+    // Internal contexts (including pooled Lua VMs) have no client socket and
+    // never increment the received-connection counter.
+    if (socket != nullptr)
+    {
+        RedisStats::IncrConnClosed();
+    }
 }
 
 void RedisConnectionContext::SubscribeChannel(std::string_view chan)

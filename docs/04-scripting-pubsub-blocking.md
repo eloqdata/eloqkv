@@ -18,6 +18,15 @@ Script source is cached by SHA in `RedisServiceImpl`. The cache and compiled
 interpreter functions are process-local, not replicated cluster state, so an
 `EVALSHA` request must reach a node that has learned the script body.
 
+`SCRIPT FLUSH` advances the script-cache generation and removes idle
+interpreters together with the source cache. Checked-out interpreters remain
+exclusively owned by their active attempts, but an obsolete generation cannot
+return to the pool. `EVALSHA` binds the resolved body to the generation observed
+at lookup, including across checkout and transaction retries; a request that
+resolved before a flush can finish without repopulating the current cache.
+Pool checkout, return, and flush share the cache mutex, which is released before
+discarded interpreters are destroyed.
+
 Each `EVAL`/`EVALSHA` attempt creates one transaction using the transaction
 isolation/protocol configuration. `redis.call` and `redis.pcall` re-enter
 `RedisServiceImpl::GenericCommand` with that same txm and auto-commit disabled.
@@ -31,6 +40,17 @@ by `GenericCommand` are available from scripts. Nested scripting and
 transaction-control commands are outside this model. Direct commands such as
 `PUBLISH` do not become transactional merely because they are invoked by a
 script.
+
+The transaction hook is revoked before commit or abort can recycle the txm.
+After reply conversion or a failed attempt, interpreter reset removes the
+stack and argument roots and collects large completed-call allocations before
+pool return. User finalizers can run during collection, so reset runs within a
+protected Lua call with the Redis hook disabled. A finalizer error discards the
+interpreter instead of returning it to the pool; destruction also revokes the
+hook before closing the VM. Automatic collection is restricted to protected
+script execution and cleanup, and is stopped during native argument
+preparation, reply conversion, and idle time. This lifetime boundary does not
+impose a finalizer execution-time limit or a cap on live script caches.
 
 ## Pub/Sub
 
@@ -88,6 +108,8 @@ through the Lua bridge.
 
 - All transactional calls made by one script attempt share one txm; an OCC
   retry restarts the whole script.
+- Completed script attempts cannot retain a callable transaction hook in the
+  interpreter pool, and obsolete cache generations cannot re-enter that pool.
 - Pub/Sub lifetime is tied to connection cleanup, but delivery is neither
   durable nor part of a Redis data transaction.
 - Pub/Sub channel names are not scoped by database or namespace.
@@ -103,6 +125,7 @@ through the Lua bridge.
 | Lua runtime, sandbox, Redis bridge, and value conversion | `include/lua_interpreter.h`, `src/lua_interpreter.cpp`, `include/lua_output_handler.h` |
 | Interpreter pool, script cache, transaction/retry loop, and `GenericCommand` bridge | `include/redis_service.h`, `src/redis_service.cpp`, `src/redis_handler.cpp` |
 | Script behavior exercised through the Redis interface | `tests/unit/eloq/scripting.tcl` |
+| Completed-call memory, finalizer safety, and script-cache generation lifetimes | `tests/unit/eloq/lua_lifetime_test.cpp` |
 | Process-local subscriptions, direct socket output, and disconnect cleanup | `include/pub_sub_manager.h`, `src/pub_sub_manager.cpp`, `include/redis_connection_context.h`, `src/redis_connection_context.cpp` |
 | Cross-node publish request and callback integration | `src/redis_service.cpp`, `data_substrate/tx_service/include/tx_request.h`, `data_substrate/tx_service/src/tx_execution.cpp`, `data_substrate/tx_service/src/cc/local_cc_shards.cpp` |
 | Pub/Sub observable behavior | `tests/unit/eloq/pubsub.tcl` |
