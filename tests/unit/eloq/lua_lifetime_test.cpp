@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "lua_interpreter.h"
+#include "output_handler.h"
 #include "redis_service.h"
 
 extern "C"
@@ -18,6 +19,11 @@ namespace EloqKV
 {
 struct LuaInterpreterTestPeer
 {
+    static lua_State *State(LuaInterpreter &interpreter)
+    {
+        return interpreter.lua_;
+    }
+
     static size_t MemoryBytes(const LuaInterpreter &interpreter)
     {
         return G(interpreter.lua_)->totalbytes;
@@ -34,6 +40,58 @@ namespace
 {
 using EloqKV::LuaInterpreter;
 using EloqKV::LuaInterpreterTestPeer;
+
+class ScopedLuaAllocationFailure
+{
+public:
+    explicit ScopedLuaAllocationFailure(LuaInterpreter &interpreter)
+        : lua_(LuaInterpreterTestPeer::State(interpreter))
+    {
+        original_allocator_ = lua_getallocf(lua_, &original_context_);
+        lua_setallocf(lua_, Allocate, this);
+    }
+
+    ~ScopedLuaAllocationFailure()
+    {
+        lua_setallocf(lua_, original_allocator_, original_context_);
+    }
+
+    void FailNextGrowth(size_t minimum_size)
+    {
+        minimum_size_ = minimum_size;
+        armed_ = true;
+    }
+
+    size_t FailureCount() const
+    {
+        return failures_;
+    }
+
+private:
+    static void *Allocate(void *context,
+                          void *pointer,
+                          size_t old_size,
+                          size_t new_size)
+    {
+        auto *self = static_cast<ScopedLuaAllocationFailure *>(context);
+        if (self->armed_ && new_size > old_size &&
+            new_size >= self->minimum_size_)
+        {
+            self->armed_ = false;
+            ++self->failures_;
+            return nullptr;
+        }
+        return self->original_allocator_(
+            self->original_context_, pointer, old_size, new_size);
+    }
+
+    lua_State *lua_;
+    lua_Alloc original_allocator_;
+    void *original_context_{nullptr};
+    size_t minimum_size_{0};
+    size_t failures_{0};
+    bool armed_{false};
+};
 
 struct ScopedRedisStats
 {
@@ -465,4 +523,60 @@ TEST_CASE("Lua VM retirement preserves client connection counters",
     }
     REQUIRE(EloqKV::RedisStats::GetConnReceivedCount() == 1);
     REQUIRE(EloqKV::RedisStats::GetConnectingCount() == 0);
+}
+
+TEST_CASE(
+    "Lua pool reuse clears a Redis call interrupted by allocation failure",
+    "[lua][memory][redis-call-reuse]")
+{
+    EloqKV::RedisServiceImpl service("", "test");
+    auto interpreter = service.GetLuaInterpreter();
+    LuaInterpreter *original_interpreter = interpreter.get();
+    auto [compiled, sha] =
+        interpreter->CreateFunction("return redis.call('GET', 'k')");
+    REQUIRE(compiled);
+
+    const std::string large_reply(4096, 'r');
+    size_t failed_hook_calls = 0;
+    {
+        // The guard lives outside lua_pcall's frames, so the Lua OOM jump
+        // cannot skip restoration of the VM's allocator.
+        ScopedLuaAllocationFailure allocation_failure(*interpreter);
+        interpreter->SetScriptRedisHook(
+            [&](auto *, const auto &, EloqKV::OutputHandler *output)
+            {
+                ++failed_hook_calls;
+                allocation_failure.FailNextGrowth(large_reply.size());
+                output->OnString(large_reply);
+            });
+        std::string error;
+        const bool success = interpreter->CallFunction(sha, &error);
+        interpreter->SetScriptRedisHook(nullptr);
+        REQUIRE_FALSE(success);
+        REQUIRE(allocation_failure.FailureCount() == 1);
+        REQUIRE(failed_hook_calls == 1);
+        REQUIRE(error.find("not enough memory") != std::string::npos);
+    }
+
+    service.CleanAndReturnLuaInterpreter(std::move(interpreter));
+    interpreter = service.GetLuaInterpreter();
+    REQUIRE(interpreter.get() == original_interpreter);
+
+    size_t recovered_hook_calls = 0;
+    interpreter->SetScriptRedisHook(
+        [&](auto *, const auto &, EloqKV::OutputHandler *output)
+        {
+            ++recovered_hook_calls;
+            output->OnString("recovered");
+        });
+    std::string error;
+    REQUIRE(interpreter->CallFunction(sha, &error));
+    butil::Arena arena;
+    brpc::RedisReply reply(&arena);
+    interpreter->LuaReplyToRedisReply(&reply);
+    INFO((reply.is_error() ? reply.error_message() : "non-error reply"));
+    REQUIRE(recovered_hook_calls == 1);
+    REQUIRE(reply.is_string());
+    REQUIRE(reply.data().as_string() == "recovered");
+    service.CleanAndReturnLuaInterpreter(std::move(interpreter));
 }

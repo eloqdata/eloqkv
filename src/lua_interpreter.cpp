@@ -614,6 +614,8 @@ void LuaInterpreter::LuaReplyToRedisReply(brpc::RedisReply *output)
 bool LuaInterpreter::Reset()
 {
     script_call_ = {};
+    // Lua's non-local error exit can skip RedisGenericCommand's decrement.
+    redis_cmd_in_use_ = 0;
     lua_settop(lua_, 0);
     LuaResetContext context{gc_baseline_bytes_,
                             input_bytes_since_reset_ > kLuaGcGrowthThreshold};
