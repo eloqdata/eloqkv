@@ -17,10 +17,10 @@ source "$SCRIPT_DIR/common.sh"
 ls
 export WORKSPACE=$PWD
 
-USAGE="usage: $0 minio_endpoint minio_access_key minio_secret_key kv_store_type build|test|cluster"
-MINIO_ENDPOINT=${1:?$USAGE}
-MINIO_ACCESS_KEY=${2:?$USAGE}
-MINIO_SECRET_KEY=${3:?$USAGE}
+USAGE="usage: $0 s3_endpoint s3_access_key s3_secret_key kv_store_type build|test|cluster"
+S3_ENDPOINT=${1:?$USAGE}
+S3_ACCESS_KEY=${2:?$USAGE}
+S3_SECRET_KEY=${3:?$USAGE}
 KV_STORE_TYPE=${4:?$USAGE}
 CI_PHASE=${5:?$USAGE}
 
@@ -41,7 +41,7 @@ export ELOQ_TEST_PATH="${GITHUB_WORKSPACE}/eloq_test_src"
 # Use an EXIT trap rather than ERR: the test helpers call `exit 1` directly on
 # failure, which does not trigger ERR. EXIT catches both command failures (via
 # set -e) and explicit exits. Guard on rc so success is not treated as failure.
-trap 'rc=$?; failed_command=$BASH_COMMAND; set +x; if [ "$rc" -ne 0 ]; then dump_ci_failure_logs "$rc" "$failed_command"; fi' EXIT
+trap 'rc=$?; failed_command=$BASH_COMMAND; set +x; if [ "$rc" -ne 0 ]; then dump_ci_failure_logs "$rc" "$failed_command"; fi; stop_rustfs; exit "$rc"' EXIT
 
 # Compute txlog_log_state from kv_store_type (same as pr.ent.bash)
 if [ "$KV_STORE_TYPE" == "ELOQDSS_ROCKSDB_CLOUD_S3" ]; then
@@ -54,60 +54,23 @@ fi
 
 echo "CI_MODE=$CI_MODE BUILD_TYPE=$BUILD_TYPE KV_STORE_TYPE=$KV_STORE_TYPE txlog_log_state=$txlog_log_state"
 
-# --- Minio env exports ---
-MINIO_ENDPOINT_ESCAPE=$(sed 's/\//\\\//g' <<< $MINIO_ENDPOINT)
-export ROCKSDB_CLOUD_S3_ENDPOINT=${MINIO_ENDPOINT}
-export ROCKSDB_CLOUD_S3_ENDPOINT_ESCAPE=${MINIO_ENDPOINT_ESCAPE}
-export ROCKSDB_CLOUD_AWS_ACCESS_KEY_ID=${MINIO_ACCESS_KEY}
-export ROCKSDB_CLOUD_AWS_SECRET_ACCESS_KEY=${MINIO_SECRET_KEY}
+# --- S3 env exports ---
+S3_ENDPOINT_ESCAPE=$(sed 's/\//\\\//g' <<< $S3_ENDPOINT)
+export ROCKSDB_CLOUD_S3_ENDPOINT=${S3_ENDPOINT}
+export ROCKSDB_CLOUD_S3_ENDPOINT_ESCAPE=${S3_ENDPOINT_ESCAPE}
+export ROCKSDB_CLOUD_AWS_ACCESS_KEY_ID=${S3_ACCESS_KEY}
+export ROCKSDB_CLOUD_AWS_SECRET_ACCESS_KEY=${S3_SECRET_KEY}
 export ROCKSDB_CLOUD_BUCKET_PREFIX="eloqkv-"
 export ROCKSDB_CLOUD_BUCKET_NAME="test"
 export ELOQSTORE_BUCKET_NAME="eloqkv-eloqstore-test"
 export ROCKSDB_CLOUD_OBJECT_PATH="dss"
 export TXLOG_ROCKSDB_CLOUD_OBJECT_PATH="txlog"
 
-# --- Download & start Minio ---
-# The build phase does not touch object storage, so it skips all of this.
+# The build phase does not touch object storage. The existing test venv supplies
+# AWS CLI for bucket cleanup, so no MinIO server/client downloads are needed.
 if [ "$CI_PHASE" != "build" ]; then
-case "$(uname -m)" in
-  x86_64) MINIO_ARCH=amd64 ;;
-  aarch64|arm64) MINIO_ARCH=arm64 ;;
-  *) echo "Unsupported arch $(uname -m) for minio" >&2; exit 1 ;;
-esac
-echo "Downloading and starting Minio (linux-${MINIO_ARCH})..."
-wget -q https://dl.min.io/server/minio/release/linux-${MINIO_ARCH}/minio
-chmod +x minio
-mkdir -p /tmp/minio_data
-MINIO_ROOT_USER=$MINIO_ACCESS_KEY MINIO_ROOT_PASSWORD=$MINIO_SECRET_KEY \
-  ./minio server /tmp/minio_data --address :9900 --console-address :9901 > /tmp/minio.log 2>&1 &
-MINIO_PID=$!
-
-echo "Waiting for Minio to be ready..."
-for i in $(seq 1 30); do
-  if curl -sf http://localhost:9900/minio/health/live > /dev/null 2>&1; then
-    echo "Minio is ready."
-    break
-  fi
-  if ! kill -0 $MINIO_PID 2>/dev/null; then
-    echo "Minio process died. Log:"
-    cat /tmp/minio.log
-    exit 1
-  fi
-  sleep 1
-done
-
-if ! curl -sf http://localhost:9900/minio/health/live > /dev/null 2>&1; then
-  echo "Minio failed to start after 30s. Log:"
-  cat /tmp/minio.log
-  exit 1
-fi
-
-# --- Setup mc (MinIO Client) ---
-echo "Downloading and configuring mc..."
-wget -q https://dl.min.io/client/mc/release/linux-${MINIO_ARCH}/mc
-chmod +x mc
-mv mc /usr/local/bin/mc
-mc alias set local http://localhost:9900 $MINIO_ACCESS_KEY $MINIO_SECRET_KEY
+  "${ELOQ_TEST_VENV:-/opt/eloq/test-venv}/bin/aws" --version
+  start_rustfs "$S3_ENDPOINT" "$S3_ACCESS_KEY" "$S3_SECRET_KEY"
 fi
 
 # --- Workspace setup ---
@@ -164,15 +127,6 @@ if [ "$CI_PHASE" = "cluster" ]; then
   source "$VENV/bin/activate"
   run_eloqkv_cluster_tests $BUILD_TYPE $KV_STORE_TYPE
   deactivate
-fi
-
-# --- Cleanup Minio ---
-if [ "$CI_PHASE" != "build" ]; then
-  echo "Stopping Minio (pid $MINIO_PID)..."
-  kill $MINIO_PID 2>/dev/null || true
-  wait $MINIO_PID 2>/dev/null || true
-  rm -rf /tmp/minio_data
-  rm -f ./minio
 fi
 
 echo "CI $CI_PHASE completed successfully for $CI_MODE BUILD_TYPE=$BUILD_TYPE KV_STORE_TYPE=$KV_STORE_TYPE"
