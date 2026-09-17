@@ -96,8 +96,11 @@ jobs:
 
       - name: Install RustFS extraction dependency
         run: |
-          apt-get update
-          apt-get install -y --no-install-recommends unzip
+          # Older ubuntu-dev images predate the bundled RustFS extraction tool.
+          if ! command -v unzip >/dev/null 2>&1; then
+            apt-get update
+            apt-get install -y --no-install-recommends unzip
+          fi
 
       - name: Build (${{ matrix.build_type }}, ${{ matrix.kv_store_type }})
         env:
