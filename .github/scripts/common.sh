@@ -387,14 +387,14 @@ function run_cluster_scenarios() {
     # start_log_service, and the dss backend by stop_and_clean_dss_server below.
     rm -rf /tmp/redis_server_data* /tmp/rocksdb_data* /tmp/eloqkv_data
     # Object storage lives on the runner disk too, so drop the buckets as well or
-    # minio keeps every prior scenario's objects around until the disk fills.
+    # RustFS keeps every prior scenario's objects around until the disk fills.
     # Clearing them also lets EloqStore start clean: it writes a term file to its
     # bucket and rejects startup with ExpiredTerm if a previous scenario's term
     # is still there. Both buckets are dropped regardless of store type/mode
-    # (mc rb on a missing bucket is a no-op), which also covers the eloqstore
+    # (cleanup of a missing bucket is a no-op), which also covers the eloqstore
     # bucket in dss mode -- stop_and_clean_dss_server only drops the cloud-s3 one.
-    cleanup_minio_bucket "${ELOQSTORE_BUCKET_NAME}"
-    cleanup_minio_bucket "${ROCKSDB_CLOUD_BUCKET_NAME}"
+    cleanup_s3_bucket "${ELOQSTORE_BUCKET_NAME}"
+    cleanup_s3_bucket "${ROCKSDB_CLOUD_BUCKET_NAME}"
 
     if [[ ${wal} = true ]]; then
       start_log_service
@@ -656,15 +656,80 @@ function flush_redis_data() {
   done
 }
 
-function cleanup_minio_bucket() {
-  bucket_name=$1
+start_rustfs() {
+  local endpoint="$1"
+  local access_key="$2"
+  local secret_key="$3"
+  # RustFS is pinned and installed by the shared ubuntu-dev image.
+  if ! command -v rustfs >/dev/null 2>&1; then
+    echo "RustFS is missing; use an ubuntu-dev image with RustFS preinstalled." >&2
+    return 1
+  fi
+
+  RUSTFS_RUN_DIR=$(mktemp -d /tmp/eloqkv-rustfs.XXXXXX)
+  export RUSTFS_RUN_DIR
+  mkdir -p "${RUSTFS_RUN_DIR}/data"
+  RUSTFS_ACCESS_KEY="${access_key}" RUSTFS_SECRET_KEY="${secret_key}" \
+    RUSTFS_ADDRESS="${endpoint#http://}" RUSTFS_CONSOLE_ENABLE=false \
+    rustfs server "${RUSTFS_RUN_DIR}/data" \
+    >/tmp/rustfs.log 2>&1 &
+  RUSTFS_PID=$!
+  export RUSTFS_PID
+
+  for _ in $(seq 1 60); do
+    if ! kill -0 "${RUSTFS_PID}" 2>/dev/null; then
+      cat /tmp/rustfs.log
+      return 1
+    fi
+    if curl -sf --noproxy '*' --max-time 2 "${endpoint}/health/ready" >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 1
+  done
+
+  echo "RustFS did not become ready at ${endpoint}" >&2
+  cat /tmp/rustfs.log
+  return 1
+}
+
+stop_rustfs() {
+  if [ -n "${RUSTFS_PID:-}" ]; then
+    kill "${RUSTFS_PID}" 2>/dev/null || true
+    wait "${RUSTFS_PID}" 2>/dev/null || true
+    unset RUSTFS_PID
+  fi
+  if [ -n "${RUSTFS_RUN_DIR:-}" ]; then
+    rm -rf "${RUSTFS_RUN_DIR}"
+    unset RUSTFS_RUN_DIR
+  fi
+}
+
+function cleanup_s3_bucket() {
+  local bucket_name=$1
+  local bucket_full_name output
   if [[ "$bucket_name" == eloqkv-* ]]; then
     bucket_full_name="${bucket_name}"
   else
     bucket_full_name="eloqkv-${bucket_name}"
   fi
   echo "Clean up bucket ${bucket_full_name}"
-  mc rb --force local/${bucket_full_name} 2>/dev/null || true
+  # The CI image's test venv includes AWS CLI. Use the configured endpoint and
+  # paginate deletion through S3 rather than depending on MinIO's mc download.
+  # A missing bucket is expected between scenarios; other failures must surface
+  # or stale EloqStore term files can make the next scenario fail with ExpiredTerm.
+  if output=$(AWS_ACCESS_KEY_ID="${ROCKSDB_CLOUD_AWS_ACCESS_KEY_ID}" \
+      AWS_SECRET_ACCESS_KEY="${ROCKSDB_CLOUD_AWS_SECRET_ACCESS_KEY}" \
+      AWS_DEFAULT_REGION=us-east-1 AWS_EC2_METADATA_DISABLED=true \
+      "${ELOQ_TEST_VENV:-/opt/eloq/test-venv}/bin/aws" \
+      --endpoint-url "${ROCKSDB_CLOUD_S3_ENDPOINT}" \
+      s3 rb "s3://${bucket_full_name}" --force 2>&1); then
+    echo "Removed bucket ${bucket_full_name}"
+  elif [[ "$output" == *NoSuchBucket* ]]; then
+    echo "Bucket ${bucket_full_name} does not exist"
+  else
+    printf '%s\n' "$output" >&2
+    return 1
+  fi
 }
 
 function dump_file_tail() {
@@ -933,8 +998,8 @@ function cleanup_ci_heavy_storage() {
          /tmp/rocksdb_data* \
          /tmp/eloqkv_data \
          /tmp/eloq_dss_data \
-         /tmp/log_data \
-         /tmp/minio_data
+         /tmp/log_data
+  stop_rustfs
   df -h /tmp || true
   df -i /tmp || true
 }
@@ -954,7 +1019,7 @@ function dump_ci_failure_logs() {
 
   echo ""
   echo "===== Running eloq-related processes ====="
-  ps -ef | grep -E 'eloqkv|dss_server|launch_sv|minio|redis-server' | grep -v grep || true
+  ps -ef | grep -E 'eloqkv|dss_server|launch_sv|rustfs|redis-server' | grep -v grep || true
 
   dump_live_process_backtraces
   dump_core_backtraces
@@ -975,7 +1040,7 @@ function dump_ci_failure_logs() {
   echo ""
   echo "===== /tmp CI logs ====="
   for file in \
-    /tmp/minio.log \
+    /tmp/rustfs.log \
     /tmp/eloq_dss_data/eloq_dss_server.log \
     /tmp/redis_single_node.log \
     /tmp/redis_cluster_with_eloqstore.log \
@@ -995,9 +1060,9 @@ function dump_ci_failure_logs() {
   cleanup_ci_heavy_storage
 }
 
-function prepare_eloqstore_minio_buckets() {
-  cleanup_minio_bucket ${ELOQSTORE_BUCKET_NAME}
-  cleanup_minio_bucket ${ROCKSDB_CLOUD_BUCKET_NAME}
+function prepare_eloqstore_s3_buckets() {
+  cleanup_s3_bucket ${ELOQSTORE_BUCKET_NAME}
+  cleanup_s3_bucket ${ROCKSDB_CLOUD_BUCKET_NAME}
 }
 
 function run_build_ent() {
@@ -1259,13 +1324,13 @@ function run_eloqkv_tests() {
       --node_memory_limit_mb=${NODE_MEMORY_LIMIT_MB:-2048} \
       --rocksdb_cloud_purger_periodicity_secs=30
 
-    # clean up bucket in minio
-    cleanup_minio_bucket $ROCKSDB_CLOUD_BUCKET_NAME
+    # clean up S3 bucket
+    cleanup_s3_bucket $ROCKSDB_CLOUD_BUCKET_NAME
   elif [[ $kv_store_type = "ELOQDSS_ELOQSTORE" ]]; then
     echo "single eloqkv node with dss_eloqstore." >/tmp/redis_single_node.log
 
-    cleanup_minio_bucket ${ELOQSTORE_BUCKET_NAME}
-    cleanup_minio_bucket ${ROCKSDB_CLOUD_BUCKET_NAME}
+    cleanup_s3_bucket ${ELOQSTORE_BUCKET_NAME}
+    cleanup_s3_bucket ${ROCKSDB_CLOUD_BUCKET_NAME}
     local eloq_data_path="/tmp/eloqkv_data"
     local eloq_store_data_path="/tmp/eloqkv_data/eloq_store"
     local store_flags
@@ -1327,8 +1392,8 @@ function run_eloqkv_tests() {
     run_single_node_scenarios "$kv_store_type" "$build_type" ${store_flags}
 
     rm -rf ${eloq_data_path}
-    cleanup_minio_bucket ${ELOQSTORE_BUCKET_NAME}
-    cleanup_minio_bucket ${ROCKSDB_CLOUD_BUCKET_NAME}
+    cleanup_s3_bucket ${ELOQSTORE_BUCKET_NAME}
+    cleanup_s3_bucket ${ROCKSDB_CLOUD_BUCKET_NAME}
   fi
 
 }
@@ -1402,8 +1467,8 @@ function stop_and_clean_dss_server() {
   rm -rf /tmp/eloq_dss_data
 
   if [[ $kv_store_type = "ELOQDSS_ROCKSDB_CLOUD_S3" ]]; then
-    # clean up bucket in minio
-    cleanup_minio_bucket $ROCKSDB_CLOUD_BUCKET_NAME
+    # clean up S3 bucket
+    cleanup_s3_bucket $ROCKSDB_CLOUD_BUCKET_NAME
   fi
 
 }
@@ -1442,7 +1507,7 @@ function start_dss_server() {
         local eloq_store_local_space_limit=${ELOQSTORE_LOCAL_SPACE_LIMIT:-4GB}
         local eloq_store_pages_per_file_shift=${ELOQSTORE_PAGES_PER_FILE_SHIFT:-8}
         local eloq_store_manifest_limit=${ELOQSTORE_MANIFEST_LIMIT:-1048576}
-        cleanup_minio_bucket ${ELOQSTORE_BUCKET_NAME}
+        cleanup_s3_bucket ${ELOQSTORE_BUCKET_NAME}
         dss_server_configs="--eloq_store_worker_num=${eloq_store_worker_num} \
                             --eloq_store_data_path_list=${eloq_store_data_path} \
                             --eloq_store_open_files_limit=${eloq_store_open_files_limit} \
@@ -1500,8 +1565,8 @@ function run_eloqkv_cluster_tests() {
     --node_memory_limit_mb=${NODE_MEMORY_LIMIT_MB:-2048} \
     "${store_extra[@]}"
 
-  cleanup_minio_bucket ${ROCKSDB_CLOUD_BUCKET_NAME} || true
-  cleanup_minio_bucket ${ELOQSTORE_BUCKET_NAME} || true
+  cleanup_s3_bucket ${ROCKSDB_CLOUD_BUCKET_NAME} || true
+  cleanup_s3_bucket ${ELOQSTORE_BUCKET_NAME} || true
   rm -rf /tmp/redis_server_data* /tmp/rocksdb_data* /tmp/eloqkv_data /tmp/log_data /tmp/eloq_dss_data
 }
 
@@ -1593,11 +1658,11 @@ function run_eloq_test() {
     # python3 redis_test/ttl_test/ttl_test_with_wal.py --dbtype redis --storage eloqdss-rocksdb-cloud-s3 --install_path ${eloqkv_install_path}
 
     # clean up test bucket
-    cleanup_minio_bucket $ROCKSDB_CLOUD_BUCKET_NAME
+    cleanup_s3_bucket $ROCKSDB_CLOUD_BUCKET_NAME
 
   elif [[ $kv_store_type = "ELOQDSS_ELOQSTORE" ]]; then
     echo "Run eloq_test for ELOQDSS_ELOQSTORE"
-    prepare_eloqstore_minio_buckets
+    prepare_eloqstore_s3_buckets
     local rocksdb_cloud_s3_endpoint_url=${ROCKSDB_CLOUD_S3_ENDPOINT}
     local rocksdb_cloud_s3_endpoint_url_escape=${ROCKSDB_CLOUD_S3_ENDPOINT_ESCAPE}
     local rocksdb_cloud_aws_access_key_id=${ROCKSDB_CLOUD_AWS_ACCESS_KEY_ID}
@@ -1662,30 +1727,30 @@ function run_eloq_test() {
     # run single/multi test
     rm -rf runtime/*
     # TODO(zc) re-enable
-    # prepare_eloqstore_minio_buckets
+    # prepare_eloqstore_s3_buckets
     # python3 redis_test/multi_test/smoke_test.py --dbtype redis --storage eloqdss-eloqstore-cloud --install_path ${eloqkv_install_path} --bootstrap true
 
     # TODO(zc) re-enable
-    # prepare_eloqstore_minio_buckets
+    # prepare_eloqstore_s3_buckets
     # python3 redis_test/multi_test/cluster_rolling_upgrade.py --dbtype redis --storage eloqdss-eloqstore-cloud --install_path ${eloqkv_install_path} --bootstrap true
     # TODO(zc) re-enable
-    # prepare_eloqstore_minio_buckets
+    # prepare_eloqstore_s3_buckets
     # python3 redis_test/multi_test/cluster_scale_test.py --dbtype redis --storage eloqdss-eloqstore-cloud --install_path ${eloqkv_install_path} --bootstrap true
 
     # TODO(zc) re-enable
     # run log service scale test
     # rm -rf runtime/*
-    # prepare_eloqstore_minio_buckets
+    # prepare_eloqstore_s3_buckets
     # python3 redis_test/log_service_test/log_service_scale_test.py --dbtype redis --storage eloqdss-eloqstore-cloud --install_path ${eloqkv_install_path}
 
     # run standby test
     rm -rf runtime/*
-    prepare_eloqstore_minio_buckets
+    prepare_eloqstore_s3_buckets
     # TODO: Re-enable after eloqdss-eloqstore-local standby startup no longer
     # times out waiting for standby nodes to become transaction-ready.
     # python3 run_tests.py --dbtype redis --group standby --storage eloqdss-eloqstore-local --install_path ${eloqkv_install_path} --bootstrap true
     rm -rf runtime/*
-    # prepare_eloqstore_minio_buckets
+    # prepare_eloqstore_s3_buckets
     # python3 run_tests.py --dbtype redis --group standby --storage eloqdss-eloqstore-cloud --install_path ${eloqkv_install_path} --bootstrap true
     # rm -rf runtime/*
     # rm -rf runtime/*
