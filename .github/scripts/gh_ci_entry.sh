@@ -104,7 +104,7 @@ fi
 
 # --- OpenSSH + Python 3.8 test venv come pre-baked in the ubuntu-dev image ---
 # (python3.8 + log_replay_test/requirements.txt live in $LOG_REPLAY_VENV; see
-# eloq-docker/ubuntu-dev/Dockerfile). Nothing is apt/pip-installed at CI time.
+# eloq-docker/ubuntu-dev/Dockerfile). No Python packages are installed here.
 service ssh start
 sed -i "s/#\s*StrictHostKeyChecking ask/    StrictHostKeyChecking no/g" /etc/ssh/ssh_config
 

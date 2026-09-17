@@ -94,6 +94,11 @@ jobs:
           arch: ${{ matrix.arch }}
           cache-scope: ubuntu-dev
 
+      - name: Install RustFS extraction dependency
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends unzip
+
       - name: Build (${{ matrix.build_type }}, ${{ matrix.kv_store_type }})
         env:
           S3_ENDPOINT: http://127.0.0.1:9900
