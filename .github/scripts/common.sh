@@ -660,36 +660,18 @@ start_rustfs() {
   local endpoint="$1"
   local access_key="$2"
   local secret_key="$3"
-  # Apache-2.0 release assets: https://github.com/rustfs/rustfs/releases/tag/1.0.0
-  local version=1.0.0
-  local arch checksum
+  # RustFS is pinned and installed by the shared ubuntu-dev image.
+  if ! command -v rustfs >/dev/null 2>&1; then
+    echo "RustFS is missing; use an ubuntu-dev image with RustFS preinstalled." >&2
+    return 1
+  fi
 
-  case "$(uname -m)" in
-    x86_64)
-      arch=x86_64
-      checksum=2d5059501745682664c3d345b22274b66079c952fbec7e1ce66980ef4515cd42
-      ;;
-    aarch64|arm64)
-      arch=aarch64
-      checksum=780e832d68e0148dc042f05647796056fe014e7cf1a8f195e3e83b22a3bb988f
-      ;;
-    *) echo "Unsupported arch $(uname -m) for RustFS" >&2; return 1 ;;
-  esac
-
-  local archive="rustfs-linux-${arch}-gnu-v${version}.zip"
   RUSTFS_RUN_DIR=$(mktemp -d /tmp/eloqkv-rustfs.XXXXXX)
   export RUSTFS_RUN_DIR
-  curl --fail --show-error --location --retry 3 --connect-timeout 15 --max-time 300 \
-    "https://github.com/rustfs/rustfs/releases/download/${version}/${archive}" \
-    --output "${RUSTFS_RUN_DIR}/${archive}"
-  echo "${checksum}  ${RUSTFS_RUN_DIR}/${archive}" | sha256sum --check --strict
-  unzip -q "${RUSTFS_RUN_DIR}/${archive}" rustfs -d "${RUSTFS_RUN_DIR}"
-  rm -f "${RUSTFS_RUN_DIR}/${archive}"
-  chmod +x "${RUSTFS_RUN_DIR}/rustfs"
   mkdir -p "${RUSTFS_RUN_DIR}/data"
   RUSTFS_ACCESS_KEY="${access_key}" RUSTFS_SECRET_KEY="${secret_key}" \
     RUSTFS_ADDRESS="${endpoint#http://}" RUSTFS_CONSOLE_ENABLE=false \
-    "${RUSTFS_RUN_DIR}/rustfs" server "${RUSTFS_RUN_DIR}/data" \
+    rustfs server "${RUSTFS_RUN_DIR}/data" \
     >/tmp/rustfs.log 2>&1 &
   RUSTFS_PID=$!
   export RUSTFS_PID
