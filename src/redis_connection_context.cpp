@@ -102,6 +102,11 @@ bool RedisConnectionContext::FlushOutput()
     output.SerializeTo(&appender);
     butil::IOBuf sendbuf;
     appender.move_to(sendbuf);
+    // Serialization copies the reply into IOBuf-owned storage. Drop the
+    // source pointers before freeing their arena, even if Socket::Write fails
+    // or queues the bytes for an asynchronous write.
+    output.Reset();
+    arena.clear();
     CHECK(!sendbuf.empty());
     brpc::Socket::WriteOptions wopt;
     wopt.ignore_eovercrowded = true;
